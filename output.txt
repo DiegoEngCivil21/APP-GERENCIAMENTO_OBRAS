@@ -1,0 +1,45 @@
+151:        <button 
+156:        </button>
+208:              <button onClick={() => setShowNewAtividade(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
+210:              </button>
+263:                <button type="button" onClick={() => setShowNewAtividade(false)} className="px-6 py-3 text-xs font-black text-slate-400 uppercase tracking-widest hover:text-slate-600 transition-colors">Cancelar</button>
+264:                <button type="submit" className="px-6 py-3 bg-orange-500 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-orange-600 transition-colors">Salvar Atividade</button>
+357:        <button 
+362:        </button>
+394:                  <button className="p-2 text-slate-400 hover:text-indigo-600 transition-colors">
+396:                  </button>
+413:              <button onClick={() => setShowNewMedicao(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
+415:              </button>
+509:                <button
+514:                </button>
+515:                <button
+520:                </button>
+962:          <button onClick={() => setToast(null)} className="ml-4 hover:opacity-70"><X size={16} /></button>
+1001:          <button
+1016:          </button>
+1189:                <button 
+1200:                </button>
+1202:                <button 
+1216:                </button>
+1218:                <button 
+1232:                </button>
+1325:                    <button onClick={() => setShowBdiModal(false)} className="text-slate-400 hover:text-slate-600">
+1327:                    </button>
+1402:                    <button onClick={() => setShowBancosModal(false)} className="text-slate-400 hover:text-slate-600">
+1404:                    </button>
+1457:                    <button onClick={() => setShowImportModal(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
+1459:                    </button>
+1503:                    <button onClick={() => setShowEncargosModal(false)} className="text-slate-400 hover:text-slate-600">
+1505:                    </button>
+1619:                  <button className="text-[11px] font-bold text-indigo-600 uppercase hover:underline">Ver Detalhado</button>
+1817:                          <button 
+1825:                          </button>
+1957:                            <button 
+1963:                            </button>
+1964:                            <button 
+1970:                            </button>
+2034:                    <button onClick={() => setShowDiarioModal(false)} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
+2653:              <button 
+2659:              </button>
+2662:              <button 
+2668:              </button>

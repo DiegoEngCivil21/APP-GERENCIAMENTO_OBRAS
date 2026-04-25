@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  html {
+    font-size: 14px; /* Aumenta a escala geral do sistema (padrão é 16px) */
+  }
+  
+  body {
+    @apply font-sans bg-slate-50 text-slate-900 antialiased;
+  }
+}
+
+/* Custom scrollbar scoped to specific containers */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  @apply bg-slate-50;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  @apply bg-slate-400 rounded-full hover:bg-slate-500 transition-colors;
+}
+
+.gantt-scroll-container::-webkit-scrollbar:horizontal {
+  height: 10px;
+}
+
+/* Hide number input spinners */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.hide-vertical-scrollbar::-webkit-scrollbar:vertical {
+  display: none;
+}
+.hide-vertical-scrollbar {
+  -ms-overflow-style: -ms-autohiding-scrollbar;
+}
+
+body.cronograma-fullscreen #top-toolbar-wrapper {
+  display: none !important;
+}
