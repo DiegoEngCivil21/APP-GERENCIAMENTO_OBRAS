@@ -212,10 +212,11 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
   }, []);
 
   const resize = useCallback((e: MouseEvent) => {
-    if (isResizing) {
-      const newWidth = e.clientX;
+    if (isResizing && containerRef.current) {
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const newWidth = e.clientX - containerRect.left;
       // Define minimum and maximum limits for the left panel
-      if (newWidth > 200 && newWidth < window.innerWidth - 200) {
+      if (newWidth > 200 && newWidth < containerRect.width - 200) {
         setLeftPaneWidth(newWidth);
       }
     }

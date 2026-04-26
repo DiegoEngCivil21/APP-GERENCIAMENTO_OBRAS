@@ -897,8 +897,8 @@ async function startServer() {
       const decoded = jwt.verify(token, JWT_SECRET) as any;
       req.user = decoded;
       
-      // Ensure tenant_id is present
-      if (req.user.tenant_id === undefined || req.user.tenant_id === null) {
+      // Ensure tenant_id is present IF not admin_master
+      if ((req.user.tenant_id === undefined || req.user.tenant_id === null) && req.user.role !== 'admin_master') {
         // Try to find the user in DB to see if they have a tenant_id now
         const user = db.prepare("SELECT tenant_id FROM v2_users WHERE id = ?").get(req.user.id) as any;
         if (user && user.tenant_id) {
@@ -924,12 +924,24 @@ async function startServer() {
       const isMatch = await bcrypt.compare(password, user.password);
       if (!isMatch) return res.status(400).json({ message: "Credenciais inválidas." });
 
-      // Ensure user has a tenant_id
-      if (!user.tenant_id) {
+      // Ensure user has a tenant_id IF not admin_master
+      if (!user.tenant_id && user.role !== 'admin_master') {
         const firstTenant = db.prepare("SELECT id FROM v2_tenants LIMIT 1").get() as { id: number };
         if (firstTenant) {
           db.prepare("UPDATE v2_users SET tenant_id = ? WHERE id = ?").run(firstTenant.id, user.id);
           user.tenant_id = firstTenant.id;
+        } else {
+          return res.status(403).json({ message: "Acesso bloqueado. Nenhuma empresa cadastrada no sistema." });
+        }
+      }
+
+      // Check tenant situacao for non-master admins
+      if (user.tenant_id && user.role !== 'admin_master') {
+        const tenant = db.prepare("SELECT situacao FROM v2_tenants WHERE id = ?").get(user.tenant_id) as any;
+        if (tenant && (tenant.situacao === 'INADIMPLENTE' || tenant.situacao === 'CANCELADO')) {
+          return res.status(403).json({ 
+            message: `Acesso bloqueado. A situação da sua empresa é: ${tenant.situacao}. Por favor, entre em contato com o suporte.` 
+          });
         }
       }
 
@@ -961,7 +973,36 @@ async function startServer() {
   });
 
   app.get("/api/auth/me", authenticate, (req: any, res) => {
+    // Check if tenant is still active for non-master admins
+    if (req.user.tenant_id && req.user.role !== 'admin_master') {
+      const tenant = db.prepare("SELECT situacao FROM v2_tenants WHERE id = ?").get(req.user.tenant_id) as any;
+      if (tenant && (tenant.situacao === 'INADIMPLENTE' || tenant.situacao === 'CANCELADO')) {
+        res.clearCookie("token");
+        return res.status(401).json({ message: `Sessão encerrada: Empresa ${tenant.situacao.toLowerCase()}.` });
+      }
+    }
     res.json({ user: req.user });
+  });
+
+  app.put("/api/auth/password", authenticate, async (req: any, res) => {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: "Senha atual e nova senha são obrigatórias." });
+    }
+    try {
+      const user = db.prepare("SELECT password FROM v2_users WHERE id = ?").get(req.user.id) as any;
+      if (!user) return res.status(404).json({ message: "Usuário não encontrado." });
+      
+      const isMatch = await bcrypt.compare(currentPassword, user.password);
+      if (!isMatch) return res.status(400).json({ message: "Senha atual incorreta." });
+
+      const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+      db.prepare("UPDATE v2_users SET password = ? WHERE id = ?").run(hashedNewPassword, req.user.id);
+      
+      res.json({ message: "Senha atualizada com sucesso." });
+    } catch (error: any) {
+      res.status(500).json({ message: "Erro ao atualizar senha.", error: error.message });
+    }
   });
 
   // Tenant & User Management Routes
@@ -993,7 +1034,11 @@ async function startServer() {
 
   app.get("/api/settings/users", authenticate, (req: any, res) => {
     try {
-      const users = db.prepare("SELECT id, nome, email, role, created_at FROM v2_users WHERE tenant_id = ?").all(req.user.tenant_id);
+      const tenantId = req.user.tenant_id;
+      const tCondition = tenantId === null ? "tenant_id IS NULL" : "tenant_id = ?";
+      const tParam = tenantId === null ? [] : [tenantId];
+      
+      const users = db.prepare(`SELECT id, nome, email, role, created_at FROM v2_users WHERE ${tCondition}`).all(...tParam);
       res.json(users);
     } catch (error: any) {
       res.status(500).json({ message: "Erro ao buscar usuários.", error: error.message });
@@ -1006,12 +1051,14 @@ async function startServer() {
     }
     const { nome, email, password, role } = req.body;
     try {
-      // Check limits
-      const tenant = db.prepare("SELECT limite_usuarios FROM v2_tenants WHERE id = ?").get(req.user.tenant_id) as any;
-      const userCount = db.prepare("SELECT COUNT(*) as count FROM v2_users WHERE tenant_id = ?").get(req.user.tenant_id) as { count: number };
-      
-      if (userCount.count >= tenant.limite_usuarios) {
-        return res.status(400).json({ message: `Limite de usuários atingido (${tenant.limite_usuarios}). Faça upgrade do seu plano.` });
+      // Check limits if not admin_master
+      if (req.user.role !== 'admin_master' && req.user.tenant_id) {
+        const tenant = db.prepare("SELECT limite_usuarios FROM v2_tenants WHERE id = ?").get(req.user.tenant_id) as any;
+        const userCount = db.prepare("SELECT COUNT(*) as count FROM v2_users WHERE tenant_id = ?").get(req.user.tenant_id) as { count: number };
+        
+        if (tenant && userCount.count >= tenant.limite_usuarios) {
+          return res.status(400).json({ message: `Limite de usuários atingido (${tenant.limite_usuarios}). Faça upgrade do seu plano.` });
+        }
       }
 
       const hashedPassword = await bcrypt.hash(password, 10);
@@ -1033,10 +1080,121 @@ async function startServer() {
       return res.status(400).json({ message: "Você não pode excluir seu próprio usuário." });
     }
     try {
-      db.prepare("DELETE FROM v2_users WHERE id = ? AND tenant_id = ?").run(req.params.id, req.user.tenant_id);
+      const tenantId = req.user.tenant_id;
+      const tCondition = tenantId === null ? "tenant_id IS NULL" : "tenant_id = ?";
+      const tParam = tenantId === null ? [req.params.id] : [req.params.id, tenantId];
+
+      db.prepare(`DELETE FROM v2_users WHERE id = ? AND ${tCondition}`).run(...tParam);
       res.json({ message: "Usuário excluído com sucesso." });
     } catch (error: any) {
       res.status(500).json({ message: "Erro ao excluir usuário.", error: error.message });
+    }
+  });
+
+  // --- admin_master Tenants Management ---
+  app.get("/api/tenants", authenticate, (req: any, res) => {
+    if (req.user.role !== 'admin_master') {
+      return res.status(403).json({ message: "Acesso negado." });
+    }
+    try {
+      const tenants = db.prepare("SELECT * FROM v2_tenants ORDER BY created_at DESC").all();
+      res.json(tenants);
+    } catch (error: any) {
+      res.status(500).json({ message: "Erro ao buscar empresas.", error: error.message });
+    }
+  });
+
+  app.post("/api/tenants", authenticate, async (req: any, res) => {
+    if (req.user.role !== 'admin_master') {
+      return res.status(403).json({ message: "Acesso negado." });
+    }
+    const { nome, documento, plano, situacao, adm_nome, adm_email, adm_telefone, adm_senha } = req.body;
+    if (!nome) return res.status(400).json({ message: "Nome é obrigatório." });
+    if (adm_email && !adm_senha) return res.status(400).json({ message: "Senha é obrigatória ao criar o usuário administrador." });
+
+    try {
+      db.exec("BEGIN TRANSACTION");
+      const stmt = db.prepare("INSERT INTO v2_tenants (nome, documento, plano, situacao, adm_nome, adm_email, adm_telefone) VALUES (?, ?, ?, ?, ?, ?, ?)");
+      const result = stmt.run(nome, documento || null, plano || 'Básico', situacao || 'ATIVO', adm_nome || null, adm_email || null, adm_telefone || null);
+      const tenantId = result.lastInsertRowid;
+
+      if (adm_email && adm_senha) {
+        const existingUser = db.prepare("SELECT id FROM v2_users WHERE email = ?").get(adm_email);
+        if (existingUser) {
+          db.exec("ROLLBACK");
+          return res.status(400).json({ message: "Já existe um usuário com este email." });
+        }
+        const hashedPassword = await bcrypt.hash(adm_senha, 10);
+        db.prepare("INSERT INTO v2_users (tenant_id, nome, email, password, role) VALUES (?, ?, ?, ?, ?)").run(
+          tenantId,
+          adm_nome || adm_email.split('@')[0],
+          adm_email,
+          hashedPassword,
+          'admin_pj'
+        );
+      }
+      
+      db.exec("COMMIT");
+      const newTenant = db.prepare("SELECT * FROM v2_tenants WHERE id = ?").get(tenantId);
+      res.status(201).json(newTenant);
+    } catch (error: any) {
+      db.exec("ROLLBACK");
+      res.status(500).json({ message: "Erro ao criar empresa.", error: error.message });
+    }
+  });
+
+  app.put("/api/tenants/:id", authenticate, async (req: any, res) => {
+    if (req.user.role !== 'admin_master') {
+      return res.status(403).json({ message: "Acesso negado." });
+    }
+    const { nome, documento, logo_url, plano, situacao, adm_nome, adm_email, adm_telefone, adm_senha } = req.body;
+    const { id } = req.params;
+    
+    try {
+      db.exec("BEGIN TRANSACTION");
+      const stmt = db.prepare("UPDATE v2_tenants SET nome = ?, documento = ?, logo_url = ?, plano = ?, situacao = ?, adm_nome = ?, adm_email = ?, adm_telefone = ? WHERE id = ?");
+      stmt.run(nome, documento || null, logo_url || null, plano || 'Básico', situacao || 'ATIVO', adm_nome || null, adm_email || null, adm_telefone || null, id);
+      
+      if (adm_email) {
+         // Create or update admin_pj user
+         const existingUser = db.prepare("SELECT id FROM v2_users WHERE tenant_id = ? AND role = 'admin_pj'").get(id) as any;
+         if (existingUser) {
+           let updateQuery = "UPDATE v2_users SET nome = ?, email = ?";
+           const params: any[] = [adm_nome || adm_email.split('@')[0], adm_email];
+           
+           if (adm_senha) {
+             const hashedPassword = await bcrypt.hash(adm_senha, 10);
+             updateQuery += ", password = ?";
+             params.push(hashedPassword);
+           }
+           
+           updateQuery += " WHERE id = ?";
+           params.push(existingUser.id);
+           
+           db.prepare(updateQuery).run(...params);
+         } else if (adm_senha) {
+            // Check if email already in use by another tenant's user
+            const emailInUse = db.prepare("SELECT id FROM v2_users WHERE email = ?").get(adm_email);
+            if (!emailInUse) {
+              const hashedPassword = await bcrypt.hash(adm_senha, 10);
+              db.prepare("INSERT INTO v2_users (tenant_id, nome, email, password, role) VALUES (?, ?, ?, ?, ?)").run(
+                id,
+                adm_nome || adm_email.split('@')[0],
+                adm_email,
+                hashedPassword,
+                'admin_pj'
+              );
+            }
+         }
+      }
+
+      db.exec("COMMIT");
+      const updatedTenant = db.prepare("SELECT * FROM v2_tenants WHERE id = ?").get(id);
+      if (!updatedTenant) return res.status(404).json({ message: "Empresa não encontrada." });
+      res.json(updatedTenant);
+    } catch (error: any) {
+      if (db.inTransaction) db.exec("ROLLBACK");
+      res.status(500).json({ message: "Erro ao atualizar empresa.", error: error.message });
     }
   });
 
@@ -1164,7 +1322,7 @@ async function startServer() {
       );
     `);
 
-    db.prepare("UPDATE v2_users SET tenant_id = ? WHERE tenant_id IS NULL").run(defaultTenantId);
+    db.prepare("UPDATE v2_users SET tenant_id = ? WHERE tenant_id IS NULL AND role != 'admin_master'").run(defaultTenantId);
     db.prepare("UPDATE v2_obras SET tenant_id = ? WHERE tenant_id IS NULL").run(defaultTenantId);
     db.prepare("UPDATE v2_itens SET tenant_id = ? WHERE tenant_id IS NULL").run(defaultTenantId);
     
@@ -1264,17 +1422,20 @@ async function startServer() {
   app.get("/api/dashboard", authenticate, (req: any, res) => {
     try {
       const tenantId = req.user.tenant_id;
-      const totalObras = db.prepare("SELECT COUNT(*) as count FROM v2_obras WHERE tenant_id = ?").get(tenantId) as { count: number };
-      const totalInsumos = db.prepare("SELECT COUNT(*) as count FROM v2_itens WHERE tipo = 'insumo' AND tenant_id = ?").get(tenantId) as { count: number };
-      const obrasRecentes = db.prepare("SELECT * FROM v2_obras WHERE tenant_id = ? ORDER BY created_at DESC LIMIT 5").all(tenantId);
+      const tCondition = tenantId === null ? "tenant_id IS NULL" : "tenant_id = ?";
+      const tParam = tenantId === null ? [] : [tenantId];
+      
+      const totalObras = db.prepare(`SELECT COUNT(*) as count FROM v2_obras WHERE ${tCondition}`).get(...tParam) as { count: number };
+      const totalInsumos = db.prepare(`SELECT COUNT(*) as count FROM v2_itens WHERE tipo = 'insumo' AND ${tCondition}`).get(...tParam) as { count: number };
+      const obrasRecentes = db.prepare(`SELECT * FROM v2_obras WHERE ${tCondition} ORDER BY created_at DESC LIMIT 5`).all(...tParam);
       
       const totalOrcadoResult = db.prepare(`
         SELECT SUM(oi.custo_unitario_aplicado * oi.quantidade * (1 + COALESCE(o.bdi, 0) / 100.0)) as total 
         FROM v2_orcamento_itens oi
         JOIN v2_etapas e ON oi.etapa_id = e.id
         JOIN v2_obras o ON e.obra_id = o.id
-        WHERE o.tenant_id = ?
-      `).get(tenantId) as { total: number | null };
+        WHERE o.${tCondition}
+      `).get(...tParam) as { total: number | null };
       const totalOrcado = totalOrcadoResult.total || 0;
       
       const totalMedidoResult = db.prepare(`
@@ -1283,44 +1444,44 @@ async function startServer() {
         JOIN v2_orcamento_itens oi ON mi.orcamento_item_id = oi.id
         JOIN v2_etapas e ON oi.etapa_id = e.id
         JOIN v2_obras o ON e.obra_id = o.id
-        WHERE o.tenant_id = ?
-      `).get(tenantId) as { total: number | null };
+        WHERE o.${tCondition}
+      `).get(...tParam) as { total: number | null };
       const totalMedido = totalMedidoResult.total || 0;
 
       const progressoMedioResult = db.prepare(`
         SELECT AVG(a.progresso) as avg 
         FROM v2_atividades a
         JOIN v2_obras o ON a.obra_id = o.id
-        WHERE o.tenant_id = ?
-      `).get(tenantId) as { avg: number | null };
+        WHERE o.${tCondition}
+      `).get(...tParam) as { avg: number | null };
       const progressoMedio = Math.round(progressoMedioResult.avg || 0);
 
       const cronogramasAtivos = db.prepare(`
         SELECT a.*, o.nome as obra_nome 
         FROM v2_atividades a 
         JOIN v2_obras o ON a.obra_id = o.id 
-        WHERE a.progresso < 100 AND o.tenant_id = ?
+        WHERE a.progresso < 100 AND o.${tCondition}
         ORDER BY a.data_fim_prevista ASC 
         LIMIT 5
-      `).all(tenantId);
+      `).all(...tParam);
 
       const ultimasMedicoes = db.prepare(`
         SELECT m.*, o.nome as obra_nome 
         FROM v2_medicoes m 
         JOIN v2_obras o ON m.obra_id = o.id 
-        WHERE o.tenant_id = ?
+        WHERE o.${tCondition}
         ORDER BY m.data_medicao DESC 
         LIMIT 5
-      `).all(tenantId);
+      `).all(...tParam);
 
       const ultimosDiarios = db.prepare(`
         SELECT d.*, o.nome as obra_nome 
         FROM v2_diario_obra d 
         JOIN v2_obras o ON d.obra_id = o.id 
-        WHERE o.tenant_id = ?
+        WHERE o.${tCondition}
         ORDER BY d.data DESC 
         LIMIT 5
-      `).all(tenantId);
+      `).all(...tParam);
 
       res.json({
         metrics: {
@@ -1329,7 +1490,7 @@ async function startServer() {
           totalOrcado: totalOrcado,
           totalMedido: totalMedido,
           progressoMedio: progressoMedio,
-          obrasAndamento: (db.prepare("SELECT COUNT(*) as count FROM v2_obras WHERE status = 'Em andamento' AND tenant_id = ?").get(tenantId) as any).count
+          obrasAndamento: (db.prepare(`SELECT COUNT(*) as count FROM v2_obras WHERE status = 'Em andamento' AND ${tCondition}`).get(...tParam) as any).count
         },
         obrasRecentes,
         cronogramasAtivos,
@@ -1383,6 +1544,9 @@ async function startServer() {
   app.get("/api/obras", authenticate, (req: any, res) => {
     try {
       const tenantId = req.user.tenant_id;
+      const tCondition = tenantId === null ? "o.tenant_id IS NULL" : "o.tenant_id = ?";
+      const tParam = tenantId === null ? [] : [tenantId];
+      
       const obras = db.prepare(`
         SELECT o.*, 
           CASE 
@@ -1392,9 +1556,9 @@ async function startServer() {
         FROM v2_obras o
         LEFT JOIN v2_etapas e ON o.id = e.obra_id
         LEFT JOIN v2_orcamento_itens oi ON e.id = oi.etapa_id
-        WHERE o.tenant_id = ?
+        WHERE ${tCondition}
         GROUP BY o.id
-      `).all(tenantId);
+      `).all(...tParam);
       res.json(obras.map(o => ({...o, valor_total: o.valor_total_real !== null ? o.valor_total_real : o.valor_total})));
     } catch (error: any) {
       console.error("Error fetching obras:", error);
@@ -1455,14 +1619,17 @@ async function startServer() {
   app.get("/api/obras/:id", authenticate, (req: any, res) => {
     try {
       const tenantId = req.user.tenant_id;
+      const tCondition = tenantId === null ? "o.tenant_id IS NULL" : "o.tenant_id = ?";
+      const tParam = tenantId === null ? [req.params.id] : [req.params.id, tenantId];
+
       const obra = db.prepare(`
         SELECT o.*, SUM(oi.custo_unitario_aplicado * oi.quantidade * (1 + COALESCE(o.bdi, 0) / 100.0)) as valor_total_real
         FROM v2_obras o
         LEFT JOIN v2_etapas e ON o.id = e.obra_id
         LEFT JOIN v2_orcamento_itens oi ON e.id = oi.etapa_id
-        WHERE o.id = ? AND o.tenant_id = ?
+        WHERE o.id = ? AND ${tCondition}
         GROUP BY o.id
-      `).get(req.params.id, tenantId) as any;
+      `).get(...tParam) as any;
       
       if (!obra) {
         return res.status(404).json({ message: "Obra não encontrada." });
@@ -1479,7 +1646,10 @@ async function startServer() {
     const body = req.body;
     const tenantId = req.user.tenant_id;
     try {
-      const currentObra = db.prepare("SELECT * FROM v2_obras WHERE id = ? AND tenant_id = ?").get(req.params.id, tenantId) as any;
+      const tCondition = tenantId === null ? "tenant_id IS NULL" : "tenant_id = ?";
+      const tParam = tenantId === null ? [req.params.id] : [req.params.id, tenantId];
+
+      const currentObra = db.prepare(`SELECT * FROM v2_obras WHERE id = ? AND ${tCondition}`).get(...tParam) as any;
       if (!currentObra) {
         return res.status(404).json({ message: "Obra não encontrada ou acesso negado." });
       }
@@ -1575,7 +1745,10 @@ async function startServer() {
   app.delete("/api/obras/:id", authenticate, (req: any, res) => {
     try {
       const tenantId = req.user.tenant_id;
-      db.prepare("DELETE FROM v2_obras WHERE id = ? AND tenant_id = ?").run(req.params.id, tenantId);
+      const tCondition = tenantId === null ? "tenant_id IS NULL" : "tenant_id = ?";
+      const tParam = tenantId === null ? [req.params.id] : [req.params.id, tenantId];
+      
+      db.prepare(`DELETE FROM v2_obras WHERE id = ? AND ${tCondition}`).run(...tParam);
       res.json({ message: "Obra excluída com sucesso." });
     } catch (error: any) {
       res.status(500).json({ message: "Erro ao excluir obra.", error: error.message });

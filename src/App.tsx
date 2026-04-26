@@ -88,6 +88,7 @@ import ComposicaoDetailView from './components/ComposicaoDetailView';
 import AutocompleteDropdown from './components/AutocompleteDropdown';
 import { SearchDialog } from './components/SearchDialog';
 import TemplatesView from './components/TemplatesView';
+import EmpresasMgmtView from './components/EmpresasMgmtView';
 import { Login } from './pages/Login';
 import { SettingsView } from './pages/Settings';
 
@@ -3224,6 +3225,7 @@ function AppContent() {
       case 'insumos': return <InsumosMgmtView isAdmin={isAdmin} />;
       case 'composicoes': return <ComposicoesMgmtView onSelectComposicao={handleSelectComposicao} isAdmin={isAdmin} />;
       case 'templates': return <TemplatesView />;
+      case 'empresas': return <EmpresasMgmtView />;
       case 'settings': return <SettingsView user={user} />;
       default: return <Dashboard isAdmin={isAdmin} onSelectObra={setSelectedObraId} setActiveTab={setActiveTab} />;
     }
@@ -3261,6 +3263,9 @@ function AppContent() {
           </nav>
 
           <div className="py-2 border-t border-slate-800/30">
+            {user?.role === 'admin_master' && (
+              <SidebarItem icon={Building2} label="Empresas" active={activeTab === 'empresas'} onClick={() => handleNavigate('empresas')} collapsed={isSidebarCollapsed} />
+            )}
             <SidebarItem icon={Settings} label="Configurações" active={activeTab === 'settings'} onClick={() => handleNavigate('settings')} collapsed={isSidebarCollapsed} />
             <SidebarItem icon={LogOut} label="Sair" active={false} onClick={handleLogout} collapsed={isSidebarCollapsed} />
           </div>

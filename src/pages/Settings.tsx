@@ -65,6 +65,10 @@ export const SettingsView = ({ user }: { user: any }) => {
   const [showNewUserModal, setShowNewUserModal] = useState(false);
   const [newUser, setNewUser] = useState({ nome: '', email: '', password: '', role: 'orcamentista' });
 
+  // Password change form
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassword: '' });
+
   const isMaster = user?.role === 'admin_master';
   const isAdmin = isMaster || user?.role === 'admin_pj';
 
@@ -140,6 +144,31 @@ export const SettingsView = ({ user }: { user: any }) => {
         setMessage({ type: 'success', text: 'Dados da empresa atualizados!' });
       } else {
         setMessage({ type: 'error', text: 'Erro ao atualizar dados.' });
+      }
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Erro de conexão.' });
+    } finally {
+      setSaving(false);
+      setTimeout(() => setMessage(null), 3000);
+    }
+  };
+
+  const handlePasswordChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const res = await fetch('/api/auth/password', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+        body: JSON.stringify(passwordData)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setMessage({ type: 'success', text: 'Senha alterada com sucesso!' });
+        setShowPasswordModal(false);
+        setPasswordData({ currentPassword: '', newPassword: '' });
+      } else {
+        setMessage({ type: 'error', text: data.message || 'Erro ao alterar senha.' });
       }
     } catch (err) {
       setMessage({ type: 'error', text: 'Erro de conexão.' });
@@ -349,7 +378,7 @@ export const SettingsView = ({ user }: { user: any }) => {
                         <div className="p-6 border-2 border-slate-50 rounded-2xl">
                           <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Alterar Senha</h4>
                           <p className="text-slate-500 text-sm font-medium mb-4">Mantenha sua conta segura alterando sua senha periodicamente.</p>
-                          <Button className="w-full py-3 text-xs">Alterar Senha</Button>
+                          <Button onClick={() => setShowPasswordModal(true)} className="w-full py-3 text-xs">Alterar Senha</Button>
                         </div>
                         <div className="p-6 border-2 border-slate-50 rounded-2xl">
                           <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Notificações</h4>
@@ -1030,6 +1059,51 @@ export const SettingsView = ({ user }: { user: any }) => {
                 </div>
               </form>
             </div>
+          </motion.div>
+        </div>
+      )}
+
+      {showPasswordModal && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-[32px] p-8 max-w-md w-full shadow-2xl"
+          >
+            <div className="flex items-center justify-between mb-8">
+              <h3 className="text-xl font-black text-slate-900">Alterar Senha</h3>
+            </div>
+            <form onSubmit={handlePasswordChange} className="space-y-6">
+              <div>
+                <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Senha Atual</label>
+                <input 
+                  type="password"
+                  required
+                  value={passwordData.currentPassword}
+                  onChange={e => setPasswordData({...passwordData, currentPassword: e.target.value})}
+                  className="w-full px-5 py-4 bg-slate-50 border-2 border-transparent focus:border-slate-900 rounded-2xl outline-none transition-all font-bold text-slate-900"
+                  placeholder="Sua senha atual"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Nova Senha</label>
+                <input 
+                  type="password"
+                  required
+                  value={passwordData.newPassword}
+                  onChange={e => setPasswordData({...passwordData, newPassword: e.target.value})}
+                  className="w-full px-5 py-4 bg-slate-50 border-2 border-transparent focus:border-slate-900 rounded-2xl outline-none transition-all font-bold text-slate-900"
+                  placeholder="Sua nova senha"
+                />
+              </div>
+              <div className="pt-4 flex gap-3">
+                <button type="button" className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-slate-200 transition-all" onClick={() => setShowPasswordModal(false)}>Cancelar</button>
+                <button type="submit" disabled={saving} className="flex-1 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-slate-800 transition-all flex items-center justify-center gap-2 shadow-lg shadow-slate-200">
+                  {saving ? <Loader2 size={16} className="animate-spin mr-2" /> : null}
+                  Salvar
+                </button>
+              </div>
+            </form>
           </motion.div>
         </div>
       )}

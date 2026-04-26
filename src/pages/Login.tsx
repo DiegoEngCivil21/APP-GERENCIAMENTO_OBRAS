@@ -26,10 +26,16 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         credentials: 'include'
       });
 
-      const data = await response.json();
+      let data;
+      try {
+        const text = await response.text();
+        data = JSON.parse(text);
+      } catch (err) {
+        throw new Error('Erro de conexão ou serviço indisponível. Por favor, contate o suporte.');
+      }
 
       if (!response.ok) {
-        throw new Error(data.message || 'Erro ao realizar login.');
+        throw new Error(data.message || 'Erro ao realizar login. Por favor, contate o suporte.');
       }
 
       if (data.token) {

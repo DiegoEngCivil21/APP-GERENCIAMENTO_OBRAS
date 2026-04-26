@@ -117,3 +117,32 @@ export const getCurrentRefDate = () => {
   const month = String(now.getMonth() + 1).padStart(2, '0');
   return `${year}-${month}-01`;
 };
+
+export const formatCpfCnpj = (val: string) => {
+  if (!val) return '';
+  let v = val.replace(/\D/g, '');
+  if (v.length <= 11) { // CPF
+    v = v.replace(/(\d{3})(\d)/, '$1.$2');
+    v = v.replace(/(\d{3})(\d)/, '$1.$2');
+    v = v.replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+  } else { // CNPJ
+    v = v.replace(/^(\d{2})(\d)/, '$1.$2');
+    v = v.replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3');
+    v = v.replace(/\.(\d{3})(\d)/, '.$1/$2');
+    v = v.replace(/(\d{4})(\d)/, '$1-$2');
+  }
+  return v.substring(0, 18);
+};
+
+export const formatPhone = (val: string) => {
+  if (!val) return '';
+  let v = val.replace(/\D/g, '');
+  if (v.length <= 10) {
+    v = v.replace(/^(\d{2})(\d)/g, '($1) $2');
+    v = v.replace(/(\d{4})(\d)/, '$1-$2');
+  } else {
+    v = v.replace(/^(\d{2})(\d)/g, '($1) $2');
+    v = v.replace(/(\d{5})(\d)/, '$1-$2');
+  }
+  return v.substring(0, 15);
+};
