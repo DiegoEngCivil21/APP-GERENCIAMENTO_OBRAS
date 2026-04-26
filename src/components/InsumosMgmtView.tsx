@@ -22,9 +22,10 @@ import { formatDateRef, truncateToTwo, BRAZILIAN_STATES, getCurrentRefDate } fro
 
 interface InsumosMgmtViewProps {
   isAdmin: boolean;
+  isMaster: boolean;
 }
 
-const InsumosMgmtView = ({ isAdmin }: InsumosMgmtViewProps) => {
+const InsumosMgmtView = ({ isAdmin, isMaster }: InsumosMgmtViewProps) => {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -279,6 +280,12 @@ const InsumosMgmtView = ({ isAdmin }: InsumosMgmtViewProps) => {
 
   useEffect(() => {
     fetchInsumos();
+    
+    // Check for quick action trigger
+    if (localStorage.getItem('openNewInsumoModal') === 'true') {
+      localStorage.removeItem('openNewInsumoModal');
+      openCreateModal();
+    }
   }, [searchCodigo, searchDescricao, filterBanco, filterEstado, filterTipo, filterData]);
 
   const handleExport = () => {
@@ -704,15 +711,17 @@ const InsumosMgmtView = ({ isAdmin }: InsumosMgmtViewProps) => {
                 <Trash2 size={16} /> Excluir ({selectedIds.length})
               </Button>
             )}
-            <Button variant="secondary" onClick={handleExport}>
-              <Download size={16} /> Exportar
-            </Button>
-            {isAdmin && (
+            {isMaster && (
+              <Button variant="secondary" onClick={handleExport}>
+                <Download size={16} /> Exportar
+              </Button>
+            )}
+            {isMaster && (
               <Button variant="secondary" onClick={handleImportClick}>
                 <Upload size={16} /> Importar
               </Button>
             )}
-            {isAdmin && (
+            {isAdmin && !isMaster && (
               <Button variant="primary" onClick={openCreateModal}>
                 <Plus size={16} /> Novo Insumo
               </Button>

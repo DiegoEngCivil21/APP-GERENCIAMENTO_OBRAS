@@ -11,7 +11,36 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [showForgotModal, setShowForgotModal] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setSuccess(null);
+    setError(null);
+    try {
+      const res = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSuccess(data.message);
+        setForgotEmail('');
+        setTimeout(() => setShowForgotModal(false), 3000);
+      } else {
+        setError(data.message);
+      }
+    } catch (err) {
+      setError('Erro de conexão ao tentar recuperar senha.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -97,7 +126,17 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
             <div className="space-y-2">
               <div className="flex justify-between items-center px-1">
                 <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Senha</label>
-                <button type="button" className="text-[11px] font-bold text-orange-500 hover:text-orange-400 transition-colors uppercase tracking-widest">Esqueceu?</button>
+                <button 
+                  type="button" 
+                  onClick={() => {
+                    setError(null);
+                    setSuccess(null);
+                    setShowForgotModal(true);
+                  }}
+                  className="text-[11px] font-bold text-orange-500 hover:text-orange-400 transition-colors uppercase tracking-widest"
+                >
+                  Esqueceu?
+                </button>
               </div>
               <div className="relative group">
                 <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-orange-500 transition-colors">
@@ -149,6 +188,65 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
           </div>
         </motion.div>
       </div>
+
+      {/* Forgot Password Modal */}
+      {showForgotModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-[#1e293b] border border-white/10 rounded-[32px] p-8 max-w-sm w-full shadow-2xl"
+          >
+            <h2 className="text-xl font-black text-white uppercase tracking-widest mb-2">Recuperar Senha</h2>
+            <p className="text-slate-400 text-sm mb-6">Informe seu e-mail para enviarmos as instruções de recuperação.</p>
+            
+            <form onSubmit={handleForgotPassword} className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">Seu E-mail</label>
+                <input 
+                  type="email"
+                  required
+                  value={forgotEmail}
+                  onChange={(e) => setForgotEmail(e.target.value)}
+                  placeholder="seu@email.com"
+                  className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 px-4 text-white placeholder:text-slate-600 focus:outline-none focus:border-orange-500/50 transition-all font-bold"
+                />
+              </div>
+
+              {success && (
+                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4 flex items-center gap-3 text-emerald-400 text-sm font-medium">
+                  <ArrowRight size={18} />
+                  <span>{success}</span>
+                </div>
+              )}
+
+              {error && (
+                <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex items-center gap-3 text-red-400 text-sm">
+                  <AlertCircle size={18} />
+                  <span>{error}</span>
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-2">
+                <button 
+                  type="button" 
+                  onClick={() => setShowForgotModal(false)}
+                  className="flex-1 py-4 bg-white/5 text-slate-400 rounded-2xl font-black uppercase tracking-widest text-[11px] hover:bg-white/10 transition-all"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={isLoading}
+                  className="flex-1 py-4 bg-orange-500 text-white rounded-2xl font-black uppercase tracking-widest text-[11px] hover:bg-orange-600 transition-all shadow-lg shadow-orange-500/20 disabled:opacity-50"
+                >
+                  {isLoading ? <Loader2 size={16} className="animate-spin mx-auto" /> : "Enviar Link"}
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 };

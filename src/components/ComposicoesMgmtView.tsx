@@ -25,9 +25,10 @@ import { formatCode, truncateToTwo, formatCurrency, formatDateRef, BRAZILIAN_STA
 interface ComposicoesMgmtViewProps {
   onSelectComposicao?: (id: number, estado: string, dataRef: string) => void;
   isAdmin: boolean;
+  isMaster: boolean;
 }
 
-const ComposicoesMgmtView = ({ onSelectComposicao, isAdmin }: ComposicoesMgmtViewProps) => {
+const ComposicoesMgmtView = ({ onSelectComposicao, isAdmin, isMaster }: ComposicoesMgmtViewProps) => {
   const [composicoes, setComposicoes] = useState<Composicao[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -831,10 +832,12 @@ const ComposicoesMgmtView = ({ onSelectComposicao, isAdmin }: ComposicoesMgmtVie
             <p className="text-slate-500 text-sm font-medium mt-1">Gestão administrativa da base de dados de recursos de composição.</p>
           </div>
           
-          <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-            <Button variant="secondary" onClick={handleExport}>
-              <Download size={16} /> Exportar
-            </Button>
+           <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+            {isMaster && (
+              <Button variant="secondary" onClick={handleExport}>
+                <Download size={16} /> Exportar
+              </Button>
+            )}
             {isAdmin && (
               <>
                 {selectedIds.length > 0 && (
@@ -847,12 +850,17 @@ const ComposicoesMgmtView = ({ onSelectComposicao, isAdmin }: ComposicoesMgmtVie
                   </Button>
                 )}
                 
-                <Button variant="secondary" onClick={handleImportClick}>
-                  <Upload size={16} /> Importar
-                </Button>
-                <Button variant="primary" onClick={openCreateModal}>
-                  <Plus size={16} /> Nova Composição
-                </Button>
+                {isMaster && (
+                  <Button variant="secondary" onClick={handleImportClick}>
+                    <Upload size={16} /> Importar
+                  </Button>
+                )}
+                
+                {!isMaster && (
+                  <Button variant="primary" onClick={openCreateModal}>
+                    <Plus size={16} /> Nova Composição
+                  </Button>
+                )}
               </>
             )}
           </div>

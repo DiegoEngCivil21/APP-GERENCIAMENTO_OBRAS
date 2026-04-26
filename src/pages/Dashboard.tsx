@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { LayoutDashboard, Package, TrendingUp, Calendar, ArrowRight, FileText, DollarSign, Ruler } from 'lucide-react';
+import { LayoutDashboard, Package, TrendingUp, Calendar, ArrowRight, FileText, DollarSign, Ruler, Building2, Users, Briefcase, HardHat, Plus } from 'lucide-react';
 import { motion } from 'motion/react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, AreaChart, Area } from 'recharts';
 import { MetricCard, StatusBadge } from '../components/UIComponents';
@@ -9,12 +9,8 @@ import { truncateToTwo, formatFinancial } from '../utils';
 
 export const Dashboard = ({ isAdmin, onSelectObra, setActiveTab }: { isAdmin: boolean, onSelectObra: (id: string | number) => void, setActiveTab: (tab: string) => void }) => {
   console.log("Dashboard rendering...");
-  const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
+  const [data, setData] = useState<any | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [obrasRecentes, setObrasRecentes] = useState<Obra[]>([]);
-  const [cronogramasAtivos, setCronogramasAtivos] = useState<any[]>([]);
-  const [ultimasMedicoes, setUltimasMedicoes] = useState<any[]>([]);
-  const [ultimosDiarios, setUltimosDiarios] = useState<any[]>([]);
 
   const handleClearDatabase = async () => {
     if (confirm("Tem certeza que deseja excluir TODO o banco de dados? Esta ação é irreversível.")) {
@@ -37,19 +33,15 @@ export const Dashboard = ({ isAdmin, onSelectObra, setActiveTab }: { isAdmin: bo
   };
 
   useEffect(() => {
-    api.getDashboard().then(data => {
-      if (data) {
-        setMetrics(data.metrics);
-        setObrasRecentes(data.obrasRecentes);
-        setCronogramasAtivos(data.cronogramasAtivos || []);
-        setUltimasMedicoes(data.ultimasMedicoes || []);
-        setUltimosDiarios(data.ultimosDiarios || []);
+    api.getDashboard().then(res => {
+      if (res) {
+        setData(res);
       } else {
         setError("Dados do dashboard não encontrados.");
       }
     }).catch(err => {
       console.error("Erro ao carregar dashboard:", err);
-      setError("Erro ao carregar dados do dashboard. Verifique sua conexão ou tente novamente mais tarde.");
+      setError("Erro ao carregar dados do dashboard.");
     });
   }, []);
 
@@ -69,7 +61,218 @@ export const Dashboard = ({ isAdmin, onSelectObra, setActiveTab }: { isAdmin: bo
     );
   }
 
-  if (!metrics) return <div className="p-8 text-center text-slate-500 font-bold uppercase tracking-widest">Carregando dashboard...</div>;
+  if (!data) return <div className="p-8 text-center text-slate-500 font-bold uppercase tracking-widest">Carregando dashboard...</div>;
+
+  // Master Admin view
+  if (data.isMaster) {
+    return (
+      <div className="space-y-8 pb-20 animate-in fade-in duration-500">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <MetricCard 
+            title="Empresas Clientes" 
+            value={data.metrics.totalTenants} 
+            icon={Building2} 
+            color="bg-orange-500" 
+            delay={0.1}
+          />
+          <MetricCard 
+            title="Usuários Clientes" 
+            value={data.metrics.totalUsers} 
+            icon={Users} 
+            color="bg-blue-600" 
+            delay={0.2}
+          />
+          <MetricCard 
+            title="Faturamento Mensal" 
+            value={`R$ ${formatFinancial(data.metrics.totalRevenue)}`} 
+            icon={DollarSign} 
+            color="bg-emerald-500" 
+            delay={0.3}
+          />
+          <MetricCard 
+            title="Assinaturas Ativas" 
+            value={data.metrics.activeTenants} 
+            icon={Briefcase} 
+            color="bg-indigo-600" 
+            delay={0.4}
+          />
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="bg-white rounded-[32px] border border-slate-100 shadow-sm overflow-hidden lg:col-span-2">
+            <div className="p-8 border-b border-slate-50 flex justify-between items-center">
+              <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">Projeção Financeira</h3>
+              <div className="flex items-center gap-2">
+                 <div className="w-3 h-3 rounded-full bg-emerald-500" />
+                 <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Receita Mensal</span>
+              </div>
+            </div>
+            <div className="p-6 h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={data.charts.financial}>
+                  <defs>
+                    <linearGradient id="colorRev" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.1}/>
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis 
+                    dataKey="month" 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{ fontSize: 10, fontWeight: 700, fill: '#64748b' }}
+                  />
+                  <YAxis 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tickFormatter={(val) => `R$ ${val/1000}k`}
+                    tick={{ fontSize: 10, fontWeight: 700, fill: '#64748b' }}
+                  />
+                  <Tooltip 
+                    formatter={(val: any) => [`R$ ${formatFinancial(val)}`, 'Receita']}
+                    contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="revenue" 
+                    stroke="#10b981" 
+                    strokeWidth={3}
+                    fillOpacity={1} 
+                    fill="url(#colorRev)" 
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-[32px] border border-slate-100 shadow-sm overflow-hidden">
+            <div className="p-8 border-b border-slate-50">
+              <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">Status das Empresas</h3>
+            </div>
+            <div className="p-6 h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={data.charts.status}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis 
+                    dataKey="name" 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{ fontSize: 10, fontWeight: 700, fill: '#64748b' }}
+                  />
+                  <YAxis 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{ fontSize: 10, fontWeight: 700, fill: '#64748b' }}
+                  />
+                  <Tooltip 
+                    cursor={{ fill: '#f8fafc' }}
+                    contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                  />
+                  <Bar dataKey="value" fill="#2563eb" radius={[8, 8, 0, 0]} barSize={40} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div className="bg-white rounded-[32px] border border-slate-100 shadow-sm overflow-hidden">
+            <div className="p-8 border-b border-slate-50">
+              <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">Crescimento de Base</h3>
+            </div>
+            <div className="p-6 h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={data.charts.growth}>
+                  <defs>
+                    <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#f97316" stopOpacity={0.1}/>
+                      <stop offset="95%" stopColor="#f97316" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis 
+                    dataKey="month" 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{ fontSize: 10, fontWeight: 700, fill: '#64748b' }}
+                  />
+                  <YAxis 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{ fontSize: 10, fontWeight: 700, fill: '#64748b' }}
+                  />
+                  <Tooltip 
+                    contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="count" 
+                    stroke="#f97316" 
+                    strokeWidth={3}
+                    fillOpacity={1} 
+                    fill="url(#colorCount)" 
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-[32px] border border-slate-100 shadow-sm overflow-hidden">
+            <div className="p-8 flex justify-between items-center border-b border-slate-50">
+              <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">Empresas Recém Cadastradas</h3>
+              <button 
+                onClick={() => setActiveTab('empresas')}
+                className="text-[10px] font-black text-orange-500 hover:text-orange-600 flex items-center gap-1 transition-colors uppercase tracking-widest"
+              >
+                Gerenciar Empresas <ArrowRight size={14} />
+              </button>
+            </div>
+            <div className="p-4">
+              <div className="space-y-3">
+                {data.recentTenants.map((tenant: any) => (
+                  <div key={tenant.id} className="group flex items-center justify-between p-5 bg-slate-50/50 border border-slate-100 rounded-2xl hover:border-orange-500/30 transition-all">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 bg-white border border-slate-200 text-slate-900 rounded-xl flex items-center justify-center font-black text-lg shadow-sm">
+                        {tenant.nome.charAt(0)}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                           <h4 className="font-bold text-slate-900 tracking-tight">{tenant.nome}</h4>
+                           <span className="text-[9px] px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 font-black uppercase tracking-widest">{tenant.plano}</span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className={`text-[9px] px-2 py-0.5 rounded-full font-black uppercase tracking-widest ${
+                            tenant.status === 'active' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'
+                          }`}>
+                            {tenant.status === 'active' ? 'Ativo' : 'Trial'}
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-medium">Desde {new Date(tenant.created_at).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => setActiveTab('empresas')}
+                      className="p-2 text-slate-400 hover:text-orange-500 transition-colors"
+                    >
+                      <ArrowRight size={18} />
+                    </button>
+                  </div>
+                ))}
+                {data.recentTenants.length === 0 && (
+                  <div className="py-20 text-center">
+                    <p className="text-slate-400 font-bold uppercase tracking-widest text-sm">Nenhuma empresa cadastrada</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const { metrics, obrasRecentes, cronogramasAtivos, ultimasMedicoes, ultimosDiarios } = data;
 
   return (
     <div className="space-y-8 pb-20">

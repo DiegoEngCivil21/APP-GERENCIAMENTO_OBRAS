@@ -7,6 +7,8 @@ import { fileURLToPath } from "url";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import cookieParser from "cookie-parser";
+import crypto from "crypto";
+import { sendWelcomeEmail, sendPasswordResetEmail } from "./src/services/emailService";
 import { differenceInDays, addDays, parseISO, format } from 'date-fns';
 import { getCompositionTree, getFlatCompositionItems, checkCompositionIntegrity, getPrecosEmLote } from "./src/services/compositionService";
 import { calculateCriticalPath } from "./src/services/cpmService";
@@ -122,6 +124,7 @@ function initDatabase() {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         nome TEXT NOT NULL,
         documento TEXT, -- CNPJ
+        status TEXT DEFAULT 'active', -- active, trial, inactive
         plano TEXT DEFAULT 'Básico', -- Básico, Pro, Enterprise
         limite_usuarios INTEGER DEFAULT 5,
         assinatura_texto TEXT,
@@ -131,6 +134,27 @@ function initDatabase() {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   `);
+
+    // Create default master admin if none exists
+    const adminExists = db.prepare("SELECT id FROM v2_users WHERE role = 'admin_master'").get();
+    if (!adminExists) {
+      const hashedPassword = bcrypt.hashSync("admin123", 10);
+      db.prepare("INSERT INTO v2_users (nome, email, password, role) VALUES (?, ?, ?, ?)")
+        .run("Admin Sistema", "admin@sistema.com", hashedPassword, "admin_master");
+      console.log("Master Admin created: admin@sistema.com / admin123");
+    }
+
+    // Migration: Add status column if it doesn't exist
+    try {
+      db.prepare("SELECT status FROM v2_tenants LIMIT 1").get();
+    } catch (e) {
+      try {
+        db.exec("ALTER TABLE v2_tenants ADD COLUMN status TEXT DEFAULT 'active'");
+        console.log("Migration: Added status column to v2_tenants");
+      } catch (err) {
+        console.error("Migration failed for v2_tenants.status:", err);
+      }
+    }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS v2_signatures (
@@ -223,6 +247,17 @@ function initDatabase() {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (tenant_id) REFERENCES v2_tenants(id) ON DELETE CASCADE
+    );
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS v2_password_resets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        token TEXT NOT NULL,
+        expires_at DATETIME NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES v2_users(id) ON DELETE CASCADE
     );
   `);
 
@@ -917,9 +952,26 @@ async function startServer() {
   // Auth Routes
   app.post("/api/auth/login", async (req, res) => {
     const { email, password } = req.body;
+    console.log(`Tentativa de login: ${email}`);
     try {
+      // Diego should be a regular client/gestor account for his company
+      if (email === 'diegoengcivil21@gmail.com') {
+         const userLocal = db.prepare("SELECT * FROM v2_users WHERE email = ?").get(email) as any;
+         if (userLocal && (userLocal.role === 'admin_master' || userLocal.tenant_id === null)) {
+            // Fix Diego's account to be a regular manager
+            const dTenant = db.prepare("SELECT id FROM v2_tenants WHERE nome LIKE '%Diego%' OR nome LIKE '%Eng%' LIMIT 1").get() as any;
+            const firstTenant = dTenant || db.prepare("SELECT id FROM v2_tenants LIMIT 1").get() as any;
+            if (firstTenant) {
+               db.prepare("UPDATE v2_users SET role = 'gestor', tenant_id = ? WHERE email = ?").run(firstTenant.id, email);
+            }
+         }
+      }
+
       const user = db.prepare("SELECT * FROM v2_users WHERE email = ?").get(email) as any;
-      if (!user) return res.status(400).json({ message: "Credenciais inválidas." });
+      if (!user) {
+        console.log(`Login falhou: Usuário não encontrado - ${email}`);
+        return res.status(400).json({ message: "Credenciais inválidas." });
+      }
 
       const isMatch = await bcrypt.compare(password, user.password);
       if (!isMatch) return res.status(400).json({ message: "Credenciais inválidas." });
@@ -970,6 +1022,49 @@ async function startServer() {
   app.post("/api/auth/logout", (req, res) => {
     res.clearCookie("token");
     res.json({ message: "Logout realizado com sucesso." });
+  });
+
+  app.post("/api/auth/forgot-password", (req, res) => {
+    const { email } = req.body;
+    try {
+      const user = db.prepare("SELECT id, nome, email FROM v2_users WHERE email = ?").get(email) as any;
+      if (!user) {
+        // We return success anyway to prevent email enumeration
+        return res.json({ message: "Se o e-mail estiver cadastrado, você receberá um link de recuperação." });
+      }
+
+      const token = crypto.randomBytes(32).toString('hex');
+      const expiresAt = new Date(Date.now() + 3600000).toISOString(); // 1 hour
+
+      db.prepare("INSERT INTO v2_password_resets (user_id, token, expires_at) VALUES (?, ?, ?)")
+        .run(user.id, token, expiresAt);
+
+      sendPasswordResetEmail(user.email, user.nome, token);
+
+      res.json({ message: "Se o e-mail estiver cadastrado, você receberá um link de recuperação." });
+    } catch (error: any) {
+      res.status(500).json({ message: "Erro ao processar solicitação.", error: error.message });
+    }
+  });
+
+  app.post("/api/auth/reset-password", async (req, res) => {
+    const { token, newPassword } = req.body;
+    try {
+      const reset = db.prepare("SELECT * FROM v2_password_resets WHERE token = ? AND expires_at > ?")
+        .get(token, new Date().toISOString()) as any;
+      
+      if (!reset) {
+        return res.status(400).json({ message: "Token inválido ou expirado." });
+      }
+
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+      db.prepare("UPDATE v2_users SET password = ? WHERE id = ?").run(hashedPassword, reset.user_id);
+      db.prepare("DELETE FROM v2_password_resets WHERE id = ?").run(reset.id);
+
+      res.json({ message: "Senha redefinida com sucesso!" });
+    } catch (error: any) {
+      res.status(500).json({ message: "Erro ao redefinir senha.", error: error.message });
+    }
   });
 
   app.get("/api/auth/me", authenticate, (req: any, res) => {
@@ -1063,6 +1158,10 @@ async function startServer() {
 
       const hashedPassword = await bcrypt.hash(password, 10);
       db.prepare("INSERT INTO v2_users (tenant_id, nome, email, password, role) VALUES (?, ?, ?, ?, ?)").run(req.user.tenant_id, nome, email, hashedPassword, role || 'orcamentista');
+      
+      // Send welcome email
+      sendWelcomeEmail(email, nome, password).catch(err => console.error("Error sending welcome email:", err));
+      
       res.json({ message: "Usuário criado com sucesso." });
     } catch (error: any) {
       if (error.message.includes('UNIQUE constraint failed')) {
@@ -1132,6 +1231,8 @@ async function startServer() {
           hashedPassword,
           'admin_pj'
         );
+        // Send welcome email
+        sendWelcomeEmail(adm_email, adm_nome || adm_email.split('@')[0], adm_senha).catch(err => console.error("Error sending welcome email:", err));
       }
       
       db.exec("COMMIT");
@@ -1184,6 +1285,8 @@ async function startServer() {
                 hashedPassword,
                 'admin_pj'
               );
+              // Send welcome email
+              sendWelcomeEmail(adm_email, adm_nome || adm_email.split('@')[0], adm_senha).catch(err => console.error("Error sending welcome email:", err));
             }
          }
       }
@@ -1422,6 +1525,74 @@ async function startServer() {
   app.get("/api/dashboard", authenticate, (req: any, res) => {
     try {
       const tenantId = req.user.tenant_id;
+      const role = req.user.role;
+
+      // Master Dashboard logic
+      if (role === 'admin_master') {
+        const totalTenants = db.prepare("SELECT COUNT(*) as count FROM v2_tenants").get() as { count: number };
+        const totalUsers = db.prepare("SELECT COUNT(*) as count FROM v2_users WHERE role != 'admin_master' AND tenant_id IS NOT NULL").get() as { count: number };
+        const activeTenants = db.prepare("SELECT COUNT(*) as count FROM v2_tenants WHERE status = 'active'").get() as { count: number };
+        const trialTenants = db.prepare("SELECT COUNT(*) as count FROM v2_tenants WHERE status = 'trial'").get() as { count: number };
+        
+        // Revenue calculation (Estimated)
+        const revenueData = db.prepare(`
+          SELECT 
+            SUM(CASE WHEN plano = 'Básico' THEN 199 ELSE 0 END) +
+            SUM(CASE WHEN plano = 'Pro' THEN 499 ELSE 0 END) +
+            SUM(CASE WHEN plano = 'Enterprise' THEN 1499 ELSE 0 END) as totalRevenue
+          FROM v2_tenants
+          WHERE status = 'active'
+        `).get() as { totalRevenue: number };
+
+        const recentTenants = db.prepare(`
+          SELECT id, nome, status, created_at, plano FROM v2_tenants 
+          ORDER BY created_at DESC 
+          LIMIT 5
+        `).all();
+
+        // Growth data (last 6 months)
+        const growthData = db.prepare(`
+          SELECT strftime('%Y-%m', created_at) as month, COUNT(*) as count
+          FROM v2_tenants
+          GROUP BY month
+          ORDER BY month DESC
+          LIMIT 6
+        `).all().reverse();
+
+        // Status data
+        const statusData = [
+          { name: 'Ativo', value: activeTenants.count },
+          { name: 'Trial', value: trialTenants.count }
+        ];
+
+        // Financial Projection data (dummy but representative)
+        const financialProjection = [
+          { month: 'Jan', revenue: (revenueData.totalRevenue || 0) * 0.8 },
+          { month: 'Fev', revenue: (revenueData.totalRevenue || 0) * 0.85 },
+          { month: 'Mar', revenue: (revenueData.totalRevenue || 0) * 0.9 },
+          { month: 'Abr', revenue: (revenueData.totalRevenue || 0) * 0.95 },
+          { month: 'Mai', revenue: (revenueData.totalRevenue || 0) },
+          { month: 'Jun', revenue: (revenueData.totalRevenue || 0) * 1.1 },
+        ];
+
+        return res.json({
+          isMaster: true,
+          metrics: {
+            totalTenants: totalTenants.count,
+            totalUsers: totalUsers.count,
+            totalRevenue: revenueData.totalRevenue || 0,
+            activeTenants: activeTenants.count,
+            trialTenants: trialTenants.count
+          },
+          recentTenants,
+          charts: {
+            growth: growthData,
+            status: statusData,
+            financial: financialProjection
+          }
+        });
+      }
+
       const tCondition = tenantId === null ? "tenant_id IS NULL" : "tenant_id = ?";
       const tParam = tenantId === null ? [] : [tenantId];
       

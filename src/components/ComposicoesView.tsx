@@ -17,7 +17,7 @@ import { Button } from './UIComponents';
 import AutocompleteDropdown from './AutocompleteDropdown';
 import { formatCode, truncateToTwo, formatCurrency, formatDateRef, BRAZILIAN_STATES } from '../utils';
 
-const ComposicoesView = ({ isAdmin, onSelectComposicao }: { isAdmin: boolean, onSelectComposicao?: (id: number, uf: string, dataRef: string) => void }) => {
+const ComposicoesView = ({ isAdmin, isMaster, onSelectComposicao }: { isAdmin: boolean, isMaster: boolean, onSelectComposicao?: (id: number, uf: string, dataRef: string) => void }) => {
   const [composicoes, setComposicoes] = useState<Composicao[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -224,6 +224,11 @@ const ComposicoesView = ({ isAdmin, onSelectComposicao }: { isAdmin: boolean, on
 
   useEffect(() => {
     fetchComposicoes();
+    
+    if (localStorage.getItem('openNewComposicaoModal') === 'true') {
+      localStorage.removeItem('openNewComposicaoModal');
+      openCreateModal();
+    }
   }, [filterEstado, filterData, filterBanco, filterCategoria, searchTerm]);
 
   useEffect(() => {
@@ -633,12 +638,16 @@ const ComposicoesView = ({ isAdmin, onSelectComposicao }: { isAdmin: boolean, on
                 </Button>
               )}
               
-              <Button variant="secondary" onClick={handleExport}>
-                <Download size={16} /> Exportar
-              </Button>
-              <Button variant="secondary" onClick={handleImportClick}>
-                <Upload size={16} /> Importar
-              </Button>
+              {isMaster && (
+                <Button variant="secondary" onClick={handleExport}>
+                  <Download size={16} /> Exportar
+                </Button>
+              )}
+              {isMaster && (
+                <Button variant="secondary" onClick={handleImportClick}>
+                  <Upload size={16} /> Importar
+                </Button>
+              )}
               <Button variant="primary" onClick={openCreateModal}>
                 <Plus size={16} /> Nova Composição
               </Button>

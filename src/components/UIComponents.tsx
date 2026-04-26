@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { LucideIcon, Bell, HelpCircle, User, Database, ChevronDown, FileText } from 'lucide-react';
+import { LucideIcon, Bell, HelpCircle, User, Database, ChevronDown, FileText, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 export const Button = ({ 
   variant = 'primary', 
@@ -72,61 +72,65 @@ export const TopToolbar = ({ onNavigate, user }: { onNavigate?: (tab: string) =>
         
         <div className="h-6 w-[1px] bg-slate-200" />
         
-        <div className="relative" ref={dropdownRef}>
-          <button 
-            onClick={() => setIsRecursosOpen(!isRecursosOpen)}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl transition-all group ${
-              isRecursosOpen ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
-            }`}
-          >
-            <Database size={15} className={isRecursosOpen ? 'text-orange-500' : 'text-slate-400 group-hover:text-slate-900'} />
-            <span className="text-[11px] font-bold uppercase tracking-widest">Recursos</span>
-            <ChevronDown size={12} className={`transition-transform duration-200 ${isRecursosOpen ? 'rotate-180' : ''}`} />
-          </button>
-
-          <AnimatePresence>
-            {isRecursosOpen && (
-              <motion.div 
-                initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                transition={{ duration: 0.15 }}
-                className="absolute top-full left-0 mt-2 w-56 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden"
+        {user?.role !== 'admin_master' && (
+          <>
+            <div className="relative" ref={dropdownRef}>
+              <button 
+                onClick={() => setIsRecursosOpen(!isRecursosOpen)}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl transition-all group ${
+                  isRecursosOpen ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
+                }`}
               >
-                <div className="p-1">
-                  <button 
-                    onClick={() => {
-                      onNavigate?.('insumos_mgmt');
-                      setIsRecursosOpen(false);
-                    }}
-                    className="w-full text-left px-4 py-2.5 text-[11px] font-bold text-slate-600 hover:bg-slate-50 hover:text-slate-900 rounded-lg transition-colors flex items-center gap-3 uppercase tracking-wider"
-                  >
-                    <div className="w-1.5 h-1.5 bg-orange-500 rounded-full" />
-                    Recurso de Insumo
-                  </button>
-                  <button 
-                    onClick={() => {
-                      onNavigate?.('composicoes_mgmt');
-                      setIsRecursosOpen(false);
-                    }}
-                    className="w-full text-left px-4 py-2.5 text-[11px] font-bold text-slate-600 hover:bg-slate-50 hover:text-slate-900 rounded-lg transition-colors flex items-center gap-3 uppercase tracking-wider"
-                  >
-                    <div className="w-1.5 h-1.5 bg-orange-500 rounded-full" />
-                    Recurso de Composição
-                  </button>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
+                <Database size={15} className={isRecursosOpen ? 'text-orange-500' : 'text-slate-400 group-hover:text-slate-900'} />
+                <span className="text-[11px] font-bold uppercase tracking-widest">Recursos</span>
+                <ChevronDown size={12} className={`transition-transform duration-200 ${isRecursosOpen ? 'rotate-180' : ''}`} />
+              </button>
 
-        <button 
-          onClick={() => onNavigate?.('templates')}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-xl transition-all text-slate-500 hover:bg-slate-100 hover:text-slate-900 group"
-        >
-          <FileText size={15} className="text-slate-400 group-hover:text-slate-900" />
-          <span className="text-[11px] font-bold uppercase tracking-widest">Templates</span>
-        </button>
+              <AnimatePresence>
+                {isRecursosOpen && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute top-full left-0 mt-2 w-56 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden"
+                  >
+                    <div className="p-1">
+                      <button 
+                        onClick={() => {
+                          onNavigate?.('insumos');
+                          setIsRecursosOpen(false);
+                        }}
+                        className="w-full text-left px-4 py-2.5 text-[11px] font-bold text-slate-600 hover:bg-slate-50 hover:text-slate-900 rounded-lg transition-colors flex items-center gap-3 uppercase tracking-wider"
+                      >
+                        <div className="w-1.5 h-1.5 bg-orange-500 rounded-full" />
+                        Recurso de Insumo
+                      </button>
+                      <button 
+                        onClick={() => {
+                          onNavigate?.('composicoes');
+                          setIsRecursosOpen(false);
+                        }}
+                        className="w-full text-left px-4 py-2.5 text-[11px] font-bold text-slate-600 hover:bg-slate-50 hover:text-slate-900 rounded-lg transition-colors flex items-center gap-3 uppercase tracking-wider"
+                      >
+                        <div className="w-1.5 h-1.5 bg-orange-500 rounded-full" />
+                        Recurso de Composição
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            <button 
+              onClick={() => onNavigate?.('templates')}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-xl transition-all text-slate-500 hover:bg-slate-100 hover:text-slate-900 group"
+            >
+              <FileText size={15} className="text-slate-400 group-hover:text-slate-900" />
+              <span className="text-[11px] font-bold uppercase tracking-widest">Templates</span>
+            </button>
+          </>
+        )}
       </div>
       <div className="flex items-center gap-2">
       <button className="p-2 text-slate-400 hover:text-slate-900 hover:bg-white rounded-xl transition-all relative shadow-sm hover:shadow-md bg-white/40 border border-transparent hover:border-slate-200">

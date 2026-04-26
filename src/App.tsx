@@ -91,6 +91,15 @@ import TemplatesView from './components/TemplatesView';
 import EmpresasMgmtView from './components/EmpresasMgmtView';
 import { Login } from './pages/Login';
 import { SettingsView } from './pages/Settings';
+import { ResetPassword } from './pages/ResetPassword';
+
+import { 
+  BrowserRouter as Router, 
+  Routes, 
+  Route, 
+  Navigate,
+  useLocation
+} from 'react-router-dom';
 
 // --- Views ---
 
@@ -356,7 +365,7 @@ const MedicaoView = ({ obraId, orcamento, bdiIncidence, bdiValue }: { obraId: st
   );
 };
 
-const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao }: { obraId: string | number, onBack: () => void, onNavigateToComposicao: (id: string | number) => void }) => {
+const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = false, isMaster = false }: { obraId: string | number, onBack: () => void, onNavigateToComposicao: (id: string | number) => void, isAdmin?: boolean, isMaster?: boolean }) => {
   const [obra, setObra] = useState<Obra | null>(null);
   const [orcamento, setOrcamento] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -1346,21 +1355,25 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao }: { obraId: st
             {/* Header de Ações de Orçamento */}
             <div className="flex justify-between items-center shrink-0">
               <div className="flex items-center gap-3">
-                <Button 
-                  variant="secondary" 
-                  size="sm" 
-                  icon={Upload}
-                  onClick={() => setShowImportModal(true)}
-                >
-                  Importar Planilha
-                </Button>
-                <Button 
-                  variant="secondary" 
-                  size="sm" 
-                  icon={Download}
-                >
-                  Exportar Orçamento
-                </Button>
+                {isMaster && (
+                  <Button 
+                    variant="secondary" 
+                    size="sm" 
+                    icon={Upload}
+                    onClick={() => setShowImportModal(true)}
+                  >
+                    Importar Planilha
+                  </Button>
+                )}
+                {isMaster && (
+                  <Button 
+                    variant="secondary" 
+                    size="sm" 
+                    icon={Download}
+                  >
+                    Exportar Orçamento
+                  </Button>
+                )}
               </div>
               <div className="flex items-center gap-2 text-[11px] font-bold text-slate-400 uppercase tracking-widest">
                 <Clock size={13} />
@@ -3078,7 +3091,9 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
 export default function App() {
   return (
     <ErrorBoundary>
-      <AppContent />
+      <Router>
+        <AppContent />
+      </Router>
     </ErrorBoundary>
   );
 }
@@ -3086,6 +3101,7 @@ export default function App() {
 function AppContent() {
   console.log("AppContent rendering...");
   const [user, setUser] = useState<any>(null);
+  const location = useLocation();
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [activeTab, setActiveTab] = useState(() => localStorage.getItem('activeTab') || 'dashboard');
   const [selectedObraId, setSelectedObraId] = useState<string | number | null>(() => {
@@ -3101,7 +3117,8 @@ function AppContent() {
   const [selectedDataRef, setSelectedDataRef] = useState<string>(() => localStorage.getItem('selectedDataRef') || 'Todos');
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => localStorage.getItem('isSidebarCollapsed') === 'true');
-  const isAdmin = user?.role === 'admin' || user?.role === 'admin_master' || user?.role === 'admin_pj';
+  const isAdmin = user?.role === 'admin' || user?.role === 'admin_master' || user?.role === 'admin_pj' || user?.role === 'gestor';
+  const isMaster = user?.role === 'admin_master';
 
   useEffect(() => {
     localStorage.setItem('isSidebarCollapsed', isSidebarCollapsed.toString());
@@ -3134,6 +3151,12 @@ function AppContent() {
         setIsAuthLoading(false);
       });
   }, []);
+
+  useEffect(() => {
+    if (user?.role === 'admin_master' && !['dashboard', 'empresas', 'settings', 'insumos', 'composicoes'].includes(activeTab)) {
+      setActiveTab('dashboard');
+    }
+  }, [user, activeTab]);
 
   useEffect(() => {
     localStorage.setItem('activeTab', activeTab);
@@ -3192,6 +3215,10 @@ function AppContent() {
     );
   }
 
+  if (location.pathname === '/reset-password') {
+    return <ResetPassword />;
+  }
+
   if (!user) {
     return <Login onLoginSuccess={(userData) => {
       setActiveTab('dashboard');
@@ -3203,7 +3230,15 @@ function AppContent() {
 
   const renderContent = () => {
     if (selectedObraId != null) {
-      return <ObraDetailView obraId={selectedObraId} onBack={() => setSelectedObraId(null)} onNavigateToComposicao={(id) => setComposicaoStack([Number(id)])} />;
+      return (
+        <ObraDetailView 
+          obraId={selectedObraId} 
+          onBack={() => setSelectedObraId(null)} 
+          onNavigateToComposicao={(id) => setComposicaoStack([Number(id)])} 
+          isAdmin={isAdmin}
+          isMaster={isMaster}
+        />
+      );
     }
 
     if (selectedComposicaoId != null) {
@@ -3213,6 +3248,7 @@ function AppContent() {
           onBack={() => setComposicaoStack(prev => prev.slice(0, -1))} 
           onNavigateToComposicao={(id) => setComposicaoStack(prev => [...prev, id])}
           isAdmin={isAdmin} 
+          isMaster={isMaster}
           estado={selectedEstado}
           dataReferencia={selectedDataRef}
         />
@@ -3222,8 +3258,8 @@ function AppContent() {
     switch (activeTab) {
       case 'dashboard': return <Dashboard isAdmin={isAdmin} onSelectObra={setSelectedObraId} setActiveTab={handleNavigate} />;
       case 'obras': return <ObrasView onSelectObra={setSelectedObraId} />;
-      case 'insumos': return <InsumosMgmtView isAdmin={isAdmin} />;
-      case 'composicoes': return <ComposicoesMgmtView onSelectComposicao={handleSelectComposicao} isAdmin={isAdmin} />;
+      case 'insumos': return <InsumosMgmtView isAdmin={isAdmin} isMaster={isMaster} />;
+      case 'composicoes': return <ComposicoesMgmtView onSelectComposicao={handleSelectComposicao} isAdmin={isAdmin} isMaster={isMaster} />;
       case 'templates': return <TemplatesView />;
       case 'empresas': return <EmpresasMgmtView />;
       case 'settings': return <SettingsView user={user} />;
@@ -3254,18 +3290,26 @@ function AppContent() {
               </div>
             )}
           </div>
-
+          
           <nav className="flex-1 mt-2">
-            <SidebarItem icon={LayoutDashboard} label="Dashboard" active={activeTab === 'dashboard'} onClick={() => handleNavigate('dashboard')} collapsed={isSidebarCollapsed} />
-            <SidebarItem icon={HardHat} label="Obras" active={activeTab === 'obras'} onClick={() => handleNavigate('obras')} collapsed={isSidebarCollapsed} />
-            <SidebarItem icon={Database} label="Insumos" active={activeTab === 'insumos'} onClick={() => handleNavigate('insumos')} collapsed={isSidebarCollapsed} />
-            <SidebarItem icon={Layers} label="Composições" active={activeTab === 'composicoes'} onClick={() => handleNavigate('composicoes')} collapsed={isSidebarCollapsed} />
-          </nav>
+              <SidebarItem icon={LayoutDashboard} label={user?.role === 'admin_master' ? 'Gestão Geral' : 'Dashboard'} active={activeTab === 'dashboard'} onClick={() => handleNavigate('dashboard')} collapsed={isSidebarCollapsed} />
+              
+              {user?.role === 'admin_master' ? (
+                <>
+                  <SidebarItem icon={Building2} label="Empresas" active={activeTab === 'empresas'} onClick={() => handleNavigate('empresas')} collapsed={isSidebarCollapsed} />
+                  <SidebarItem icon={Database} label="Insumos" active={activeTab === 'insumos'} onClick={() => handleNavigate('insumos')} collapsed={isSidebarCollapsed} />
+                  <SidebarItem icon={Layers} label="Composições" active={activeTab === 'composicoes'} onClick={() => handleNavigate('composicoes')} collapsed={isSidebarCollapsed} />
+                </>
+              ) : (
+                <>
+                  <SidebarItem icon={HardHat} label="Obras" active={activeTab === 'obras'} onClick={() => handleNavigate('obras')} collapsed={isSidebarCollapsed} />
+                  <SidebarItem icon={Database} label="Insumos" active={activeTab === 'insumos'} onClick={() => handleNavigate('insumos')} collapsed={isSidebarCollapsed} />
+                  <SidebarItem icon={Layers} label="Composições" active={activeTab === 'composicoes'} onClick={() => handleNavigate('composicoes')} collapsed={isSidebarCollapsed} />
+                </>
+              )}
+            </nav>
 
           <div className="py-2 border-t border-slate-800/30">
-            {user?.role === 'admin_master' && (
-              <SidebarItem icon={Building2} label="Empresas" active={activeTab === 'empresas'} onClick={() => handleNavigate('empresas')} collapsed={isSidebarCollapsed} />
-            )}
             <SidebarItem icon={Settings} label="Configurações" active={activeTab === 'settings'} onClick={() => handleNavigate('settings')} collapsed={isSidebarCollapsed} />
             <SidebarItem icon={LogOut} label="Sair" active={false} onClick={handleLogout} collapsed={isSidebarCollapsed} />
           </div>

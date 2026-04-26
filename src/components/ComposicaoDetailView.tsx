@@ -11,6 +11,7 @@ interface ComposicaoDetailViewProps {
   onBack: () => void;
   onNavigateToComposicao?: (id: number) => void;
   isAdmin?: boolean;
+  isMaster?: boolean;
   estado?: string;
   dataReferencia?: string;
 }
@@ -20,6 +21,7 @@ const ComposicaoDetailView = ({
   onBack, 
   onNavigateToComposicao,
   isAdmin = false,
+  isMaster = false,
   estado = 'Todos',
   dataReferencia = 'Todos'
 }: ComposicaoDetailViewProps) => {

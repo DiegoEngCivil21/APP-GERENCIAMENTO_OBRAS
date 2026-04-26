@@ -17,7 +17,7 @@ import { Insumo } from '../types';
 import { Button } from './UIComponents';
 import { formatCode, truncateToTwo, BRAZILIAN_STATES, getCurrentRefDate } from '../utils';
 
-const InsumosView = ({ isAdmin }: { isAdmin: boolean }) => {
+const InsumosView = ({ isAdmin, isMaster }: { isAdmin: boolean, isMaster: boolean }) => {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -647,12 +647,16 @@ const InsumosView = ({ isAdmin }: { isAdmin: boolean }) => {
             )}
             {isAdmin && (
               <>
-                <Button variant="secondary" onClick={handleExport}>
-                  <Download size={16} /> Exportar
-                </Button>
-                <Button variant="secondary" onClick={handleImportClick}>
-                  <Upload size={16} /> Importar
-                </Button>
+                {isMaster && (
+                  <Button variant="secondary" onClick={handleExport}>
+                    <Download size={16} /> Exportar
+                  </Button>
+                )}
+                {isMaster && (
+                  <Button variant="secondary" onClick={handleImportClick}>
+                    <Upload size={16} /> Importar
+                  </Button>
+                )}
                 <Button variant="primary" onClick={openCreateModal}>
                   <Plus size={16} /> Novo Insumo
                 </Button>

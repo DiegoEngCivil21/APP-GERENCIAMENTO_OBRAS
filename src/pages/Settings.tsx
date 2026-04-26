@@ -159,7 +159,7 @@ export const SettingsView = ({ user }: { user: any }) => {
     try {
       const res = await fetch('/api/auth/password', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(passwordData)
       });
       const data = await res.json();
