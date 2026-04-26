@@ -2437,6 +2437,102 @@ async function startServer() {
     }
   });
 
+  app.get("/api/obras/:id/caminho-critico", (req, res) => {
+    const obraId = req.params.id;
+    try {
+      const atividades = db.prepare("SELECT * FROM v2_atividades WHERE obra_id = ?").all(obraId) as any[];
+      const dependencias = db.prepare(`
+        SELECT d.* FROM v2_atividade_dependencias d
+        JOIN v2_atividades a ON d.atividade_id = a.id
+        WHERE a.obra_id = ?
+      `).all(obraId) as any[];
+
+      if (atividades.length === 0) return res.json([]);
+
+      const atvMap = new Map();
+      atividades.forEach(a => {
+        atvMap.set(a.id, {
+          ...a,
+          successors: [],
+          predecessors: [],
+          es: 0, ef: 0, ls: 0, lf: 0,
+          duracao: parseInt(a.duracao_dias || 0)
+        });
+      });
+
+      // Build relations
+      dependencias.forEach(d => {
+        if (atvMap.has(d.atividade_id) && atvMap.has(d.depende_de_id)) {
+          atvMap.get(d.depende_de_id).successors.push(d.atividade_id);
+          atvMap.get(d.atividade_id).predecessors.push(d.depende_de_id);
+        }
+      });
+
+      // Handle legacy predecessors
+      atividades.forEach(a => {
+        if (a.predecessor_id && atvMap.has(a.predecessor_id)) {
+          if (!atvMap.get(a.predecessor_id).successors.includes(a.id)) {
+            atvMap.get(a.predecessor_id).successors.push(a.id);
+          }
+          if (!atvMap.get(a.id).predecessors.includes(a.predecessor_id)) {
+            atvMap.get(a.id).predecessors.push(a.predecessor_id);
+          }
+        }
+      });
+
+      // Forward Pass
+      const sortedIds: number[] = [];
+      const inDegree = new Map();
+      atividades.forEach(a => inDegree.set(a.id, atvMap.get(a.id).predecessors.length));
+
+      let queue = atividades.filter(a => inDegree.get(a.id) === 0).map(a => a.id);
+      while (queue.length > 0) {
+        const id = queue.shift()!;
+        sortedIds.push(id);
+        const atv = atvMap.get(id);
+        atv.ef = atv.es + atv.duracao;
+        
+        atv.successors.forEach((succId: number) => {
+          const succ = atvMap.get(succId);
+          succ.es = Math.max(succ.es, atv.ef);
+          inDegree.set(succId, inDegree.get(succId) - 1);
+          if (inDegree.get(succId) === 0) queue.push(succId);
+        });
+      }
+
+      // Max EF for project duration
+      const maxEF = Math.max(...atividades.map(a => atvMap.get(a.id).ef));
+
+      // Backward Pass
+      atividades.forEach(a => {
+        const atv = atvMap.get(a.id);
+        atv.lf = maxEF;
+      });
+
+      for (let i = sortedIds.length - 1; i >= 0; i--) {
+        const id = sortedIds[i];
+        const atv = atvMap.get(id);
+        atv.ls = atv.lf - atv.duracao;
+
+        atv.predecessors.forEach((predId: number) => {
+          const pred = atvMap.get(predId);
+          pred.lf = Math.min(pred.lf, atv.ls);
+        });
+      }
+
+      // Critical Path: Slack = 0 (or LF - EF = 0)
+      const criticalPath = atividades.filter(a => {
+        const atv = atvMap.get(a.id);
+        return (atv.lf - atv.ef) === 0;
+      });
+
+      res.json(criticalPath);
+    } catch (error: any) {
+      console.error("Error calculating critical path:", error);
+      res.status(500).json({ message: "Erro ao calcular caminho crítico.", error: error.message });
+    }
+  });
+
   app.get("/api/obras/:id/cronograma", (req, res) => {
     try {
       const cronograma = db.prepare("SELECT * FROM v2_atividades WHERE obra_id = ?").all(req.params.id) as any[];

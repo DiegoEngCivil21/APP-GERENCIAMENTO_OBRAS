@@ -249,11 +249,34 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
   const [editingField, setEditingField] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isApplyingBaseline, setIsApplyingBaseline] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const updatePendingRef = useRef<Record<string | number, boolean>>({});
   const [showBaselineSuccess, setShowBaselineSuccess] = useState(false);
   const [showClearBaselineConfirm, setShowClearBaselineConfirm] = useState(false);
+
+  // Auto-dismiss notifications
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
+  useEffect(() => {
+    if (successMessage) {
+      const timer = setTimeout(() => setSuccessMessage(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [successMessage]);
+
+  useEffect(() => {
+    if (showBaselineSuccess) {
+      const timer = setTimeout(() => setShowBaselineSuccess(false), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [showBaselineSuccess]);
 
   const scrollToDate = (date: Date) => {
     if (timelineRef.current && columns.length > 0) {
@@ -483,6 +506,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
       });
       if (res.ok) {
         setShowClearBaselineConfirm(false);
+        setSuccessMessage("Linha de base removida com sucesso!");
         fetchAtividades();
       }
     } catch (error) {
@@ -880,6 +904,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
       });
       if (res.ok) {
         setDeleteConfirmId(null);
+        setSuccessMessage("Item excluído com sucesso!");
         
         // Trigger resequence
         await fetch(`/api/obras/${obraId}/cronograma/resequence`, { method: 'POST' });
@@ -1951,10 +1976,26 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
               initial={{ opacity: 0, scale: 0.9, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 10 }}
-              className="fixed bottom-8 right-8 bg-emerald-600 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 z-[100]"
+              className="fixed bottom-8 right-8 bg-emerald-600 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 z-[150]"
             >
               <CheckCircle size={20} />
               <span className="font-bold">Linha de base aplicada com sucesso!</span>
+            </motion.div>
+          )}
+
+          {successMessage && (
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 10 }}
+              className="fixed bottom-8 right-8 bg-slate-800 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 z-[150]"
+            >
+              {successMessage.includes('excluído') ? (
+                <Trash2 size={20} className="text-red-400" />
+              ) : (
+                <CheckCircle size={20} className="text-emerald-400" />
+              )}
+              <span className="font-bold">{successMessage}</span>
             </motion.div>
           )}
         </AnimatePresence>
@@ -3108,9 +3149,11 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                             className={`absolute -translate-y-1/2 h-3 rounded-sm border shadow-sm overflow-hidden group-hover:shadow-lg transition-all cursor-pointer z-10 ${
                               isAddingRow 
                                 ? 'bg-blue-600 border-blue-700' 
-                                : !hasBaseline 
-                                  ? 'bg-indigo-600 border-indigo-700' 
-                                  : isDelayed ? 'bg-red-600 border-red-700' : 'bg-amber-600 border-amber-700'
+                                : showCriticalPath && criticalPathAtividades.has(atv.id)
+                                  ? 'bg-red-600 border-red-700'
+                                  : !hasBaseline 
+                                    ? 'bg-indigo-600 border-indigo-700' 
+                                    : isDelayed ? 'bg-red-600 border-red-700' : 'bg-amber-600 border-amber-700'
                             }`}
                             style={{ ...plannedStyle, top: '15px' }}
                             onClick={() => !isAddingRow && startEdit(atv, 'inicio_real')}
@@ -3118,7 +3161,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                             {/* Progress Fill */}
                             <div 
                               className={`absolute top-0 left-0 h-full ${
-                                isAddingRow ? 'bg-blue-400' : !hasBaseline ? 'bg-indigo-400' : isDelayed ? 'bg-red-400' : 'bg-amber-400'
+                                isAddingRow ? 'bg-blue-400' : showCriticalPath && criticalPathAtividades.has(atv.id) ? 'bg-red-400' : !hasBaseline ? 'bg-indigo-400' : isDelayed ? 'bg-red-400' : 'bg-amber-400'
                               }`}
                               style={{ width: `${atv.progresso || 0}%` }}
                             />
@@ -3129,7 +3172,11 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                       {/* Label next to bar */}
                       <div className="absolute left-full ml-2 flex items-center h-full pointer-events-none">
                         <span className={`text-[9px] font-bold whitespace-nowrap ${isAddingRow ? 'text-blue-500' : 'text-slate-400'}`}>
-                          {atv.nome} {desvio > 0 && <span className="text-red-500 ml-1">+{desvio}d</span>}
+                          {atv.nome} 
+                          {showCriticalPath && criticalPathAtividades.has(atv.id) && (
+                            <span className="text-red-600 ml-1 font-black uppercase text-[7px] bg-red-50 px-1 rounded border border-red-200">Crítico</span>
+                          )}
+                          {desvio > 0 && <span className="text-red-500 ml-1">+{desvio}d</span>}
                           {desvio < 0 && <span className="text-emerald-500 ml-1">{desvio}d</span>}
                         </span>
                       </div>

@@ -8,7 +8,7 @@ import {
   Edit2, 
   Trash2 
 } from 'lucide-react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Obra } from '../types';
 import { Button } from './UIComponents';
 import { formatFinancial, BRAZILIAN_STATES } from '../utils';
@@ -39,6 +39,15 @@ const ObrasView = ({ onSelectObra }: ObrasViewProps) => {
   });
   const [editingObraId, setEditingObraId] = useState<string | number | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | number | null>(null);
+  const [showSuccess, setShowSuccess] = useState<string | null>(null);
+
+  // Auto-dismiss success message
+  useEffect(() => {
+    if (showSuccess) {
+      const timer = setTimeout(() => setShowSuccess(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [showSuccess]);
 
   const fetchObras = () => {
     setLoading(true);
@@ -86,6 +95,7 @@ const ObrasView = ({ onSelectObra }: ObrasViewProps) => {
         setShowModal(false);
         setEditingObraId(null);
         setNewObra({ nome: '', cliente: '', descricao: '', valor_total: 0, status: 'Em Planejamento', data_inicio: '', data_fim_prevista: '', uf: '', endereco: '', localizacao: '', desonerado: 1, data_referencia: '2024-01', bancos_ativos: '["sinapi"]' });
+        setShowSuccess("Obra atualizada com sucesso!");
         fetchObras();
       }
     } else {
@@ -101,6 +111,7 @@ const ObrasView = ({ onSelectObra }: ObrasViewProps) => {
       if (res.ok) {
         setShowModal(false);
         setNewObra({ nome: '', cliente: '', descricao: '', valor_total: 0, status: 'Em Planejamento', data_inicio: '', data_fim_prevista: '', uf: '', endereco: '', localizacao: '', desonerado: 1, data_referencia: '2024-01', bancos_ativos: '["sinapi"]' });
+        setShowSuccess("Obra criada com sucesso!");
         fetchObras();
       }
     }
@@ -139,6 +150,7 @@ const ObrasView = ({ onSelectObra }: ObrasViewProps) => {
       });
 
       if (response.ok) {
+        setShowSuccess("Obra excluída com sucesso!");
         fetchObras();
       } else {
         console.error('Erro ao excluir obra');
@@ -174,6 +186,19 @@ const ObrasView = ({ onSelectObra }: ObrasViewProps) => {
 
   return (
     <div className="space-y-7">
+      <AnimatePresence>
+        {showSuccess && (
+          <motion.div 
+            initial={{ opacity: 0, y: 10, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.9 }}
+            className="fixed bottom-8 right-8 bg-emerald-600 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 z-[150] font-bold"
+          >
+            {showSuccess.includes('excluída') ? <Trash2 size={20} /> : <Calendar size={20} />}
+            {showSuccess}
+          </motion.div>
+        )}
+      </AnimatePresence>
       <div className="space-y-6">
         <div>
           <h2 className="text-4xl font-black text-slate-900 tracking-tighter uppercase">Obra</h2>

@@ -147,12 +147,6 @@ export const CronogramaHeader: React.FC<CronogramaHeaderProps> = ({
         )}
       </div>
 
-      {showBaselineSuccess && (
-        <div className="fixed bottom-4 right-4 bg-emerald-500 text-white px-4 py-2 rounded-lg shadow-lg text-xs font-bold">
-          Linha de base definida com sucesso!
-        </div>
-      )}
-
       {showClearBaselineConfirm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white p-6 rounded-xl shadow-xl max-w-sm">
