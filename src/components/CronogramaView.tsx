@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { 
   Printer, Target, CheckCircle, RefreshCw, AlertTriangle, Layers, 
   Trash2, Settings, X, Plus, Check, Maximize2, Minimize2, 
@@ -200,31 +200,46 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [leftPaneWidth, setLeftPaneWidth] = useState(Math.max(600, window.innerWidth * 0.50));
-  const isResizing = useRef(false);
+  const [isResizing, setIsResizing] = useState(false);
 
-  const startResizing = (e: React.MouseEvent) => {
+  const startResizing = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    isResizing.current = true;
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', stopResizing);
-    document.body.style.cursor = 'col-resize';
-  };
+    setIsResizing(true);
+  }, []);
 
-  const stopResizing = () => {
-    isResizing.current = false;
-    document.removeEventListener('mousemove', handleMouseMove);
-    document.removeEventListener('mouseup', stopResizing);
-    document.body.style.cursor = 'default';
-  };
+  const stopResizing = useCallback(() => {
+    setIsResizing(false);
+  }, []);
 
-  const handleMouseMove = (e: MouseEvent) => {
-    if (!isResizing.current) return;
-    const newWidth = e.clientX;
-    if (newWidth > 300 && newWidth < 1200) {
-      setLeftPaneWidth(newWidth);
+  const resize = useCallback((e: MouseEvent) => {
+    if (isResizing) {
+      const newWidth = e.clientX;
+      // Define minimum and maximum limits for the left panel
+      if (newWidth > 200 && newWidth < window.innerWidth - 200) {
+        setLeftPaneWidth(newWidth);
+      }
     }
-  };
-  
+  }, [isResizing]);
+
+  useEffect(() => {
+    if (isResizing) {
+      window.addEventListener('mousemove', resize);
+      window.addEventListener('mouseup', stopResizing);
+      // Optional: change body cursor while resizing
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    } else {
+      window.removeEventListener('mousemove', resize);
+      window.removeEventListener('mouseup', stopResizing);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+    return () => {
+      window.removeEventListener('mousemove', resize);
+      window.removeEventListener('mouseup', stopResizing);
+    };
+  }, [isResizing, resize, stopResizing]);
+
   // Inline editing state
   const [isAdding, setIsAdding] = useState(false);
   const [addingToStage, setAddingToStage] = useState<number | string | null>(null);
@@ -1094,12 +1109,6 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
   const handleDataInicioChange = (dateStr: string) => {
     let inicio = parseDate(dateStr);
     if (isValid(inicio)) {
-      // Auto-ajusta para o próximo dia útil se a data selecionada não for útil
-      if (!isWorkingDay(inicio)) {
-        inicio = getNextWorkingDay(inicio);
-        dateStr = format(inicio, 'yyyy-MM-dd');
-      }
-      
       setEditForm(prev => {
         let newDataFim = prev.data_fim_prevista;
         if (prev.duracao_dias !== undefined && prev.duracao_dias !== null && prev.duracao_dias !== "") {
@@ -1158,18 +1167,6 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
   const handleDataFimChange = (dateStr: string) => {
     let fim = parseDate(dateStr);
     if (isValid(fim)) {
-      // Auto-ajusta para o dia útil anterior se a data selecionada não for útil
-      if (!isWorkingDay(fim)) {
-        let prevDate = addDays(fim, -1);
-        while (!isWorkingDay(prevDate) && isAfter(prevDate, parseDate(editFormRef.current.data_inicio_prevista || '2000-01-01'))) {
-          prevDate = addDays(prevDate, -1);
-        }
-        if (isWorkingDay(prevDate)) {
-          fim = prevDate;
-          dateStr = format(fim, 'yyyy-MM-dd');
-        }
-      }
-
       setEditForm(prev => {
         let newDuracao = prev.duracao_dias;
         if (prev.data_inicio_prevista) {
@@ -1204,47 +1201,72 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
   
   // 1. Determine overall project start and end dates
   const { projectStart, projectEnd } = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const threeDaysAgo = addDays(today, -3);
-    
-    let minDate = threeDaysAgo;
-    let maxDate = endOfMonth(addMonths(startOfMonth(today), 2)); // Default 3 months
-
-    if (atividades.length > 0) {
-      const startDates = atividades
-        .map(a => a.data_inicio_prevista ? parseDate(a.data_inicio_prevista) : null)
-        .filter(d => d && isValid(d)) as Date[];
-      const endDates = atividades
-        .map(a => a.data_fim_prevista ? parseDate(a.data_fim_prevista) : null)
-        .filter(d => d && isValid(d)) as Date[];
-
-      if (startDates.length > 0 && endDates.length > 0) {
-        const actualMin = min(startDates);
-        const actualMax = max(endDates);
-        
-        // Start at least 3 days before today, or earlier if project starts earlier
-        minDate = isBefore(actualMin, threeDaysAgo) ? actualMin : threeDaysAgo;
-        
-        // Ensure at least 3 months span from the minDate
-        const minEnd = endOfMonth(addMonths(startOfMonth(minDate), 2));
-        maxDate = isAfter(actualMax, minEnd) ? actualMax : minEnd;
+      let today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const threeDaysAgo = addDays(today, -3);
+  
+      let minDate = threeDaysAgo;
+      let maxDate = endOfMonth(addMonths(startOfMonth(today), 2)); // Default 3 months
+  
+      const allAtividades = [...atividades];
+      if (editingId) {
+        const editingAtv = allAtividades.find(a => a.id === editingId);
+        if (editingAtv) {
+          const updated = {
+            ...editingAtv,
+            ...editForm
+          } as any as Atividade;
+          const idx = allAtividades.findIndex(a => a.id === editingId);
+          allAtividades[idx] = updated;
+        }
+      } else if (isAdding && editForm.data_inicio_prevista && editForm.data_fim_prevista) {
+         allAtividades.push({
+           id: -1,
+           ...editForm
+         } as any);
       }
-    }
-
-    // Add some padding
-    if (viewMode === 'day') {
-      // No snapping to week start to respect the exact padding requested
-    } else if (viewMode === 'week') {
-      minDate = startOfMonth(minDate);
-      maxDate = endOfMonth(addMonths(maxDate, 1));
-    } else {
-      minDate = startOfMonth(minDate);
-      maxDate = endOfMonth(addMonths(maxDate, 3));
-    }
-
-    return { projectStart: minDate, projectEnd: maxDate };
-  }, [atividades, viewMode]);
+  
+      if (allAtividades.length > 0) {
+        const startDates: Date[] = [];
+        const endDates: Date[] = [];
+        
+        allAtividades.forEach(a => {
+          [a.data_inicio_prevista, a.data_inicio_real, a.data_inicio_base].forEach(dStr => {
+            if (dStr) {
+              const d = parseDate(dStr);
+              if (isValid(d)) startDates.push(d);
+            }
+          });
+          [a.data_fim_prevista, a.data_fim_real, a.data_fim_base].forEach(dStr => {
+            if (dStr) {
+              const d = parseDate(dStr);
+              if (isValid(d)) endDates.push(d);
+            }
+          });
+        });
+  
+        if (startDates.length > 0 && endDates.length > 0) {
+          const actualMin = min(startDates);
+          const actualMax = max(endDates);
+          
+          minDate = isBefore(actualMin, threeDaysAgo) ? actualMin : threeDaysAgo;
+          const minEnd = endOfMonth(addMonths(startOfMonth(minDate), 2));
+          maxDate = isAfter(actualMax, minEnd) ? actualMax : minEnd;
+        }
+      }
+  
+      if (viewMode === 'day') {
+        maxDate = addDays(maxDate, 5); // Add some padding days
+      } else if (viewMode === 'week') {
+        minDate = startOfMonth(minDate);
+        maxDate = endOfMonth(addMonths(maxDate, 1));
+      } else {
+        minDate = startOfMonth(minDate);
+        maxDate = endOfMonth(addMonths(maxDate, 6));
+      }
+  
+      return { projectStart: minDate, projectEnd: maxDate };
+    }, [atividades, viewMode, editingId, isAdding, editForm, obraData]);
 
   const taskListRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -1276,6 +1298,24 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
   };
 
     const { allRows, taskRowMap, projectSummaryData } = useMemo(() => {
+      // Create a unified list of activities that includes current edits for real-time aggregation
+      let currentAtividades = atividades.map(a => {
+        if (editingId && a.id === editingId) {
+          return { ...a, ...editForm } as Atividade;
+        }
+        return a;
+      });
+
+      // Also include the item being added for real-time summary updates
+      if (isAdding && editForm.data_inicio_prevista && editForm.data_fim_prevista) {
+        currentAtividades.push({
+          id: -999, // Unique dummy ID for the adding item
+          ...editForm,
+          atividade: editForm.nome || 'Nova Atividade',
+          nome: editForm.nome || 'Nova Atividade'
+        } as any as Atividade);
+      }
+
       const sortCodes = (a: string, b: string) => {
         if (!a && !b) return 0;
         if (!a) return 1;
@@ -1301,7 +1341,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
         const trimmedStageItem = (stageItem || '').trim();
         const baseItem = trimmedStageItem.endsWith('.0') ? trimmedStageItem.slice(0, -2) : trimmedStageItem;
         
-        const childAtvs = atividades.filter(a => {
+        const childAtvs = currentAtividades.filter(a => {
           // Match by explicit stage ID
           if (a.etapa_id === stageId) return true;
           
@@ -1319,46 +1359,49 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
         let maxFimReal: Date | null = null;
         let minInicioBase: Date | null = null;
         let maxFimBase: Date | null = null;
+        let minCurrentInicio: Date | null = null;
+        let maxCurrentFim: Date | null = null;
         let totalProgressoPonderado = 0;
         let totalValorEtapa = 0;
 
         childAtvs.forEach(a => {
-          if (a.data_inicio_prevista) {
-            const d = parseDate(a.data_inicio_prevista);
-            if (isValid(d)) {
-              if (!minInicioPrev || d < minInicioPrev) minInicioPrev = d;
-            }
+          const pInicio = a.data_inicio_prevista ? parseDate(a.data_inicio_prevista) : null;
+          const pFim = a.data_fim_prevista ? parseDate(a.data_fim_prevista) : null;
+          const rInicio = a.data_inicio_real ? parseDate(a.data_inicio_real) : null;
+          const rFim = a.data_fim_real ? parseDate(a.data_fim_real) : null;
+          const bInicio = a.data_inicio_base ? parseDate(a.data_inicio_base) : null;
+          const bFim = a.data_fim_base ? parseDate(a.data_fim_base) : null;
+
+          if (pInicio && isValid(pInicio)) {
+            if (!minInicioPrev || pInicio < minInicioPrev) minInicioPrev = pInicio;
           }
-          if (a.data_fim_prevista) {
-            const d = parseDate(a.data_fim_prevista);
-            if (isValid(d)) {
-              if (!maxFimPrev || d > maxFimPrev) maxFimPrev = d;
-            }
+          if (pFim && isValid(pFim)) {
+            if (!maxFimPrev || pFim > maxFimPrev) maxFimPrev = pFim;
           }
-          if (a.data_inicio_real) {
-            const d = parseDate(a.data_inicio_real);
-            if (isValid(d)) {
-              if (!minInicioReal || d < minInicioReal) minInicioReal = d;
-            }
+          if (rInicio && isValid(rInicio)) {
+            if (!minInicioReal || rInicio < minInicioReal) minInicioReal = rInicio;
           }
-          if (a.data_fim_real) {
-            const d = parseDate(a.data_fim_real);
-            if (isValid(d)) {
-              if (!maxFimReal || d > maxFimReal) maxFimReal = d;
-            }
+          if (rFim && isValid(rFim)) {
+            if (!maxFimReal || rFim > maxFimReal) maxFimReal = rFim;
           }
-          if (a.data_inicio_base) {
-            const d = parseDate(a.data_inicio_base);
-            if (isValid(d)) {
-              if (!minInicioBase || d < minInicioBase) minInicioBase = d;
-            }
+          if (bInicio && isValid(bInicio)) {
+            if (!minInicioBase || bInicio < minInicioBase) minInicioBase = bInicio;
           }
-          if (a.data_fim_base) {
-            const d = parseDate(a.data_fim_base);
-            if (isValid(d)) {
-              if (!maxFimBase || d > maxFimBase) maxFimBase = d;
-            }
+          if (bFim && isValid(bFim)) {
+            if (!maxFimBase || bFim > maxFimBase) maxFimBase = bFim;
           }
+
+          // Calculate current range for this child activity (Real or Planned)
+          const cInicio = (rInicio && isValid(rInicio)) ? rInicio : pInicio;
+          const cFim = (rFim && isValid(rFim)) ? rFim : pFim;
+
+          if (cInicio && isValid(cInicio)) {
+            if (!minCurrentInicio || cInicio < minCurrentInicio) minCurrentInicio = cInicio;
+          }
+          if (cFim && isValid(cFim)) {
+            if (!maxCurrentFim || cFim > maxCurrentFim) maxCurrentFim = cFim;
+          }
+
           const cleanId = a.orcamento_item_id ? String(a.orcamento_item_id).replace('item-', '').replace('etapa-', '') : null;
           const budgetValue = cleanId ? (itemValuesMap[cleanId] || 0) : 0;
           
@@ -1383,6 +1426,8 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
           data_fim_real: maxFimReal ? format(maxFimReal, 'yyyy-MM-dd') : null,
           data_inicio_base: minInicioBase ? format(minInicioBase, 'yyyy-MM-dd') : null,
           data_fim_base: maxFimBase ? format(maxFimBase, 'yyyy-MM-dd') : null,
+          data_inicio_atual: minCurrentInicio ? format(minCurrentInicio, 'yyyy-MM-dd') : null,
+          data_fim_atual: maxCurrentFim ? format(maxCurrentFim, 'yyyy-MM-dd') : null,
           duracao_dias: duracaoDias,
           progresso: weightedProgresso
         };
@@ -1395,45 +1440,47 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
         let maxFimReal: Date | null = null;
         let minInicioBase: Date | null = null;
         let maxFimBase: Date | null = null;
+        let minCurrentInicio: Date | null = null;
+        let maxCurrentFim: Date | null = null;
         let totalProgressoPonderado = 0;
         let totalValorProjeto = 0;
 
-        atividades.forEach(a => {
-          if (a.data_inicio_prevista) {
-            const d = parseDate(a.data_inicio_prevista);
-            if (isValid(d)) {
-              if (!minInicioPrev || d < minInicioPrev) minInicioPrev = d;
-            }
+        currentAtividades.forEach(a => {
+          const pInicio = a.data_inicio_prevista ? parseDate(a.data_inicio_prevista) : null;
+          const pFim = a.data_fim_prevista ? parseDate(a.data_fim_prevista) : null;
+          const rInicio = a.data_inicio_real ? parseDate(a.data_inicio_real) : null;
+          const rFim = a.data_fim_real ? parseDate(a.data_fim_real) : null;
+          const bInicio = a.data_inicio_base ? parseDate(a.data_inicio_base) : null;
+          const bFim = a.data_fim_base ? parseDate(a.data_fim_base) : null;
+
+          if (pInicio && isValid(pInicio)) {
+            if (!minInicioPrev || pInicio < minInicioPrev) minInicioPrev = pInicio;
           }
-          if (a.data_fim_prevista) {
-            const d = parseDate(a.data_fim_prevista);
-            if (isValid(d)) {
-              if (!maxFimPrev || d > maxFimPrev) maxFimPrev = d;
-            }
+          if (pFim && isValid(pFim)) {
+            if (!maxFimPrev || pFim > maxFimPrev) maxFimPrev = pFim;
           }
-          if (a.data_inicio_real) {
-            const d = parseDate(a.data_inicio_real);
-            if (isValid(d)) {
-              if (!minInicioReal || d < minInicioReal) minInicioReal = d;
-            }
+          if (rInicio && isValid(rInicio)) {
+            if (!minInicioReal || rInicio < minInicioReal) minInicioReal = rInicio;
           }
-          if (a.data_fim_real) {
-            const d = parseDate(a.data_fim_real);
-            if (isValid(d)) {
-              if (!maxFimReal || d > maxFimReal) maxFimReal = d;
-            }
+          if (rFim && isValid(rFim)) {
+            if (!maxFimReal || rFim > maxFimReal) maxFimReal = rFim;
           }
-          if (a.data_inicio_base) {
-            const d = parseDate(a.data_inicio_base);
-            if (isValid(d)) {
-              if (!minInicioBase || d < minInicioBase) minInicioBase = d;
-            }
+          if (bInicio && isValid(bInicio)) {
+            if (!minInicioBase || bInicio < minInicioBase) minInicioBase = bInicio;
           }
-          if (a.data_fim_base) {
-            const d = parseDate(a.data_fim_base);
-            if (isValid(d)) {
-              if (!maxFimBase || d > maxFimBase) maxFimBase = d;
-            }
+          if (bFim && isValid(bFim)) {
+            if (!maxFimBase || bFim > maxFimBase) maxFimBase = bFim;
+          }
+
+          // Calculate current range for this activity (Real or Planned)
+          const cInicio = (rInicio && isValid(rInicio)) ? rInicio : pInicio;
+          const cFim = (rFim && isValid(rFim)) ? rFim : pFim;
+
+          if (cInicio && isValid(cInicio)) {
+            if (!minCurrentInicio || cInicio < minCurrentInicio) minCurrentInicio = cInicio;
+          }
+          if (cFim && isValid(cFim)) {
+            if (!maxCurrentFim || cFim > maxCurrentFim) maxCurrentFim = cFim;
           }
           const cleanId = a.orcamento_item_id ? String(a.orcamento_item_id).replace('item-', '').replace('etapa-', '') : null;
           const budgetValue = cleanId ? (itemValuesMap[cleanId] || 0) : 0;
@@ -1458,6 +1505,8 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
           data_fim_real: maxFimReal ? format(maxFimReal, 'yyyy-MM-dd') : null,
           data_inicio_base: minInicioBase ? format(minInicioBase, 'yyyy-MM-dd') : null,
           data_fim_base: maxFimBase ? format(maxFimBase, 'yyyy-MM-dd') : null,
+          data_inicio_atual: minCurrentInicio ? format(minCurrentInicio, 'yyyy-MM-dd') : null,
+          data_fim_atual: maxCurrentFim ? format(maxCurrentFim, 'yyyy-MM-dd') : null,
           duracao_dias: duracaoDias,
           progresso: weightedProgresso
         };
@@ -1502,7 +1551,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
       });
 
       // 2. Add all activities
-      atividades.forEach(atv => {
+      currentAtividades.forEach(atv => {
         if (!addedActivities.has(atv.id)) {
           addedActivities.add(atv.id);
           rows.push({
@@ -1515,7 +1564,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
       });
 
       // 3. Handle activities without stages or stages not in budget
-      atividades.forEach(atv => {
+      currentAtividades.forEach(atv => {
         if (atv.etapa_id && !addedStages.has(atv.etapa_id)) {
           let inferredItem = '';
           if (atv.item_numero && atv.item_numero.includes('.')) {
@@ -1523,7 +1572,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
           }
           
           // Only add stage if no activity exists with the same item number
-          const hasActivity = atividades.some(a => a.item_numero?.trim() === inferredItem.trim());
+          const hasActivity = currentAtividades.some(a => a.item_numero?.trim() === inferredItem.trim());
           
           addedStages.add(atv.etapa_id);
           
@@ -1591,18 +1640,29 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
         }
 
         if (isAdding && addingAfterId === row.id && addingAfterType === row.type) {
-          finalRows.push({ type: 'adding', id: 'adding', item: '', data: { etapa_id: editForm.etapa_id } });
+          finalRows.push({ 
+            type: 'adding', 
+            id: 'adding', 
+            item: editForm.item_numero || '', 
+            data: { ...editForm, id: -999, nome: editForm.nome || 'Nova Atividade' } 
+          });
           currentRow++;
         }
       });
 
       if (isAdding && !addingAfterId) {
-        finalRows.push({ type: 'adding', id: 'adding', item: '', data: { etapa_id: editForm.etapa_id } });
+        finalRows.push({ 
+          type: 'adding', 
+          id: 'adding', 
+          item: editForm.item_numero || '', 
+          data: { ...editForm, id: -999, nome: editForm.nome || 'Nova Atividade' } 
+        });
         currentRow++;
       }
 
       return { allRows: finalRows, taskRowMap: map, projectSummaryData };
-    }, [atividades, orcamentoItens, isAdding, editForm.etapa_id, addingAfterId, addingAfterType, obraData, viewMode]);
+    }, [atividades, orcamentoItens, isAdding, editForm, addingAfterId, addingAfterType, obraData, viewMode, editingId, itemValuesMap]);
+
 
   // 2. Generate columns based on viewMode
   const columns = useMemo(() => {
@@ -1738,50 +1798,71 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
   }, [columns, viewMode]);
 
   // Calculate position and width for a task bar
-  const getTaskStyle = (taskStart: string, taskEnd: string) => {
-    if (!taskStart || !taskEnd || columns.length === 0) return { display: 'none' };
+  const getTaskStyle = (taskStart: string | Date | undefined, taskEnd: string | Date | undefined) => {
+    if (!taskStart || !taskEnd) return { display: 'none' };
     
-    const start = parseDate(taskStart);
-    const end = parseDate(taskEnd);
+    const start = typeof taskStart === 'string' ? parseDate(taskStart) : taskStart;
+    const end = typeof taskEnd === 'string' ? parseDate(taskEnd) : taskEnd;
     
-    if (viewMode === 'day') {
-      // Find index of start and end in columns (which only contains working days)
-      let startIndex = columns.findIndex(d => isSameDay(d, start));
-      let endIndex = columns.findIndex(d => isSameDay(d, end));
+    if (!isValid(start) || !isValid(end)) return { display: 'none' };
 
-      // If start is not a working day, find the next working day
-      if (startIndex === -1) {
-        startIndex = columns.findIndex(d => isAfter(d, start));
+    // Clamping helper for week/month/day
+    const clampToColumns = (s: Date, e: Date, totalUnits: number, getUnitIndex: (d: Date) => number, isContinuous = false) => {
+      let startIndex = getUnitIndex(s);
+      let endIndex = getUnitIndex(e);
+
+      if (isContinuous) {
+          // Precise fractional calculation for weeks/months
+          const chartStart = columns[0].getTime();
+          // Adjust chartEnd based on viewMode
+          let chartEnd;
+          if (viewMode === 'week') chartEnd = addDays(columns[columns.length - 1], 7).getTime();
+          else if (viewMode === 'month') chartEnd = endOfMonth(columns[columns.length - 1]).getTime();
+          else chartEnd = addDays(columns[columns.length - 1], 1).getTime();
+
+          const totalMs = chartEnd - chartStart;
+          const sMs = s.getTime();
+          const eMs = e.getTime();
+
+          if (sMs > chartEnd || eMs < chartStart) return { display: 'none' };
+
+          const left = Math.max(0, ((sMs - chartStart) / totalMs) * 100);
+          const width = Math.min(100 - left, ((eMs - Math.max(sMs, chartStart)) / totalMs) * 100);
+
+          return { left: `${left}%`, width: `${width}%`, display: 'block' };
+      } else {
+          // Discrete calculation for Working Days
+          if (startIndex === -1) {
+            if (isBefore(s, columns[0])) startIndex = 0;
+            else startIndex = columns.findIndex(d => isAfter(d, s));
+          }
+          
+          if (endIndex === -1) {
+            if (isAfter(e, columns[columns.length - 1])) endIndex = columns.length - 1;
+            else {
+              for (let i = columns.length - 1; i >= 0; i--) {
+                if (isBefore(columns[i], e) || isSameDay(columns[i], e)) {
+                  endIndex = i;
+                  break;
+                }
+              }
+            }
+          }
+
+          if (startIndex === -1 || endIndex === -1 || startIndex > endIndex) return { display: 'none' };
+
+          const left = (startIndex / columns.length) * 100;
+          const width = ((endIndex - startIndex + 1) / columns.length) * 100;
+
+          return { left: `${left}%`, width: `${width}%`, display: 'block' };
       }
-      // If end is not a working day, find the previous working day
-      if (endIndex === -1) {
-        const reversedCols = [...columns].reverse();
-        const found = reversedCols.find(d => isBefore(d, end));
-        if (found) endIndex = columns.findIndex(d => isSameDay(d, found));
-      }
-
-      if (startIndex === -1 || endIndex === -1 || startIndex > endIndex) return { display: 'none' };
-
-      const left = (startIndex / columns.length) * 100;
-      const width = ((endIndex - startIndex + 1) / columns.length) * 100;
-
-      return {
-        left: `${left}%`,
-        width: `${width}%`,
-      };
-    }
-    
-    const totalDuration = differenceInDays(projectEnd, projectStart) + 1;
-    const taskDuration = differenceInDays(end, start) + 1;
-    const startOffset = differenceInDays(start, projectStart);
-
-    const left = (startOffset / totalDuration) * 100;
-    const width = (taskDuration / totalDuration) * 100;
-
-    return {
-      left: `${Math.max(0, left)}%`,
-      width: `${Math.min(100 - left, width)}%`,
     };
+
+    if (viewMode === 'day') {
+      return clampToColumns(start, end, columns.length, (d) => columns.findIndex(col => isSameDay(col, d)), false);
+    } else {
+      return clampToColumns(start, end, columns.length, () => -1, true);
+    }
   };
 
   // --- Cálculo da Linha de Base Histograma (Conexão Contínua) ---
@@ -1800,7 +1881,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
       }
       
       if (data && data.data_inicio_base && data.data_fim_base) {
-        const style = getTaskStyle(data.data_inicio_base, data.data_fim_base);
+        const style = getTaskStyle(data.data_inicio_base, data.data_fim_base) as any;
         if (style.display !== 'none') {
           const left = parseFloat(style.left as string);
           const width = parseFloat(style.width as string);
@@ -1931,14 +2012,14 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
               {/* Row 1: Labels (Aligned with Month) */}
               <div className="h-8 border-b border-slate-700/30 bg-slate-800 flex items-center min-w-full z-[51]">
                 <div className="flex min-w-full text-[10px] font-bold text-white uppercase tracking-wider h-full">
-                  <div className="w-[100px] flex-shrink-0 text-left sticky left-0 bg-slate-800 z-40 pl-5 flex items-center">Item</div>
+                  <div className="w-[100px] flex-shrink-0 text-center sticky left-0 bg-slate-800 z-40 flex items-center justify-center">Item</div>
                   <div className="w-[300px] flex-shrink-0 text-left sticky left-[100px] bg-slate-800 z-40 shadow-[4px_0_4px_-2px_rgba(0,0,0,0.3)] flex items-center px-3">Atividade</div>
                   <div className="flex items-center h-full">
                     <div className="w-[100px] flex-shrink-0 text-center px-1">Duração</div>
                     <div className="w-[100px] flex-shrink-0 text-center px-1">Início</div>
                     <div className="w-[100px] flex-shrink-0 text-center px-1">Fim</div>
                     <div className="w-[100px] flex-shrink-0 text-center px-1">Pred.</div>
-                    <div className="w-[60px] flex-shrink-0 text-center px-1">%</div>
+                    <div className="w-[60px] flex-shrink-0 text-center px-1 font-bold">%</div>
                     <div className="w-[100px] flex-shrink-0 text-center px-1">Início Real</div>
                     <div className="w-[100px] flex-shrink-0 text-center px-1">Término Real</div>
                     <div className="w-[140px] flex-shrink-0 text-center px-1">Recurso</div>
@@ -1950,7 +2031,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
               {/* Row 2: Project Info Header (Aligned with Days/Weeks) */}
               <div className="h-8 border-b border-slate-700/30 bg-slate-900 flex items-center min-w-full z-[51]">
                 <div className="flex min-w-full items-center h-full text-white">
-                  <div className="w-[100px] flex-shrink-0 text-left sticky left-0 z-[52] pl-5 h-full flex items-center bg-slate-900 font-bold text-[10px]">-</div>
+                  <div className="w-[100px] flex-shrink-0 text-center sticky left-0 z-[52] h-full flex items-center justify-center bg-slate-900 font-bold text-[10px]">-</div>
                   <div className="w-[300px] flex-shrink-0 text-left sticky left-[100px] z-[52] shadow-[6px_0_6px_-3px_rgba(0,0,0,0.1)] truncate h-full flex items-center bg-slate-900 px-3 font-bold text-xs uppercase tracking-wider">
                     {obraData?.nome || 'OBRA'}
                   </div>
@@ -1958,24 +2039,24 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                     <div className="w-[100px] flex-shrink-0 text-center text-[10px] font-black px-2">
                       {projectSummaryData.duracao_dias}
                     </div>
-                    <div className="w-[90px] flex-shrink-0 text-center text-[9px] font-black px-2">
+                    <div className="w-[100px] flex-shrink-0 text-center text-[9px] font-black px-2">
                       {projectSummaryData.data_inicio_prevista ? format(parseDate(projectSummaryData.data_inicio_prevista), 'dd/MM/yy') : ''}
                     </div>
-                    <div className="w-[90px] flex-shrink-0 text-center text-[9px] font-black px-2">
+                    <div className="w-[100px] flex-shrink-0 text-center text-[9px] font-black px-2">
                       {projectSummaryData.data_fim_prevista ? format(parseDate(projectSummaryData.data_fim_prevista), 'dd/MM/yy') : ''}
                     </div>
-                    <div className="w-[90px] flex-shrink-0"></div>
+                    <div className="w-[100px] flex-shrink-0"></div>
                     <div className="w-[60px] flex-shrink-0 text-center text-[10px] font-black px-2">
                       {projectSummaryData.progresso || 0}%
                     </div>
-                    <div className="w-[90px] flex-shrink-0 text-center text-[9px] font-black px-2">
+                    <div className="w-[100px] flex-shrink-0 text-center text-[9px] font-black px-2">
                       {projectSummaryData.data_inicio_real ? format(parseDate(projectSummaryData.data_inicio_real), 'dd/MM/yy') : ''}
                     </div>
-                    <div className="w-[90px] flex-shrink-0 text-center text-[9px] font-black px-2">
+                    <div className="w-[100px] flex-shrink-0 text-center text-[9px] font-black px-2">
                       {projectSummaryData.data_fim_real ? format(parseDate(projectSummaryData.data_fim_real), 'dd/MM/yy') : ''}
                     </div>
-                    <div className="w-[140px] flex-shrink-0 px-2"></div>
-                    <div className="w-[75px] flex-shrink-0 px-2"></div>
+                    <div className="w-[140px] flex-shrink-0 px-2 text-center text-[9px] font-black">-</div>
+                    <div className="w-[75px] flex-shrink-0 px-2 text-center text-[9px] font-black">-</div>
                   </div>
                 </div>
               </div>
@@ -2008,7 +2089,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                         onMouseLeave={() => setHoveredRowId(null)}
                       >
                         <div className="flex min-w-full items-center h-full">
-                          <div className={`w-[100px] flex-shrink-0 text-left sticky left-0 z-30 pl-5 h-full flex items-center ${etapaId === 0 ? 'bg-amber-50' : 'bg-slate-100'}`}>
+                          <div className={`w-[100px] flex-shrink-0 text-center sticky left-0 z-30 h-full flex items-center justify-center ${etapaId === 0 ? 'bg-amber-50' : 'bg-slate-100'}`}>
                             {etapaData.item}
                           </div>
                           <div 
@@ -2022,23 +2103,23 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                             <div className="w-[100px] flex-shrink-0 text-center text-[10px] font-bold text-slate-600" title="Duração calculada automaticamente com base nas sub-atividades">
                               {(etapaData.duracao_dias !== undefined && etapaData.duracao_dias !== null) ? etapaData.duracao_dias : '-'}
                             </div>
-                            <div className="w-[90px] flex-shrink-0 text-center text-[9px] font-bold text-slate-600">
+                            <div className="w-[100px] flex-shrink-0 text-center text-[9px] font-bold text-slate-600">
                               {etapaData.data_inicio_prevista ? format(parseDate(etapaData.data_inicio_prevista), 'dd/MM/yy') : '-'}
                             </div>
-                            <div className="w-[90px] flex-shrink-0 text-center text-[9px] font-bold text-slate-600">
+                            <div className="w-[100px] flex-shrink-0 text-center text-[9px] font-bold text-slate-600">
                               {etapaData.data_fim_prevista ? format(parseDate(etapaData.data_fim_prevista), 'dd/MM/yy') : '-'}
                             </div>
-                            <div className="w-[90px] flex-shrink-0"></div>
+                            <div className="w-[100px] flex-shrink-0 text-center text-[10px] font-bold text-slate-400">-</div>
                             <div className="w-[60px] flex-shrink-0 text-center text-[10px] font-bold text-slate-600">
                               {etapaData.progresso || 0}%
                             </div>
-                            <div className="w-[90px] flex-shrink-0 text-center text-[9px] font-bold text-slate-600">
+                            <div className="w-[100px] flex-shrink-0 text-center text-[9px] font-bold text-slate-600">
                               {etapaData.data_inicio_real ? format(parseDate(etapaData.data_inicio_real), 'dd/MM/yy') : '-'}
                             </div>
-                            <div className="w-[90px] flex-shrink-0 text-center text-[9px] font-bold text-slate-600">
+                            <div className="w-[100px] flex-shrink-0 text-center text-[9px] font-bold text-slate-600">
                               {etapaData.data_fim_real ? format(parseDate(etapaData.data_fim_real), 'dd/MM/yy') : '-'}
                             </div>
-                            <div className="w-[140px] flex-shrink-0"></div>
+                            <div className="w-[140px] flex-shrink-0 text-center text-[9px] font-bold text-slate-400">-</div>
                             <div className="w-[75px] flex-shrink-0 flex items-center justify-center">
                               {viewMode !== 'month' && (
                                 <button 
@@ -2067,7 +2148,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                           className={`absolute border-b border-indigo-100 flex items-center bg-indigo-50/30 min-w-full z-50 edit-row-${atv ? atv.id : 'adding'}`}
                           style={{ top: rowTop, height: '40px', left: 0, right: 0 }}
                         >
-                            <div className="w-[100px] flex-shrink-0 sticky left-0 z-30 bg-indigo-50/50 pl-5 h-full flex items-center">
+                            <div className="w-[100px] flex-shrink-0 sticky left-0 z-30 bg-indigo-50/50 h-full flex items-center justify-center">
                               <input 
                                 type="text"
                                 autoFocus={editingField === 'item_numero'}
@@ -2083,7 +2164,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                                 onKeyDown={e => handleKeyDown(e, atv?.id)}
                                 onBlur={(e) => atv && handleBlur(e, atv.id)}
                                 disabled={isLocked}
-                                className={`w-full bg-white border border-indigo-200 rounded px-1 py-0.5 text-[10px] font-bold text-slate-700 outline-none focus:ring-1 focus:ring-indigo-500 ${isLocked ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                className={`w-full bg-white border border-indigo-200 rounded px-1 py-0.5 text-[10px] font-bold text-slate-700 text-center outline-none focus:ring-1 focus:ring-indigo-500 ${isLocked ? 'opacity-50 cursor-not-allowed' : ''}`}
                               />
                             </div>
                             <div className="w-[300px] flex-shrink-0 sticky left-[100px] z-30 bg-indigo-50/50 shadow-[8px_0_6px_-3px_rgba(0,0,0,0.1)] h-full flex items-center px-3">
@@ -2131,7 +2212,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                                         />
                                       )}
                                     </div>
-                                  <div className="w-[90px] flex-shrink-0 px-1 flex items-center justify-center">
+                                  <div className="w-[100px] flex-shrink-0 px-1 flex items-center justify-center">
                                     {isLocked ? (
                                       <span className="text-[9px] font-medium text-slate-600">
                                         {editForm.data_inicio_prevista ? format(parseDate(editForm.data_inicio_prevista), 'dd/MM/yy') : ''}
@@ -2148,7 +2229,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                                       />
                                     )}
                                   </div>
-                                  <div className="w-[90px] flex-shrink-0 px-1 flex items-center justify-center">
+                                  <div className="w-[100px] flex-shrink-0 px-1 flex items-center justify-center">
                                     {isLocked ? (
                                       <span className="text-[9px] font-medium text-slate-600">
                                         {editForm.data_fim_prevista ? format(parseDate(editForm.data_fim_prevista), 'dd/MM/yy') : ''}
@@ -2165,7 +2246,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                                       />
                                     )}
                                   </div>
-                                  <div className="w-[90px] flex-shrink-0 px-1 flex items-center justify-center">
+                                  <div className="w-[100px] flex-shrink-0 px-1 flex items-center justify-center">
                                     {isLocked ? (
                                       <span className="text-[10px] font-bold text-indigo-600">
                                         {editForm.predecessores_texto || ''}
@@ -2210,7 +2291,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                                  className="w-full bg-white border border-indigo-200 rounded px-1 py-0.5 text-[10px] font-medium text-center outline-none focus:ring-1 focus:ring-indigo-500"
                                />
                              </div>
-                            <div className="w-[90px] flex-shrink-0 px-1">
+                            <div className="w-[100px] flex-shrink-0 px-1">
                               <input 
                                 type="date"
                                 autoFocus={editingField === 'inicio_real'}
@@ -2228,7 +2309,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                                 className="w-full bg-white border border-indigo-200 rounded px-0.5 py-0.5 text-[9px] font-medium text-center outline-none focus:ring-1 focus:ring-indigo-500"
                               />
                             </div>
-                            <div className="w-[90px] flex-shrink-0 px-1">
+                            <div className="w-[100px] flex-shrink-0 px-1">
                               <input 
                                 type="date"
                                 autoFocus={editingField === 'fim_real'}
@@ -2303,7 +2384,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                         onMouseLeave={() => setHoveredRowId(null)}
                       >
                         <div 
-                          className="w-[100px] flex-shrink-0 text-[10px] font-medium text-slate-500 truncate text-left sticky left-0 z-30 bg-white group-hover:bg-slate-50 transition-colors pl-5 h-full flex items-center"
+                          className="w-[100px] flex-shrink-0 text-[10px] font-medium text-slate-500 truncate text-center sticky left-0 z-30 bg-white group-hover:bg-slate-50 transition-colors h-full flex items-center justify-center"
                           onMouseEnter={(e) => e.stopPropagation()}
                           onMouseLeave={(e) => e.stopPropagation()}
                           onClick={(e) => { e.stopPropagation(); startEdit(atv, 'item_numero'); }}
@@ -2336,19 +2417,19 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                             )}
                           </div>
                           <div 
-                            className="w-[90px] h-full flex items-center justify-center flex-shrink-0 text-center text-[9px] font-medium text-slate-500"
+                            className="w-[100px] h-full flex items-center justify-center flex-shrink-0 text-center text-[9px] font-medium text-slate-500"
                             onClick={(e) => { e.stopPropagation(); startEdit(atv, 'inicio'); }}
                           >
                             {atv.data_inicio_prevista ? format(parseDate(atv.data_inicio_prevista), 'dd/MM/yy') : '-'}
                           </div>
                           <div 
-                            className="w-[90px] h-full flex items-center justify-center flex-shrink-0 text-center text-[9px] font-medium text-slate-500"
+                            className="w-[100px] h-full flex items-center justify-center flex-shrink-0 text-center text-[9px] font-medium text-slate-500"
                             onClick={(e) => { e.stopPropagation(); startEdit(atv, 'fim'); }}
                           >
                             {atv.data_fim_prevista ? format(parseDate(atv.data_fim_prevista), 'dd/MM/yy') : '-'}
                           </div>
                           <div 
-                            className="w-[90px] h-full flex items-center justify-center flex-shrink-0 text-[10px] font-bold text-indigo-600 truncate text-center"
+                            className="w-[100px] h-full flex items-center justify-center flex-shrink-0 text-[10px] font-bold text-indigo-600 truncate text-center"
                             onClick={(e) => { e.stopPropagation(); startEdit(atv, 'pred'); }}
                           >
                             <span className="bg-indigo-50/30 rounded py-0.5 px-2 border border-indigo-100/50 w-full mx-1 truncate">
@@ -2362,13 +2443,13 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                             {atv.progresso !== undefined && atv.progresso !== null ? `${atv.progresso}%` : ''}
                           </div>
                           <div 
-                            className="w-[90px] h-full flex items-center justify-center flex-shrink-0 text-center text-[9px] font-medium text-slate-500"
+                            className="w-[100px] h-full flex items-center justify-center flex-shrink-0 text-center text-[9px] font-medium text-slate-500"
                             onClick={(e) => { e.stopPropagation(); startEdit(atv, 'inicio_real'); }}
                           >
                             {atv.data_inicio_real ? format(parseDate(atv.data_inicio_real), 'dd/MM/yy') : '-'}
                           </div>
                           <div 
-                            className="w-[90px] h-full flex items-center justify-center flex-shrink-0 text-center text-[9px] font-medium text-slate-500"
+                            className="w-[100px] h-full flex items-center justify-center flex-shrink-0 text-center text-[9px] font-medium text-slate-500"
                             onClick={(e) => { e.stopPropagation(); startEdit(atv, 'fim_real'); }}
                           >
                             {atv.data_fim_real ? format(parseDate(atv.data_fim_real), 'dd/MM/yy') : '-'}
@@ -2405,6 +2486,22 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
           </div>
         </div>
 
+        {/* Resizable Divider */}
+        <div 
+          className={`w-1 group flex-shrink-0 cursor-col-resize transition-colors relative z-[60] ${isResizing ? 'bg-indigo-500' : 'bg-slate-200 hover:bg-indigo-400'}`}
+          onMouseDown={startResizing}
+        >
+          {/* Interaction area extension */}
+          <div className="absolute inset-y-0 -left-1.5 -right-1.5 cursor-col-resize z-10" />
+          
+          {/* Visual indicator handle */}
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col gap-1 items-center z-20">
+            <div className="w-0.5 h-0.5 rounded-full bg-slate-400 group-hover:bg-white" />
+            <div className="w-0.5 h-0.5 rounded-full bg-slate-400 group-hover:bg-white" />
+            <div className="w-0.5 h-0.5 rounded-full bg-slate-400 group-hover:bg-white" />
+          </div>
+        </div>
+
         {/* Right Pane: Timeline */}
         <div 
           ref={timelineRef}
@@ -2436,9 +2533,9 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
               <div className="flex h-8 relative bg-slate-900 border-b border-slate-800">
                 {/* Project Summary Bar in Header (RESTORED) */}
                 {(() => {
-                  const currentInicio = projectSummaryData.data_inicio_real || projectSummaryData.data_inicio_prevista;
-                  const currentFim = projectSummaryData.data_fim_real || projectSummaryData.data_fim_prevista;
-                  const currentStyle = currentInicio && currentFim ? getTaskStyle(currentInicio, currentFim) : { display: 'none' };
+                  const currentInicio = (projectSummaryData as any).data_inicio_atual;
+                  const currentFim = (projectSummaryData as any).data_fim_atual;
+                  const currentStyle = currentInicio && currentFim ? getTaskStyle(currentInicio, currentFim) : { display: 'none' } as any;
                   const hasBaseline = !!projectSummaryData.data_inicio_base;
                   
                   if (currentStyle.display === 'none') return null;
@@ -2650,8 +2747,8 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                     const plannedMarker = atv.data_inicio_base ? "url(#arrowhead-amber)" : (isPredStage ? "url(#arrowhead-black)" : "url(#arrowhead-indigo)");
 
                     // --- PLANNED DEPENDENCY ---
-                    const predPlannedStyle = getTaskStyle(pred.data_inicio_prevista, pred.data_fim_prevista);
-                    const atvPlannedStyle = getTaskStyle(atv.data_inicio_prevista, atv.data_fim_prevista);
+                    const predPlannedStyle = getTaskStyle(pred.data_inicio_prevista, pred.data_fim_prevista) as any;
+                    const atvPlannedStyle = getTaskStyle(atv.data_inicio_prevista, atv.data_fim_prevista) as any;
                     
                     let plannedLine = null;
                     if (predPlannedStyle.display !== 'none' && atvPlannedStyle.display !== 'none') {
@@ -2704,8 +2801,8 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                     // --- ACTUAL DEPENDENCY ---
                     let actualLine = null;
                     if (atv.data_inicio_base && pred.data_inicio_real && atv.data_inicio_real) {
-                      const predStyle = getTaskStyle(pred.data_inicio_real, pred.data_fim_real || pred.data_inicio_real);
-                      const atvStyle = getTaskStyle(atv.data_inicio_real, atv.data_fim_real || atv.data_inicio_real);
+                      const predStyle = getTaskStyle(pred.data_inicio_real, pred.data_fim_real || pred.data_inicio_real) as any;
+                      const atvStyle = getTaskStyle(atv.data_inicio_real, atv.data_fim_real || atv.data_inicio_real) as any;
                       
                       if (predStyle.display !== 'none' && atvStyle.display !== 'none') {
                         const pLeft = parseFloat(predStyle.left as string);
@@ -2758,8 +2855,8 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                         {/* --- BASELINE DEPENDENCY (GRAY SOLID) --- */}
                         {pred.data_inicio_base && atv.data_inicio_base && (
                           (() => {
-                            const predBaseStyle = getTaskStyle(pred.data_inicio_base, pred.data_fim_base);
-                            const atvBaseStyle = getTaskStyle(atv.data_inicio_base, atv.data_fim_base);
+                            const predBaseStyle = getTaskStyle(pred.data_inicio_base, pred.data_fim_base) as any;
+                            const atvBaseStyle = getTaskStyle(atv.data_inicio_base, atv.data_fim_base) as any;
                             
                             if (predBaseStyle.display === 'none' || atvBaseStyle.display === 'none') return null;
 
@@ -2802,46 +2899,14 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
               {allRows.map((row, idx) => {
                 const rowTop = idx * 40;
 
-                if (row.type === 'adding') {
-                  return (
-                    <div 
-                      key="adding-row" 
-                      className="absolute border-b border-blue-100 bg-blue-50/30 flex items-center" 
-                      style={{ top: rowTop, left: 0, right: 0, height: '40px' }}
-                    >
-                      {/* Action Buttons for Adding Row (Sticky at start of chart) */}
-                      <div className="sticky left-0 z-50 h-full flex items-center gap-1 px-2 bg-white/60 backdrop-blur-[2px] border-r border-blue-200/30 mr-1">
-                        <button 
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            handleSaveNew();
-                          }}
-                          className="p-1 bg-emerald-500/20 text-emerald-600 rounded-md hover:bg-emerald-500/40 transition-all"
-                          title="Salvar"
-                        >
-                          <Check size={12} />
-                        </button>
-                        <button 
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            setIsAdding(false);
-                          }}
-                          className="p-1 bg-slate-400/20 text-slate-500 rounded-md hover:bg-slate-400/40 transition-all"
-                          title="Cancelar"
-                        >
-                          <X size={12} />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                }
+                const isActivityOrAdding = row.type === 'activity' || row.type === 'adding';
 
                 if (row.type === 'stage') {
                   const stageData = row.data;
-                  const currentInicio = stageData.data_inicio_real || stageData.data_inicio_prevista;
-                  const currentFim = stageData.data_fim_real || stageData.data_fim_prevista;
+                  const currentInicio = stageData.data_inicio_atual || stageData.data_inicio_real || stageData.data_inicio_prevista;
+                  const currentFim = stageData.data_fim_atual || stageData.data_fim_real || stageData.data_fim_prevista;
                   
-                  const currentStyle = currentInicio && currentFim ? getTaskStyle(currentInicio, currentFim) : { display: 'none' };
+                  const currentStyle = currentInicio && currentFim ? getTaskStyle(currentInicio, currentFim) : { display: 'none' } as any;
                   
                   return (
                     <div 
@@ -2925,7 +2990,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                           {stageData.data_inicio_base && stageData.data_fim_base && (
                             <div 
                               className="absolute -translate-y-1/2 h-2 border border-slate-500 bg-slate-400 rounded-sm z-0 opacity-80"
-                              style={{ ...getTaskStyle(stageData.data_inicio_base, stageData.data_fim_base), top: '28px' }}
+                              style={{ ...(getTaskStyle(stageData.data_inicio_base, stageData.data_fim_base) as any), top: '28px' }}
                             >
                               <div className="absolute -left-px -bottom-1 w-0 h-0 border-l-[4px] border-r-[4px] border-t-[5px] border-l-transparent border-r-transparent border-t-slate-500"></div>
                               <div className="absolute -right-px -bottom-1 w-0 h-0 border-l-[4px] border-r-[4px] border-t-[5px] border-l-transparent border-r-transparent border-t-slate-500"></div>
@@ -2937,126 +3002,142 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                   );
                 }
                 
-                const atv = row.data as Atividade;
-                const isEditing = (atv && atv.id === editingId) || row.type === 'adding';
-                
-                const plannedInicio = isEditing ? (editForm.data_inicio_prevista || atv?.data_inicio_prevista) : atv?.data_inicio_prevista;
-                const plannedFim = isEditing ? (editForm.data_fim_prevista || atv?.data_fim_prevista) : atv?.data_fim_prevista;
-                const isMilestone = isEditing ? !!editForm.is_marco : !!atv?.is_marco;
-                const duracaoDias = isEditing ? (editForm.duracao_dias !== undefined && editForm.duracao_dias !== "" ? editForm.duracao_dias : atv?.duracao_dias) : atv?.duracao_dias;
+                if (isActivityOrAdding) {
+                  const atv = row.data as Atividade;
+                  const isAddingRow = row.type === 'adding';
+                  const isEditing = (atv && atv.id === editingId) || isAddingRow;
+                  
+                  const plannedInicio = isEditing ? (editForm.data_inicio_prevista || atv?.data_inicio_prevista) : atv?.data_inicio_prevista;
+                  const plannedFim = isEditing ? (editForm.data_fim_prevista || atv?.data_fim_prevista) : atv?.data_fim_prevista;
+                  const isMilestone = isEditing ? !!editForm.is_marco : !!atv?.is_marco;
+                  const duracaoDias = isEditing ? (editForm.duracao_dias !== undefined && editForm.duracao_dias !== "" ? editForm.duracao_dias : atv?.duracao_dias) : atv?.duracao_dias;
 
-                let currentInicio = isEditing ? (editForm.data_inicio_real || atv?.data_inicio_real) : atv?.data_inicio_real;
-                if (!currentInicio) currentInicio = plannedInicio;
-                
-                let currentFim = isEditing ? (editForm.data_fim_real || atv?.data_fim_real) : atv?.data_fim_real;
-                
-                if (!currentFim && currentInicio && duracaoDias !== undefined && duracaoDias !== null) {
-                  const startRealDate = parseDate(currentInicio);
-                  if (isValid(startRealDate)) {
-                    currentFim = duracaoDias === 0 || duracaoDias === "0" ? currentInicio : format(addWorkingDays(startRealDate, Number(duracaoDias)), 'yyyy-MM-dd');
+                  let currentInicio = isEditing ? (editForm.data_inicio_real || atv?.data_inicio_real) : atv?.data_inicio_real;
+                  if (!currentInicio) currentInicio = plannedInicio;
+                  
+                  let currentFim = isEditing ? (editForm.data_fim_real || atv?.data_fim_real) : atv?.data_fim_real;
+                  
+                  if (!currentFim && currentInicio && duracaoDias !== undefined && duracaoDias !== null) {
+                    const startRealDate = parseDate(currentInicio);
+                    if (isValid(startRealDate)) {
+                      currentFim = duracaoDias === 0 || duracaoDias === "0" ? currentInicio : format(addWorkingDays(startRealDate, Number(duracaoDias)), 'yyyy-MM-dd');
+                    }
                   }
-                }
-                if (!currentFim) currentFim = plannedFim;
-                
-                const hasBaseline = !!atv.data_inicio_base;
-                const plannedStyle = (plannedInicio && plannedFim && duracaoDias !== null) ? getTaskStyle(plannedInicio, plannedFim) : { display: 'none' };
-                const currentStyle = (currentInicio && currentFim && duracaoDias !== null) ? getTaskStyle(currentInicio, currentFim) : { display: 'none' };
-                const baselineStyle = (atv.data_inicio_base && atv.data_fim_base) 
-                  ? getTaskStyle(atv.data_inicio_base, atv.data_fim_base) 
-                  : { display: 'none' };
-                
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                const isDelayed = currentFim && isBefore(parseDate(currentFim), today) && (atv.progresso || 0) < 100;
+                  if (!currentFim) currentFim = plannedFim;
+                  
+                  const hasBaseline = !!atv.data_inicio_base;
+                  const plannedStyle = (plannedInicio && plannedFim && duracaoDias !== null) ? getTaskStyle(plannedInicio, plannedFim) : { display: 'none' } as any;
+                  const currentStyle = (currentInicio && currentFim && duracaoDias !== null) ? getTaskStyle(currentInicio, currentFim) : { display: 'none' } as any;
+                  const baselineStyle = (atv.data_inicio_base && atv.data_fim_base) 
+                    ? getTaskStyle(atv.data_inicio_base, atv.data_fim_base) as any
+                    : { display: 'none' } as any;
+                  
+                  const today = new Date();
+                  today.setHours(0, 0, 0, 0);
+                  const isDelayed = currentFim && isBefore(parseDate(currentFim), today) && (atv.progresso || 0) < 100;
 
-                // Calculate Variance (Desvio) in days
-                let desvio = 0;
-                if (atv.data_fim_base && plannedFim) {
-                  desvio = differenceInDays(parseDate(plannedFim), parseDate(atv.data_fim_base));
-                }
+                  // Calculate Variance (Desvio) in days
+                  let desvio = 0;
+                  if (atv.data_fim_base && plannedFim) {
+                    desvio = differenceInDays(parseDate(plannedFim), parseDate(atv.data_fim_base));
+                  }
 
-                return (
-                  <div 
-                    key={`gantt-row-${atv.id}-${idx}`} 
-                    className="absolute border-b border-slate-100/50 group hover:bg-slate-50/30 transition-colors flex items-center" 
-                    style={{ top: rowTop, left: 0, right: 0, height: '40px' }}
-                  >
-                    {/* Action Buttons (Sticky at the start of graph area during edit) */}
-                    {isEditing && (
-                      <div className="sticky left-0 z-50 h-full flex items-center gap-1 px-2 bg-white/60 backdrop-blur-[2px] border-r border-indigo-100/30 mr-1">
-                        <button 
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            handleUpdate(atv.id);
-                          }}
-                          className="p-1 bg-emerald-500/20 text-emerald-600 rounded-md hover:bg-emerald-500/40 transition-all"
-                          title="Salvar"
-                        >
-                          <Check size={12} />
-                        </button>
-                        <button 
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            setEditingId(null);
-                            setEditingField(null);
-                          }}
-                          className="p-1 bg-slate-400/20 text-slate-500 rounded-md hover:bg-slate-400/40 transition-all"
-                          title="Cancelar"
-                        >
-                          <X size={12} />
-                        </button>
-                      </div>
-                    )}
-                    {/* 1. Baseline Bar (Bottom) */}
-                    {hasBaseline && baselineStyle.display !== 'none' && (
-                      <div 
-                        className="absolute -translate-y-1/2 h-2 rounded-full border border-slate-500 bg-slate-400 z-0 opacity-80"
-                        style={{ ...baselineStyle, top: '30px' }}
-                        title={`Linha de Base: ${format(parseDate(atv.data_inicio_base), 'dd/MM/yyyy')} a ${format(parseDate(atv.data_fim_base), 'dd/MM/yyyy')}`}
-                      />
-                    )}
-
-                    {/* 2. Current/Planned Bar (Top) */}
-                    {plannedStyle.display !== 'none' && (
-                      isMilestone ? (
-                        <div 
-                          className={`absolute -translate-y-1/2 w-4 h-4 rotate-45 border-2 border-white shadow-sm z-10 cursor-pointer ${
-                            hasBaseline ? 'bg-amber-500' : 'bg-indigo-500'
-                          }`}
-                          style={{ left: plannedStyle.left, top: '15px' }}
-                          title={`${atv.nome} (Marco)`}
-                          onClick={() => startEdit(atv, 'nome')}
-                        />
-                      ) : (
-                        <div 
-                          className={`absolute -translate-y-1/2 h-3 rounded-sm border shadow-sm overflow-hidden group-hover:shadow-lg transition-all cursor-pointer z-10 ${
-                            !hasBaseline 
-                              ? 'bg-indigo-600 border-indigo-700' 
-                              : isDelayed ? 'bg-red-600 border-red-700' : 'bg-amber-600 border-amber-700'
-                          }`}
-                          style={{ ...plannedStyle, top: '15px' }}
-                          onClick={() => startEdit(atv, 'inicio_real')}
-                        >
-                          {/* Progress Fill */}
-                          <div 
-                            className={`absolute top-0 left-0 h-full ${
-                              !hasBaseline ? 'bg-indigo-400' : isDelayed ? 'bg-red-400' : 'bg-amber-400'
-                            }`}
-                            style={{ width: `${atv.progresso || 0}%` }}
-                          />
+                  return (
+                    <div 
+                      key={isAddingRow ? "gantt-adding-row" : `gantt-row-${atv.id}-${idx}`} 
+                      className={`absolute border-b flex items-center transition-colors ${
+                        isAddingRow ? 'bg-blue-50/40 border-blue-100' : 'border-slate-100/50 group hover:bg-slate-50/30'
+                      }`} 
+                      style={{ top: rowTop, left: 0, right: 0, height: '40px' }}
+                    >
+                      {/* Action Buttons (Sticky at the start of graph area during edit or adding) */}
+                      {isEditing && (
+                        <div className={`sticky left-0 z-50 h-full flex items-center gap-1 px-2 border-r mr-1 backdrop-blur-[2px] ${
+                          isAddingRow ? 'bg-blue-100/60 border-blue-200/30' : 'bg-white/60 border-indigo-100/30'
+                        }`}>
+                          <button 
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              isAddingRow ? handleSaveNew() : handleUpdate(atv.id);
+                            }}
+                            className="p-1 bg-emerald-500/20 text-emerald-600 rounded-md hover:bg-emerald-500/40 transition-all"
+                            title="Salvar"
+                          >
+                            <Check size={12} />
+                          </button>
+                          <button 
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              if (isAddingRow) {
+                                setIsAdding(false);
+                              } else {
+                                setEditingId(null);
+                                setEditingField(null);
+                              }
+                            }}
+                            className="p-1 bg-slate-400/20 text-slate-500 rounded-md hover:bg-slate-400/40 transition-all"
+                            title="Cancelar"
+                          >
+                            <X size={12} />
+                          </button>
                         </div>
-                      )
-                    )}
+                      )}
 
-                    {/* Label next to bar */}
-                    <div className="absolute left-full ml-2 flex items-center h-full pointer-events-none">
-                      <span className="text-[9px] font-bold text-slate-400 whitespace-nowrap">
-                        {atv.nome} {desvio > 0 && <span className="text-red-500 ml-1">+{desvio}d</span>}
-                        {desvio < 0 && <span className="text-emerald-500 ml-1">{desvio}d</span>}
-                      </span>
+                      {/* 1. Baseline Bar (Bottom) */}
+                      {hasBaseline && baselineStyle.display !== 'none' && (
+                        <div 
+                          className="absolute -translate-y-1/2 h-2 rounded-full border border-slate-500 bg-slate-400 z-0 opacity-80"
+                          style={{ ...baselineStyle, top: '30px' }}
+                          title={`Linha de Base: ${format(parseDate(atv.data_inicio_base), 'dd/MM/yyyy')} a ${format(parseDate(atv.data_fim_base), 'dd/MM/yyyy')}`}
+                        />
+                      )}
+
+                      {/* 2. Current/Planned Bar (Top) */}
+                      {plannedStyle.display !== 'none' && (
+                        isMilestone ? (
+                          <div 
+                            className={`absolute -translate-y-1/2 w-4 h-4 rotate-45 border-2 border-white shadow-sm z-10 cursor-pointer ${
+                              hasBaseline ? 'bg-amber-500' : isAddingRow ? 'bg-blue-600' : 'bg-indigo-500'
+                            }`}
+                            style={{ left: plannedStyle.left, top: '15px' }}
+                            title={`${atv.nome} (Marco)`}
+                            onClick={() => !isAddingRow && startEdit(atv, 'nome')}
+                          />
+                        ) : (
+                          <div 
+                            className={`absolute -translate-y-1/2 h-3 rounded-sm border shadow-sm overflow-hidden group-hover:shadow-lg transition-all cursor-pointer z-10 ${
+                              isAddingRow 
+                                ? 'bg-blue-600 border-blue-700' 
+                                : !hasBaseline 
+                                  ? 'bg-indigo-600 border-indigo-700' 
+                                  : isDelayed ? 'bg-red-600 border-red-700' : 'bg-amber-600 border-amber-700'
+                            }`}
+                            style={{ ...plannedStyle, top: '15px' }}
+                            onClick={() => !isAddingRow && startEdit(atv, 'inicio_real')}
+                          >
+                            {/* Progress Fill */}
+                            <div 
+                              className={`absolute top-0 left-0 h-full ${
+                                isAddingRow ? 'bg-blue-400' : !hasBaseline ? 'bg-indigo-400' : isDelayed ? 'bg-red-400' : 'bg-amber-400'
+                              }`}
+                              style={{ width: `${atv.progresso || 0}%` }}
+                            />
+                          </div>
+                        )
+                      )}
+
+                      {/* Label next to bar */}
+                      <div className="absolute left-full ml-2 flex items-center h-full pointer-events-none">
+                        <span className={`text-[9px] font-bold whitespace-nowrap ${isAddingRow ? 'text-blue-500' : 'text-slate-400'}`}>
+                          {atv.nome} {desvio > 0 && <span className="text-red-500 ml-1">+{desvio}d</span>}
+                          {desvio < 0 && <span className="text-emerald-500 ml-1">{desvio}d</span>}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                );
+                  );
+                }
+
+                return null;
               })}
             </div>
             {/* Spacer to allow scrolling past the last row */}
