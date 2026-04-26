@@ -126,6 +126,7 @@ function initDatabase() {
         documento TEXT, -- CNPJ
         status TEXT DEFAULT 'active', -- active, trial, inactive
         plano TEXT DEFAULT 'Básico', -- Básico, Pro, Enterprise
+        valor_mensalidade REAL DEFAULT 0,
         limite_usuarios INTEGER DEFAULT 5,
         assinatura_texto TEXT,
         rodape_texto TEXT,
@@ -155,6 +156,32 @@ function initDatabase() {
         console.error("Migration failed for v2_tenants.status:", err);
       }
     }
+
+    // Migration: Add valor_mensalidade column if it doesn't exist
+    try {
+      db.prepare("SELECT valor_mensalidade FROM v2_tenants LIMIT 1").get();
+    } catch (e) {
+      try {
+        db.exec("ALTER TABLE v2_tenants ADD COLUMN valor_mensalidade REAL DEFAULT 0");
+        console.log("Migration: Added valor_mensalidade column to v2_tenants");
+      } catch (err) {
+        console.error("Migration failed for v2_tenants.valor_mensalidade:", err);
+      }
+    }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS v2_payments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER NOT NULL,
+        valor REAL NOT NULL,
+        data_pagamento DATE NOT NULL,
+        mes_referencia TEXT NOT NULL, -- e.g., "2024-05"
+        status TEXT DEFAULT 'pago', -- pendente, pago, atrasado
+        metodo_pagamento TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (tenant_id) REFERENCES v2_tenants(id) ON DELETE CASCADE
+    );
+  `);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS v2_signatures (
@@ -1207,14 +1234,14 @@ async function startServer() {
     if (req.user.role !== 'admin_master') {
       return res.status(403).json({ message: "Acesso negado." });
     }
-    const { nome, documento, plano, situacao, adm_nome, adm_email, adm_telefone, adm_senha } = req.body;
+    const { nome, documento, plano, situacao, adm_nome, adm_email, adm_telefone, adm_senha, valor_mensalidade } = req.body;
     if (!nome) return res.status(400).json({ message: "Nome é obrigatório." });
     if (adm_email && !adm_senha) return res.status(400).json({ message: "Senha é obrigatória ao criar o usuário administrador." });
 
     try {
       db.exec("BEGIN TRANSACTION");
-      const stmt = db.prepare("INSERT INTO v2_tenants (nome, documento, plano, situacao, adm_nome, adm_email, adm_telefone) VALUES (?, ?, ?, ?, ?, ?, ?)");
-      const result = stmt.run(nome, documento || null, plano || 'Básico', situacao || 'ATIVO', adm_nome || null, adm_email || null, adm_telefone || null);
+      const stmt = db.prepare("INSERT INTO v2_tenants (nome, documento, plano, situacao, adm_nome, adm_email, adm_telefone, valor_mensalidade) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+      const result = stmt.run(nome, documento || null, plano || 'Básico', situacao || 'ATIVO', adm_nome || null, adm_email || null, adm_telefone || null, valor_mensalidade || 0);
       const tenantId = result.lastInsertRowid;
 
       if (adm_email && adm_senha) {
@@ -1248,13 +1275,13 @@ async function startServer() {
     if (req.user.role !== 'admin_master') {
       return res.status(403).json({ message: "Acesso negado." });
     }
-    const { nome, documento, logo_url, plano, situacao, adm_nome, adm_email, adm_telefone, adm_senha } = req.body;
+    const { nome, documento, logo_url, plano, situacao, adm_nome, adm_email, adm_telefone, adm_senha, valor_mensalidade } = req.body;
     const { id } = req.params;
     
     try {
       db.exec("BEGIN TRANSACTION");
-      const stmt = db.prepare("UPDATE v2_tenants SET nome = ?, documento = ?, logo_url = ?, plano = ?, situacao = ?, adm_nome = ?, adm_email = ?, adm_telefone = ? WHERE id = ?");
-      stmt.run(nome, documento || null, logo_url || null, plano || 'Básico', situacao || 'ATIVO', adm_nome || null, adm_email || null, adm_telefone || null, id);
+      const stmt = db.prepare("UPDATE v2_tenants SET nome = ?, documento = ?, logo_url = ?, plano = ?, situacao = ?, adm_nome = ?, adm_email = ?, adm_telefone = ?, valor_mensalidade = ? WHERE id = ?");
+      stmt.run(nome, documento || null, logo_url || null, plano || 'Básico', situacao || 'ATIVO', adm_nome || null, adm_email || null, adm_telefone || null, valor_mensalidade || 0, id);
       
       if (adm_email) {
          // Create or update admin_pj user
@@ -1298,6 +1325,59 @@ async function startServer() {
     } catch (error: any) {
       if (db.inTransaction) db.exec("ROLLBACK");
       res.status(500).json({ message: "Erro ao atualizar empresa.", error: error.message });
+    }
+  });
+
+  // --- Payment Endpoints ---
+  app.get("/api/payments", authenticate, (req: any, res) => {
+    if (req.user.role !== 'admin_master') {
+      return res.status(403).json({ message: "Acesso negado." });
+    }
+    const { tenant_id } = req.query;
+    try {
+      let query = "SELECT p.*, t.nome as tenant_nome FROM v2_payments p JOIN v2_tenants t ON p.tenant_id = t.id";
+      const params = [];
+      if (tenant_id) {
+        query += " WHERE p.tenant_id = ?";
+        params.push(tenant_id);
+      }
+      query += " ORDER BY p.mes_referencia DESC";
+      const payments = db.prepare(query).all(...params);
+      res.json(payments);
+    } catch (error: any) {
+      res.status(500).json({ message: "Erro ao buscar pagamentos.", error: error.message });
+    }
+  });
+
+  app.post("/api/payments", authenticate, (req: any, res) => {
+    if (req.user.role !== 'admin_master') {
+      return res.status(403).json({ message: "Acesso negado." });
+    }
+    const { tenant_id, valor, data_pagamento, mes_referencia, status, metodo_pagamento } = req.body;
+    if (!tenant_id || !valor || !data_pagamento || !mes_referencia) {
+      return res.status(400).json({ message: "Campos obrigatórios ausentes." });
+    }
+    try {
+      db.prepare(`
+        INSERT INTO v2_payments (tenant_id, valor, data_pagamento, mes_referencia, status, metodo_pagamento)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(tenant_id, valor, data_pagamento, mes_referencia, status || 'pago', metodo_pagamento || 'PIX');
+      res.status(201).json({ message: "Pagamento registrado com sucesso." });
+    } catch (error: any) {
+      res.status(500).json({ message: "Erro ao registrar pagamento.", error: error.message });
+    }
+  });
+
+  app.delete("/api/payments/:id", authenticate, (req: any, res) => {
+    if (req.user.role !== 'admin_master') {
+      return res.status(403).json({ message: "Acesso negado." });
+    }
+    const { id } = req.params;
+    try {
+      db.prepare("DELETE FROM v2_payments WHERE id = ?").run(id);
+      res.json({ message: "Pagamento excluído com sucesso." });
+    } catch (error: any) {
+      res.status(500).json({ message: "Erro ao excluir pagamento.", error: error.message });
     }
   });
 
@@ -1534,18 +1614,23 @@ async function startServer() {
         const activeTenants = db.prepare("SELECT COUNT(*) as count FROM v2_tenants WHERE status = 'active'").get() as { count: number };
         const trialTenants = db.prepare("SELECT COUNT(*) as count FROM v2_tenants WHERE status = 'trial'").get() as { count: number };
         
-        // Revenue calculation (Estimated)
-        const revenueData = db.prepare(`
-          SELECT 
-            SUM(CASE WHEN plano = 'Básico' THEN 199 ELSE 0 END) +
-            SUM(CASE WHEN plano = 'Pro' THEN 499 ELSE 0 END) +
-            SUM(CASE WHEN plano = 'Enterprise' THEN 1499 ELSE 0 END) as totalRevenue
+        // Revenue calculation (Based on custom monthly fee)
+        const projectedRevenueData = db.prepare(`
+          SELECT SUM(valor_mensalidade) as totalRevenue
           FROM v2_tenants
           WHERE status = 'active'
         `).get() as { totalRevenue: number };
 
+        // Actual Revenue (Confirmed payments for the current month)
+        const currentMonth = new Date().toISOString().substring(0, 7); // YYYY-MM
+        const actualRevenueData = db.prepare(`
+          SELECT SUM(valor) as totalRevenue
+          FROM v2_payments
+          WHERE mes_referencia = ? AND status = 'pago'
+        `).get(currentMonth) as { totalRevenue: number };
+
         const recentTenants = db.prepare(`
-          SELECT id, nome, status, created_at, plano FROM v2_tenants 
+          SELECT id, nome, status, created_at, plano, valor_mensalidade FROM v2_tenants 
           ORDER BY created_at DESC 
           LIMIT 5
         `).all();
@@ -1565,14 +1650,24 @@ async function startServer() {
           { name: 'Trial', value: trialTenants.count }
         ];
 
-        // Financial Projection data (dummy but representative)
-        const financialProjection = [
-          { month: 'Jan', revenue: (revenueData.totalRevenue || 0) * 0.8 },
-          { month: 'Fev', revenue: (revenueData.totalRevenue || 0) * 0.85 },
-          { month: 'Mar', revenue: (revenueData.totalRevenue || 0) * 0.9 },
-          { month: 'Abr', revenue: (revenueData.totalRevenue || 0) * 0.95 },
-          { month: 'Mai', revenue: (revenueData.totalRevenue || 0) },
-          { month: 'Jun', revenue: (revenueData.totalRevenue || 0) * 1.1 },
+        // Real Financial Growth data (last 6 months of payments)
+        const financialData = db.prepare(`
+          SELECT mes_referencia as month, SUM(valor) as revenue
+          FROM v2_payments
+          WHERE status = 'pago'
+          GROUP BY month
+          ORDER BY month DESC
+          LIMIT 6
+        `).all().reverse();
+
+        // If no payment data yet, use representative projection based on current potential
+        const financialChart = financialData.length > 0 ? financialData : [
+          { month: 'Jan', revenue: (projectedRevenueData.totalRevenue || 0) * 0.8 },
+          { month: 'Fev', revenue: (projectedRevenueData.totalRevenue || 0) * 0.85 },
+          { month: 'Mar', revenue: (projectedRevenueData.totalRevenue || 0) * 0.9 },
+          { month: 'Abr', revenue: (projectedRevenueData.totalRevenue || 0) * 0.95 },
+          { month: 'Mai', revenue: (projectedRevenueData.totalRevenue || 0) },
+          { month: 'Jun', revenue: (projectedRevenueData.totalRevenue || 0) * 1.1 },
         ];
 
         return res.json({
@@ -1580,7 +1675,8 @@ async function startServer() {
           metrics: {
             totalTenants: totalTenants.count,
             totalUsers: totalUsers.count,
-            totalRevenue: revenueData.totalRevenue || 0,
+            totalRevenue: actualRevenueData.totalRevenue || 0,
+            projectedRevenue: projectedRevenueData.totalRevenue || 0,
             activeTenants: activeTenants.count,
             trialTenants: trialTenants.count
           },
@@ -1588,7 +1684,7 @@ async function startServer() {
           charts: {
             growth: growthData,
             status: statusData,
-            financial: financialProjection
+            financial: financialChart
           }
         });
       }

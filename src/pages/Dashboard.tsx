@@ -12,25 +12,6 @@ export const Dashboard = ({ isAdmin, onSelectObra, setActiveTab }: { isAdmin: bo
   const [data, setData] = useState<any | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const handleClearDatabase = async () => {
-    if (confirm("Tem certeza que deseja excluir TODO o banco de dados? Esta ação é irreversível.")) {
-      try {
-        const res = await fetch('/api/admin/clear-database', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ target: 'all' })
-        });
-        if (res.ok) {
-          alert("Banco de dados limpo com sucesso!");
-          window.location.reload();
-        } else {
-          alert("Erro ao limpar banco de dados.");
-        }
-      } catch (err) {
-        alert("Erro de conexão.");
-      }
-    }
-  };
 
   useEffect(() => {
     api.getDashboard().then(res => {
@@ -69,22 +50,22 @@ export const Dashboard = ({ isAdmin, onSelectObra, setActiveTab }: { isAdmin: bo
       <div className="space-y-8 pb-20 animate-in fade-in duration-500">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <MetricCard 
-            title="Empresas Clientes" 
+            title="Empresas" 
             value={data.metrics.totalTenants} 
             icon={Building2} 
             color="bg-orange-500" 
             delay={0.1}
           />
           <MetricCard 
-            title="Usuários Clientes" 
-            value={data.metrics.totalUsers} 
-            icon={Users} 
+            title="Potencial Mensal" 
+            value={`R$ ${formatFinancial(data.metrics.projectedRevenue || 0)}`} 
+            icon={TrendingUp} 
             color="bg-blue-600" 
             delay={0.2}
           />
           <MetricCard 
-            title="Faturamento Mensal" 
-            value={`R$ ${formatFinancial(data.metrics.totalRevenue)}`} 
+            title="Receita Real (Mês)" 
+            value={`R$ ${formatFinancial(data.metrics.totalRevenue || 0)}`} 
             icon={DollarSign} 
             color="bg-emerald-500" 
             delay={0.3}
@@ -240,6 +221,9 @@ export const Dashboard = ({ isAdmin, onSelectObra, setActiveTab }: { isAdmin: bo
                         <div className="flex items-center gap-2">
                            <h4 className="font-bold text-slate-900 tracking-tight">{tenant.nome}</h4>
                            <span className="text-[9px] px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 font-black uppercase tracking-widest">{tenant.plano}</span>
+                           {tenant.valor_mensalidade > 0 && (
+                             <span className="text-[9px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 font-bold uppercase tracking-widest">R$ {formatFinancial(tenant.valor_mensalidade)}</span>
+                           )}
                         </div>
                         <div className="flex items-center gap-2 mt-1">
                           <span className={`text-[9px] px-2 py-0.5 rounded-full font-black uppercase tracking-widest ${
@@ -276,16 +260,6 @@ export const Dashboard = ({ isAdmin, onSelectObra, setActiveTab }: { isAdmin: bo
 
   return (
     <div className="space-y-8 pb-20">
-      {isAdmin && (
-        <div className="flex justify-end">
-          <button 
-            onClick={handleClearDatabase}
-            className="px-4 py-2 bg-red-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-red-700 transition-all"
-          >
-            Limpar Todo o Banco de Dados
-          </button>
-        </div>
-      )}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
         <MetricCard 
           title="Total de Obras" 
