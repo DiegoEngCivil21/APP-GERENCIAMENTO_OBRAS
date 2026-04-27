@@ -118,58 +118,38 @@ const dbPath = path.join(__dirname, "obras.db");
 function initDatabase() {
   const dbExists = fs.existsSync(dbPath);
 
-  // Initialize Database Tables (Always run to ensure all tables exist)
+  // 1. Core tables FIRST
   db.exec(`
     CREATE TABLE IF NOT EXISTS v2_tenants (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         nome TEXT NOT NULL,
         documento TEXT, -- CNPJ
         status TEXT DEFAULT 'active', -- active, trial, inactive
+        situacao TEXT DEFAULT 'ATIVO', -- ATIVO, INADIMPLENTE, CANCELADO
         plano TEXT DEFAULT 'Básico', -- Básico, Pro, Enterprise
         valor_mensalidade REAL DEFAULT 0,
         limite_usuarios INTEGER DEFAULT 5,
         assinatura_texto TEXT,
         rodape_texto TEXT,
         logo_url TEXT,
+        adm_nome TEXT,
+        adm_email TEXT,
+        adm_telefone TEXT,
         config_json TEXT, -- Configurações gerais em JSON
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
-  `);
 
-    // Create default master admin if none exists
-    const adminExists = db.prepare("SELECT id FROM v2_users WHERE role = 'admin_master'").get();
-    if (!adminExists) {
-      const hashedPassword = bcrypt.hashSync("admin123", 10);
-      db.prepare("INSERT INTO v2_users (nome, email, password, role) VALUES (?, ?, ?, ?)")
-        .run("Admin Sistema", "admin@sistema.com", hashedPassword, "admin_master");
-      console.log("Master Admin created: admin@sistema.com / admin123");
-    }
+    CREATE TABLE IF NOT EXISTS v2_users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER,
+        nome TEXT NOT NULL,
+        email TEXT NOT NULL UNIQUE,
+        password TEXT NOT NULL,
+        role TEXT DEFAULT 'user', -- admin_master, admin_pj, orcamentista
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (tenant_id) REFERENCES v2_tenants(id) ON DELETE CASCADE
+    );
 
-    // Migration: Add status column if it doesn't exist
-    try {
-      db.prepare("SELECT status FROM v2_tenants LIMIT 1").get();
-    } catch (e) {
-      try {
-        db.exec("ALTER TABLE v2_tenants ADD COLUMN status TEXT DEFAULT 'active'");
-        console.log("Migration: Added status column to v2_tenants");
-      } catch (err) {
-        console.error("Migration failed for v2_tenants.status:", err);
-      }
-    }
-
-    // Migration: Add valor_mensalidade column if it doesn't exist
-    try {
-      db.prepare("SELECT valor_mensalidade FROM v2_tenants LIMIT 1").get();
-    } catch (e) {
-      try {
-        db.exec("ALTER TABLE v2_tenants ADD COLUMN valor_mensalidade REAL DEFAULT 0");
-        console.log("Migration: Added valor_mensalidade column to v2_tenants");
-      } catch (err) {
-        console.error("Migration failed for v2_tenants.valor_mensalidade:", err);
-      }
-    }
-
-  db.exec(`
     CREATE TABLE IF NOT EXISTS v2_payments (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         tenant_id INTEGER NOT NULL,
@@ -181,9 +161,7 @@ function initDatabase() {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (tenant_id) REFERENCES v2_tenants(id) ON DELETE CASCADE
     );
-  `);
 
-  db.exec(`
     CREATE TABLE IF NOT EXISTS v2_signatures (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         tenant_id INTEGER NOT NULL,
@@ -194,21 +172,69 @@ function initDatabase() {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (tenant_id) REFERENCES v2_tenants(id) ON DELETE CASCADE
     );
-  `);
 
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS v2_users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        tenant_id INTEGER,
-        nome TEXT NOT NULL,
-        email TEXT NOT NULL UNIQUE,
-        password TEXT NOT NULL,
-        role TEXT DEFAULT 'user', -- admin_master, admin_pj, orcamentista
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (tenant_id) REFERENCES v2_tenants(id) ON DELETE CASCADE
+    CREATE TABLE IF NOT EXISTS v2_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
     );
   `);
 
+  // 2. Admin seeds AFTER v2_users is created
+  try {
+    const adminExists = db.prepare("SELECT id FROM v2_users WHERE role = 'admin_master'").get();
+    if (!adminExists) {
+      const hashedPassword = bcrypt.hashSync("admin123", 10);
+      db.prepare("INSERT INTO v2_users (nome, email, password, role) VALUES (?, ?, ?, ?)")
+        .run("Admin Sistema", "admin@sistema.com", hashedPassword, "admin_master");
+      console.log("Master Admin created: admin@sistema.com / admin123");
+    }
+
+    // Add specifically requested master admin
+    const gestaoAdminExists = db.prepare("SELECT id FROM v2_users WHERE email = 'admin@gestao.com'").get();
+    if (!gestaoAdminExists) {
+      const hashedPassword = bcrypt.hashSync("123456", 10);
+      db.prepare("INSERT INTO v2_users (nome, email, password, role) VALUES (?, ?, ?, ?)")
+        .run("Gestão Master", "admin@gestao.com", hashedPassword, "admin_master");
+      console.log("Custom Master Admin created: admin@gestao.com / 123456");
+    }
+
+    // Default Plan Limits
+    const defaultLimits = {
+      'Starter': 5,
+      'Pro': 10,
+      'Business': 20,
+      'Enterprise': 50
+    };
+    db.prepare("INSERT OR IGNORE INTO v2_settings (key, value) VALUES (?, ?)")
+      .run('plan_limits', JSON.stringify(defaultLimits));
+  } catch (err) {
+    console.error("Error creating master admin:", err);
+  }
+
+  // 3. Optional migrations (Add columns if they don't exist)
+  const columnsToAdd = [
+    { table: 'v2_tenants', column: 'status', type: 'TEXT DEFAULT \'active\'' },
+    { table: 'v2_tenants', column: 'situacao', type: 'TEXT DEFAULT \'ATIVO\'' },
+    { table: 'v2_tenants', column: 'adm_nome', type: 'TEXT' },
+    { table: 'v2_tenants', column: 'adm_email', type: 'TEXT' },
+    { table: 'v2_tenants', column: 'adm_telefone', type: 'TEXT' },
+    { table: 'v2_tenants', column: 'valor_mensalidade', type: 'REAL DEFAULT 0' }
+  ];
+
+  for (const col of columnsToAdd) {
+    try {
+      db.prepare(`SELECT ${col.column} FROM ${col.table} LIMIT 1`).get();
+    } catch (e) {
+      try {
+        db.exec(`ALTER TABLE ${col.table} ADD COLUMN ${col.column} ${col.type}`);
+        console.log(`Migration: Added ${col.column} column to ${col.table}`);
+      } catch (err) {
+        console.error(`Migration failed for ${col.table}.${col.column}:`, err);
+      }
+    }
+  }
+
+  // 4. Other tables
   db.exec(`
     CREATE TABLE IF NOT EXISTS v2_itens (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1175,11 +1201,29 @@ async function startServer() {
     try {
       // Check limits if not admin_master
       if (req.user.role !== 'admin_master' && req.user.tenant_id) {
-        const tenant = db.prepare("SELECT limite_usuarios FROM v2_tenants WHERE id = ?").get(req.user.tenant_id) as any;
-        const userCount = db.prepare("SELECT COUNT(*) as count FROM v2_users WHERE tenant_id = ?").get(req.user.tenant_id) as { count: number };
+        const tenant = db.prepare("SELECT plano, limite_usuarios FROM v2_tenants WHERE id = ?").get(req.user.tenant_id) as any;
         
-        if (tenant && userCount.count >= tenant.limite_usuarios) {
-          return res.status(400).json({ message: `Limite de usuários atingido (${tenant.limite_usuarios}). Faça upgrade do seu plano.` });
+        // Get the current global limits from settings
+        let currentPlanLimit = tenant.limite_usuarios || 5;
+        try {
+          const settings = db.prepare("SELECT value FROM v2_settings WHERE key = 'plan_limits'").get() as any;
+          if (settings) {
+            const planLimits = JSON.parse(settings.value);
+            if (planLimits[tenant.plano] !== undefined) {
+              currentPlanLimit = planLimits[tenant.plano];
+            }
+          }
+        } catch (e) {
+          console.error("Error fetching global plan limits:", e);
+        }
+
+        // Count users excluding ADMIN_PJ (the "more X accounts" requirement)
+        const userCount = db.prepare("SELECT COUNT(*) as count FROM v2_users WHERE tenant_id = ? AND role != 'admin_pj'").get(req.user.tenant_id) as { count: number };
+        
+        if (userCount.count >= currentPlanLimit) {
+          return res.status(400).json({ 
+            message: `O seu plano (${tenant.plano}) permite até ${currentPlanLimit} contas de colaboradores. Você já atingiu este limite.` 
+          });
         }
       }
 
@@ -1207,13 +1251,89 @@ async function startServer() {
     }
     try {
       const tenantId = req.user.tenant_id;
-      const tCondition = tenantId === null ? "tenant_id IS NULL" : "tenant_id = ?";
-      const tParam = tenantId === null ? [req.params.id] : [req.params.id, tenantId];
+      const userIdToDelete = Number(req.params.id);
+      
+      let query: string;
+      let params: any[];
 
-      db.prepare(`DELETE FROM v2_users WHERE id = ? AND ${tCondition}`).run(...tParam);
+      if (tenantId === null) {
+        query = "DELETE FROM v2_users WHERE id = ? AND tenant_id IS NULL";
+        params = [userIdToDelete];
+      } else {
+        query = "DELETE FROM v2_users WHERE id = ? AND tenant_id = ?";
+        params = [userIdToDelete, tenantId];
+      }
+
+      const result = db.prepare(query).run(...params);
+      
+      if (result.changes === 0) {
+        return res.status(404).json({ message: "Usuário não encontrado ou sem permissão." });
+      }
+      
       res.json({ message: "Usuário excluído com sucesso." });
     } catch (error: any) {
       res.status(500).json({ message: "Erro ao excluir usuário.", error: error.message });
+    }
+  });
+
+  app.put("/api/settings/users/:id", authenticate, async (req: any, res) => {
+    if (req.user.role !== 'admin_master' && req.user.role !== 'admin_pj') {
+      return res.status(403).json({ message: "Apenas administradores podem editar usuários." });
+    }
+    const { nome, email, password, role } = req.body;
+    const { id } = req.params;
+    
+    try {
+      const tenantId = req.user.tenant_id;
+      const tCondition = tenantId === null ? "tenant_id IS NULL" : "tenant_id = ?";
+      
+      let query = "UPDATE v2_users SET nome = ?, email = ?, role = ?";
+      let params = [nome, email, role];
+      
+      if (password && password.trim().length > 0) {
+        const hashedPassword = await bcrypt.hash(password, 10);
+        query += ", password = ?";
+        params.push(hashedPassword);
+      }
+      
+      query += ` WHERE id = ? AND ${tCondition}`;
+      params.push(id);
+      if (tenantId !== null) params.push(tenantId);
+      
+      const result = db.prepare(query).run(...params);
+      
+      if (result.changes === 0) {
+        return res.status(404).json({ message: "Usuário não encontrado ou sem permissão." });
+      }
+      
+      res.json({ message: "Usuário atualizado com sucesso." });
+    } catch (error: any) {
+      if (error.message.includes('UNIQUE constraint failed')) {
+        return res.status(400).json({ message: "Este e-mail já está em uso por outro usuário." });
+      }
+      res.status(500).json({ message: "Erro ao atualizar usuário.", error: error.message });
+    }
+  });
+  
+  // --- Master Settings Management ---
+  app.get("/api/master/plan-limits", authenticate, (req: any, res) => {
+    if (req.user.role !== 'admin_master') return res.status(403).json({ message: "Acesso negado." });
+    try {
+      const settings = db.prepare("SELECT value FROM v2_settings WHERE key = 'plan_limits'").get() as any;
+      res.json(JSON.parse(settings?.value || '{}'));
+    } catch (error: any) {
+      res.status(500).json({ message: "Erro ao buscar limites.", error: error.message });
+    }
+  });
+
+  app.post("/api/master/plan-limits", authenticate, (req: any, res) => {
+    if (req.user.role !== 'admin_master') return res.status(403).json({ message: "Acesso negado." });
+    try {
+      db.prepare("INSERT OR REPLACE INTO v2_settings (key, value) VALUES (?, ?)")
+        .run('plan_limits', JSON.stringify(req.body));
+      res.json({ message: "Limites atualizados!" });
+    } catch (error: any) {
+      res.status(500).json({ message: "Erro ao salvar limites.", error: error.message });
     }
   });
 
@@ -1237,11 +1357,21 @@ async function startServer() {
     const { nome, documento, plano, situacao, adm_nome, adm_email, adm_telefone, adm_senha, valor_mensalidade } = req.body;
     if (!nome) return res.status(400).json({ message: "Nome é obrigatório." });
     if (adm_email && !adm_senha) return res.status(400).json({ message: "Senha é obrigatória ao criar o usuário administrador." });
+    
+    // Fetch dynamic plan limits
+    let userLimit = 5;
+    try {
+       const settings = db.prepare("SELECT value FROM v2_settings WHERE key = 'plan_limits'").get() as any;
+       const planLimits = JSON.parse(settings?.value || '{}');
+       userLimit = planLimits[plano] || 5;
+    } catch (e) {
+       console.error("Error fetching plan limits:", e);
+    }
 
     try {
       db.exec("BEGIN TRANSACTION");
-      const stmt = db.prepare("INSERT INTO v2_tenants (nome, documento, plano, situacao, adm_nome, adm_email, adm_telefone, valor_mensalidade) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-      const result = stmt.run(nome, documento || null, plano || 'Básico', situacao || 'ATIVO', adm_nome || null, adm_email || null, adm_telefone || null, valor_mensalidade || 0);
+      const stmt = db.prepare("INSERT INTO v2_tenants (nome, documento, plano, situacao, adm_nome, adm_email, adm_telefone, valor_mensalidade, limite_usuarios) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+      const result = stmt.run(nome, documento || null, plano || 'Starter', situacao || 'ATIVO', adm_nome || null, adm_email || null, adm_telefone || null, valor_mensalidade || 0, userLimit);
       const tenantId = result.lastInsertRowid;
 
       if (adm_email && adm_senha) {
@@ -1278,10 +1408,31 @@ async function startServer() {
     const { nome, documento, logo_url, plano, situacao, adm_nome, adm_email, adm_telefone, adm_senha, valor_mensalidade } = req.body;
     const { id } = req.params;
     
+    // Fetch dynamic plan limits
+    let planLimits: any = {};
+    try {
+       const settings = db.prepare("SELECT value FROM v2_settings WHERE key = 'plan_limits'").get() as any;
+       planLimits = JSON.parse(settings?.value || '{}');
+    } catch (e) {
+       console.error("Error fetching plan limits:", e);
+    }
+
     try {
       db.exec("BEGIN TRANSACTION");
-      const stmt = db.prepare("UPDATE v2_tenants SET nome = ?, documento = ?, logo_url = ?, plano = ?, situacao = ?, adm_nome = ?, adm_email = ?, adm_telefone = ?, valor_mensalidade = ? WHERE id = ?");
-      stmt.run(nome, documento || null, logo_url || null, plano || 'Básico', situacao || 'ATIVO', adm_nome || null, adm_email || null, adm_telefone || null, valor_mensalidade || 0, id);
+      const tenantBefore = db.prepare("SELECT plano FROM v2_tenants WHERE id = ?").get(id) as any;
+      
+      let updateQuery = "UPDATE v2_tenants SET nome = ?, documento = ?, logo_url = ?, plano = ?, situacao = ?, adm_nome = ?, adm_email = ?, adm_telefone = ?, valor_mensalidade = ?";
+      const updateParams = [nome, documento || null, logo_url || null, plano || 'Starter', situacao || 'ATIVO', adm_nome || null, adm_email || null, adm_telefone || null, valor_mensalidade || 0];
+
+      if (plano && plano !== tenantBefore?.plano && planLimits[plano]) {
+        updateQuery += ", limite_usuarios = ?";
+        updateParams.push(planLimits[plano]);
+      }
+
+      updateQuery += " WHERE id = ?";
+      updateParams.push(id);
+      
+      db.prepare(updateQuery).run(...updateParams);
       
       if (adm_email) {
          // Create or update admin_pj user
@@ -1614,6 +1765,14 @@ async function startServer() {
         const activeTenants = db.prepare("SELECT COUNT(*) as count FROM v2_tenants WHERE status = 'active'").get() as { count: number };
         const trialTenants = db.prepare("SELECT COUNT(*) as count FROM v2_tenants WHERE status = 'trial'").get() as { count: number };
         
+        // Count users by role
+        const rolesToCount = ['admin_pj', 'orcamentista', 'comprador', 'usuario'];
+        const userRolesCounts = rolesToCount.reduce((acc, role) => {
+           const res = db.prepare("SELECT COUNT(*) as count FROM v2_users WHERE role = ? AND tenant_id IS NOT NULL").get(role) as { count: number };
+           acc[role] = res.count;
+           return acc;
+        }, {} as Record<string, number>);
+        
         // Revenue calculation (Based on custom monthly fee)
         const projectedRevenueData = db.prepare(`
           SELECT SUM(valor_mensalidade) as totalRevenue
@@ -1678,7 +1837,8 @@ async function startServer() {
             totalRevenue: actualRevenueData.totalRevenue || 0,
             projectedRevenue: projectedRevenueData.totalRevenue || 0,
             activeTenants: activeTenants.count,
-            trialTenants: trialTenants.count
+            trialTenants: trialTenants.count,
+            userRoles: userRolesCounts
           },
           recentTenants,
           charts: {

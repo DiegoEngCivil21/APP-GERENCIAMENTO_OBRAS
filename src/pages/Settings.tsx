@@ -7,6 +7,7 @@ import {
   CreditCard, 
   Trash2, 
   Plus, 
+  Pencil,
   Save,
   Loader2,
   AlertCircle,
@@ -48,8 +49,8 @@ interface Signature {
   is_default: boolean;
 }
 
-export const SettingsView = ({ user }: { user: any }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'perfil' | 'empresa' | 'usuarios' | 'seguranca' | 'contas' | 'documentos' | 'workflows' | 'templates' | 'branding' | 'assinaturas' | 'global'>('perfil');
+export const SettingsView = ({ user, forceTab }: { user: any, forceTab?: string }) => {
+  const [activeSubTab, setActiveSubTab] = useState<'perfil' | 'empresa' | 'usuarios' | 'seguranca' | 'contas' | 'documentos' | 'workflows' | 'templates' | 'branding' | 'assinaturas' | 'global' | 'planos'>((forceTab as any) || 'perfil');
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [workflows, setWorkflows] = useState<any[]>([]);
@@ -63,7 +64,17 @@ export const SettingsView = ({ user }: { user: any }) => {
   
   // New user form
   const [showNewUserModal, setShowNewUserModal] = useState(false);
+  const [editingUserId, setEditingUserId] = useState<number | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [newUser, setNewUser] = useState({ nome: '', email: '', password: '', role: 'orcamentista' });
+
+  // Plan limits management
+  const [planLimits, setPlanLimits] = useState<Record<string, number>>({
+    'Starter': 5,
+    'Pro': 10,
+    'Business': 20,
+    'Enterprise': 50
+  });
 
   // Password change form
   const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -71,6 +82,12 @@ export const SettingsView = ({ user }: { user: any }) => {
 
   const isMaster = user?.role === 'admin_master';
   const isAdmin = isMaster || user?.role === 'admin_pj';
+
+  useEffect(() => {
+    if (forceTab) {
+      setActiveSubTab(forceTab as any);
+    }
+  }, [forceTab]);
 
   useEffect(() => {
     fetchData();
@@ -102,6 +119,9 @@ export const SettingsView = ({ user }: { user: any }) => {
       } else if (activeSubTab === 'branding' || activeSubTab === 'global') {
         const res = await fetch('/api/settings/tenant');
         if (res.ok) setTenant(await res.json());
+      } else if (activeSubTab === 'planos') {
+        const res = await fetch('/api/master/plan-limits');
+        if (res.ok) setPlanLimits(await res.json());
       }
     } catch (err) {
       console.error("Error fetching settings data:", err);
@@ -120,6 +140,7 @@ export const SettingsView = ({ user }: { user: any }) => {
     { id: 'workflows', label: 'Regras & Fluxos', icon: Zap, roles: ['admin_master', 'admin_pj'] },
     { id: 'documentos', label: 'Ajuste de Documentos', icon: FileText, roles: ['admin_master', 'admin_pj'] },
     { id: 'templates', label: 'Modelos Visuais', icon: Layout, roles: ['admin_master', 'admin_pj'] },
+    { id: 'planos', label: 'Limites de Planos', icon: Zap, roles: ['admin_master'] },
     { id: 'seguranca', label: 'Segurança de Dados', icon: Shield, roles: ['admin_master'] },
     { id: 'contas', label: 'Contas & Clientes', icon: Building2, roles: ['admin_master'] },
   ].filter(item => item.roles.includes(user?.role));
@@ -182,19 +203,30 @@ export const SettingsView = ({ user }: { user: any }) => {
     e.preventDefault();
     setSaving(true);
     try {
-      const res = await fetch('/api/settings/users', {
-        method: 'POST',
+      const isEditing = editingUserId !== null;
+      const url = isEditing ? `/api/settings/users/${editingUserId}` : '/api/settings/users';
+      const method = isEditing ? 'PUT' : 'POST';
+      
+      const res = await fetch(url, {
+        method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newUser)
       });
       const data = await res.json();
       if (res.ok) {
-        setMessage({ type: 'success', text: 'Usuário criado com sucesso!' });
+        setMessage({ type: 'success', text: isEditing ? 'Usuário atualizado!' : 'Usuário criado com sucesso!' });
         setShowNewUserModal(false);
+        setEditingUserId(null);
         setNewUser({ nome: '', email: '', password: '', role: 'orcamentista' });
         fetchData();
       } else {
-        setMessage({ type: 'error', text: data.message || 'Erro ao criar usuário.' });
+        setMessage({ type: 'error', text: data.message || 'Erro ao processar usuário.' });
+        // Hide modal on limit error as requested
+        if (data.message && data.message.includes('limite')) {
+          setShowNewUserModal(false);
+          setEditingUserId(null);
+          setNewUser({ nome: '', email: '', password: '', role: 'orcamentista' });
+        }
       }
     } catch (err) {
       setMessage({ type: 'error', text: 'Erro de conexão.' });
@@ -204,8 +236,13 @@ export const SettingsView = ({ user }: { user: any }) => {
     }
   };
 
+  const handleEditUser = (u: User) => {
+    setEditingUserId(u.id);
+    setNewUser({ nome: u.nome, email: u.email, password: '', role: u.role });
+    setShowNewUserModal(true);
+  };
+
   const handleDeleteUser = async (id: number) => {
-    if (!confirm('Tem certeza que deseja excluir este usuário?')) return;
     try {
       const res = await fetch(`/api/settings/users/${id}`, { method: 'DELETE' });
       if (res.ok) {
@@ -218,6 +255,7 @@ export const SettingsView = ({ user }: { user: any }) => {
     } catch (err) {
       setMessage({ type: 'error', text: 'Erro de conexão.' });
     } finally {
+      setDeleteConfirmId(null);
       setTimeout(() => setMessage(null), 3000);
     }
   };
@@ -308,6 +346,27 @@ export const SettingsView = ({ user }: { user: any }) => {
     }
   };
 
+  const handleSavePlanLimits = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch('/api/master/plan-limits', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(planLimits)
+      });
+      if (res.ok) {
+        setMessage({ type: 'success', text: 'Limites de planos atualizados com sucesso!' });
+      } else {
+        setMessage({ type: 'error', text: 'Erro ao salvar limites.' });
+      }
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Erro de conexão.' });
+    } finally {
+      setSaving(false);
+      setTimeout(() => setMessage(null), 3000);
+    }
+  };
+
   return (
     <div className="max-w-6xl mx-auto">
       <div className="mb-8">
@@ -369,7 +428,7 @@ export const SettingsView = ({ user }: { user: any }) => {
                           <h3 className="text-lg font-black text-slate-900">{user?.nome}</h3>
                           <p className="text-slate-500 font-bold text-sm">{user?.email}</p>
                           <span className="inline-block mt-2 px-3 py-1 bg-white border border-slate-200 rounded-full text-[10px] font-black uppercase tracking-widest text-slate-600">
-                            {user?.role === 'admin_master' ? 'Dono do Sistema' : (user?.role === 'admin_pj' ? 'Administrador PJ' : 'Orçamentista')}
+                            {user?.role === 'admin_master' ? 'Administrador Master' : (user?.role === 'admin_pj' ? 'Administrador' : (user?.role === 'orcamentista' ? 'Orçamentista' : (user?.role === 'comprador' ? 'Comprador' : 'Usuário')))}
                           </span>
                         </div>
                       </div>
@@ -462,18 +521,30 @@ export const SettingsView = ({ user }: { user: any }) => {
                               <td className="py-4 px-4 text-slate-500 font-medium">{u.email}</td>
                               <td className="py-4 px-4">
                                 <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${u.role === 'admin_master' || u.role === 'admin_pj' ? 'bg-orange-50 text-orange-600 border-orange-100' : 'bg-slate-50 text-slate-600 border-slate-100'}`}>
-                                  {u.role === 'admin_master' ? 'Master' : (u.role === 'admin_pj' ? 'Admin PJ' : 'Orçamentista')}
+                                  {u.role === 'admin_master' ? 'Master' : (u.role === 'admin_pj' ? 'Administrador' : (u.role === 'orcamentista' ? 'Orçamentista' : (u.role === 'comprador' ? 'Comprador' : 'Usuário')))}
                                 </span>
                               </td>
                               <td className="py-4 px-4 text-right">
-                                {isAdmin && u.id !== user.id && (
-                                  <button 
-                                    onClick={() => handleDeleteUser(u.id)}
-                                    className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
-                                  >
-                                    <Trash2 size={18} />
-                                  </button>
-                                )}
+                                <div className="flex justify-end gap-2">
+                                  {isAdmin && (
+                                    <>
+                                      <button 
+                                        onClick={() => handleEditUser(u)}
+                                        className="p-2 text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                                      >
+                                        <Pencil size={18} />
+                                      </button>
+                                      {u.id !== user.id && (
+                                        <button 
+                                          onClick={() => setDeleteConfirmId(u.id)}
+                                          className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
+                                        >
+                                          <Trash2 size={18} />
+                                        </button>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
                               </td>
                             </tr>
                           ))}
@@ -841,6 +912,40 @@ export const SettingsView = ({ user }: { user: any }) => {
                   </div>
                 )}
 
+                {activeSubTab === 'planos' && isMaster && (
+                  <div className="space-y-6">
+                    <div className="flex justify-between items-center px-4">
+                      <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">Limites de Usuários por Plano</h3>
+                      <Button variant="primary" onClick={handleSavePlanLimits} disabled={saving}>
+                        {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />} Salvar Configurações
+                      </Button>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 px-4">
+                      {Object.keys(planLimits).map(plan => (
+                        <div key={plan} className="bg-slate-50 rounded-2xl p-6 border-2 border-transparent hover:border-indigo-500/20 transition-all">
+                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 ml-1">{plan}</label>
+                          <div className="flex items-center gap-4">
+                            <input 
+                              type="number"
+                              value={planLimits[plan]}
+                              onChange={(e) => setPlanLimits({...planLimits, [plan]: parseInt(e.target.value) || 0})}
+                              className="w-full px-5 py-3 bg-white border-2 border-transparent focus:border-slate-900 rounded-2xl outline-none transition-all font-bold text-slate-900"
+                              placeholder="Quantidade de contas"
+                            />
+                            <div className="bg-indigo-50 text-indigo-600 px-4 py-3 rounded-2xl font-black text-sm">
+                              Contas
+                            </div>
+                          </div>
+                          <p className="mt-3 text-[11px] font-bold text-slate-500 italic">
+                            O plano {plan} permitirá a criação de até {planLimits[plan]} usuários colaboradores.
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {activeSubTab === 'seguranca' && isMaster && (
                   <div className="max-w-2xl">
                     <h2 className="text-xl font-black text-slate-900 mb-6">Segurança de Dados</h2>
@@ -920,7 +1025,7 @@ export const SettingsView = ({ user }: { user: any }) => {
             className="bg-white rounded-[32px] shadow-2xl w-full max-w-md overflow-hidden"
           >
             <div className="p-8">
-              <h2 className="text-2xl font-black text-slate-900 mb-6">Novo Usuário</h2>
+              <h2 className="text-2xl font-black text-slate-900 mb-6">{editingUserId ? 'Editar Usuário' : 'Novo Usuário'}</h2>
               <form onSubmit={handleCreateUser} className="space-y-4">
                 <div>
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Nome Completo</label>
@@ -943,10 +1048,10 @@ export const SettingsView = ({ user }: { user: any }) => {
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Senha</label>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Senha {editingUserId && '(deixe em branco para manter)'}</label>
                   <input 
                     type="password" 
-                    required
+                    required={!editingUserId}
                     value={newUser.password}
                     onChange={e => setNewUser({...newUser, password: e.target.value})}
                     className="w-full px-5 py-3 bg-slate-50 border-2 border-transparent focus:border-slate-900 rounded-2xl outline-none transition-all font-bold text-slate-900"
@@ -960,14 +1065,19 @@ export const SettingsView = ({ user }: { user: any }) => {
                     className="w-full px-5 py-3 bg-slate-50 border-2 border-transparent focus:border-slate-900 rounded-2xl outline-none transition-all font-bold text-slate-900"
                   >
                     <option value="orcamentista">Orçamentista</option>
-                    <option value="admin_pj">Administrador PJ</option>
+                    <option value="admin_pj">Administrador</option>
+                    <option value="comprador">Comprador</option>
                   </select>
                 </div>
                 
                 <div className="flex gap-3 pt-4">
                   <button 
                     type="button"
-                    onClick={() => setShowNewUserModal(false)}
+                    onClick={() => {
+                      setShowNewUserModal(false);
+                      setEditingUserId(null);
+                      setNewUser({ nome: '', email: '', password: '', role: 'orcamentista' });
+                    }}
                     className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-slate-200 transition-all"
                   >
                     Cancelar
@@ -977,11 +1087,43 @@ export const SettingsView = ({ user }: { user: any }) => {
                     disabled={saving}
                     className="flex-1 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-slate-800 transition-all flex items-center justify-center gap-2 shadow-lg shadow-slate-200"
                   >
-                    {saving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
-                    Criar
+                    {saving ? <Loader2 size={16} className="animate-spin" /> : (editingUserId ? <Save size={16} /> : <Plus size={16} />)}
+                    {editingUserId ? 'Atualizar' : 'Criar'}
                   </button>
                 </div>
               </form>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {deleteConfirmId && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-[32px] shadow-2xl w-full max-w-sm overflow-hidden p-8 text-center"
+          >
+            <div className="w-16 h-16 bg-rose-50 text-rose-500 rounded-2xl flex items-center justify-center mx-auto mb-6">
+              <Trash2 size={32} />
+            </div>
+            <h3 className="text-xl font-black text-slate-900 mb-2">Excluir Usuário?</h3>
+            <p className="text-slate-500 font-bold text-sm mb-8">
+              Esta ação não pode ser desfeita. O usuário perderá acesso imediato ao sistema.
+            </p>
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setDeleteConfirmId(null)}
+                className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-slate-200 transition-all font-sans"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={() => deleteConfirmId && handleDeleteUser(deleteConfirmId)}
+                className="flex-1 py-4 bg-rose-500 text-white rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-rose-600 transition-all shadow-lg shadow-rose-200 font-sans"
+              >
+                Confirmar
+              </button>
             </div>
           </motion.div>
         </div>

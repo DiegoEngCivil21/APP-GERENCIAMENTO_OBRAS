@@ -27,6 +27,7 @@ import {
   MapPin,
   Bell,
   User,
+  Users,
   HelpCircle,
   Clock,
   Briefcase,
@@ -3262,6 +3263,7 @@ function AppContent() {
       case 'composicoes': return <ComposicoesMgmtView onSelectComposicao={handleSelectComposicao} isAdmin={isAdmin} isMaster={isMaster} />;
       case 'templates': return <TemplatesView />;
       case 'empresas': return <EmpresasMgmtView />;
+      case 'colaboradores': return <SettingsView user={user} forceTab="usuarios" />;
       case 'settings': return <SettingsView user={user} />;
       default: return <Dashboard isAdmin={isAdmin} onSelectObra={setSelectedObraId} setActiveTab={setActiveTab} />;
     }
@@ -3303,6 +3305,9 @@ function AppContent() {
               ) : (
                 <>
                   <SidebarItem icon={HardHat} label="Obras" active={activeTab === 'obras'} onClick={() => handleNavigate('obras')} collapsed={isSidebarCollapsed} />
+                  {(user?.role === 'admin_pj') && (
+                    <SidebarItem icon={Users} label="Colaboradores" active={activeTab === 'colaboradores'} onClick={() => handleNavigate('colaboradores')} collapsed={isSidebarCollapsed} />
+                  )}
                   <SidebarItem icon={Database} label="Insumos" active={activeTab === 'insumos'} onClick={() => handleNavigate('insumos')} collapsed={isSidebarCollapsed} />
                   <SidebarItem icon={Layers} label="Composições" active={activeTab === 'composicoes'} onClick={() => handleNavigate('composicoes')} collapsed={isSidebarCollapsed} />
                 </>

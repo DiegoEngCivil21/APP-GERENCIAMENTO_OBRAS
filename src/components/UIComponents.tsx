@@ -144,7 +144,12 @@ export const TopToolbar = ({ onNavigate, user }: { onNavigate?: (tab: string) =>
       <button className="flex items-center gap-3 pl-3 pr-1 py-1 hover:bg-white rounded-xl transition-all group shadow-sm hover:shadow-md bg-white/40 border border-transparent hover:border-slate-200">
         <div className="text-right hidden sm:block">
           <p className="text-[12px] font-black text-slate-900 uppercase leading-none">{user?.nome || 'Usuário'}</p>
-          <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">{user?.role === 'admin' ? 'Administrador' : 'Usuário'}</p>
+          <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">
+            {user?.role === 'admin_master' ? 'Administrador Master' : 
+             user?.role === 'admin_pj' ? 'Administrador' : 
+             user?.role === 'orcamentista' ? 'Orçamentista' : 
+             user?.role === 'comprador' ? 'Comprador' : 'Usuário'}
+          </p>
         </div>
         <div className="w-[30px] h-[30px] bg-slate-900 rounded-lg flex items-center justify-center text-white group-hover:bg-orange-500 transition-colors">
           <User size={15} />

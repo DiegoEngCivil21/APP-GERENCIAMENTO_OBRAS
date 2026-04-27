@@ -838,7 +838,7 @@ const ComposicoesMgmtView = ({ onSelectComposicao, isAdmin, isMaster }: Composic
                 <Download size={16} /> Exportar
               </Button>
             )}
-            {isAdmin && (
+            {(!isMaster || isAdmin) && (
               <>
                 {selectedIds.length > 0 && (
                   <Button 
@@ -979,7 +979,7 @@ const ComposicoesMgmtView = ({ onSelectComposicao, isAdmin, isMaster }: Composic
           <table className="w-full text-left border-collapse min-w-[1000px]">
               <thead className="sticky top-0 z-10 bg-white">
                 <tr className="bg-white border-b border-slate-200/60">
-                  {isAdmin && (
+                  {(!isMaster || isAdmin) && (
                     <th className="px-3 py-1.5 w-10">
                       <input 
                         type="checkbox" 
@@ -997,7 +997,7 @@ const ComposicoesMgmtView = ({ onSelectComposicao, isAdmin, isMaster }: Composic
                   <th className="px-3 py-1.5 text-[11px] font-black text-slate-500 uppercase tracking-widest">Categoria</th>
                   <th className="px-3 py-1.5 text-[11px] font-black text-slate-500 uppercase tracking-widest text-right">Valor Não Deson.</th>
                   <th className="px-3 py-1.5 text-[11px] font-black text-slate-500 uppercase tracking-widest text-right">Valor Deson.</th>
-                  {isAdmin && <th className="px-3 py-1.5 text-[11px] font-black text-slate-500 uppercase tracking-widest text-right">Ações</th>}
+                  {(!isMaster || isAdmin) && <th className="px-3 py-1.5 text-[11px] font-black text-slate-500 uppercase tracking-widest text-right">Ações</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -1006,7 +1006,7 @@ const ComposicoesMgmtView = ({ onSelectComposicao, isAdmin, isMaster }: Composic
                 ) : paginatedComposicoes.length > 0 ? paginatedComposicoes.map((comp, idx) => (
                   <React.Fragment key={`${comp.id_composicao}-${idx}`}>
                     <tr className="hover:bg-slate-50/80 transition-colors group">
-                      {isAdmin && (
+                      {(!isMaster || isAdmin) && (
                         <td className="px-3 py-1.5">
                           <input 
                             type="checkbox" 
@@ -1059,7 +1059,7 @@ const ComposicoesMgmtView = ({ onSelectComposicao, isAdmin, isMaster }: Composic
                           {comp.valor_desonerado ? formatCurrency(comp.valor_desonerado) : 'R$ 0,00'}
                         </div>
                       </td>
-                      {isAdmin && (
+                      {(!isMaster || isAdmin) && (
                         <td className="px-3 py-1.5 text-right">
                           <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                             {onSelectComposicao && (

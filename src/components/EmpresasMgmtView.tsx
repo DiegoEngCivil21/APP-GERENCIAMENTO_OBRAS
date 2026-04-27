@@ -346,8 +346,9 @@ export default function EmpresasMgmtView() {
                         onChange={(e) => setFormData({ ...formData, plano: e.target.value })}
                         className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
                       >
-                        <option value="Básico">Básico</option>
-                        <option value="Profissional">Profissional</option>
+                        <option value="Starter">Starter</option>
+                        <option value="Pro">Pro</option>
+                        <option value="Business">Business</option>
                         <option value="Enterprise">Enterprise</option>
                         <option value="Personalizado">Personalizado</option>
                       </select>
