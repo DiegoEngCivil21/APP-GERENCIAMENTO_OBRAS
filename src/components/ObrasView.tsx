@@ -40,14 +40,18 @@ const ObrasView = ({ onSelectObra }: ObrasViewProps) => {
   const [editingObraId, setEditingObraId] = useState<string | number | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | number | null>(null);
   const [showSuccess, setShowSuccess] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Auto-dismiss success message
+  // Auto-dismiss messages
   useEffect(() => {
-    if (showSuccess) {
-      const timer = setTimeout(() => setShowSuccess(null), 3000);
+    if (showSuccess || errorMsg) {
+      const timer = setTimeout(() => {
+        setShowSuccess(null);
+        setErrorMsg(null);
+      }, 5000);
       return () => clearTimeout(timer);
     }
-  }, [showSuccess]);
+  }, [showSuccess, errorMsg]);
 
   const fetchObras = () => {
     setLoading(true);
@@ -85,35 +89,46 @@ const ObrasView = ({ onSelectObra }: ObrasViewProps) => {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (editingObraId) {
-      const res = await fetch(`/api/obras/${editingObraId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newObra)
-      });
-      if (res.ok) {
-        setShowModal(false);
-        setEditingObraId(null);
-        setNewObra({ nome: '', cliente: '', descricao: '', valor_total: 0, status: 'Em Planejamento', data_inicio: '', data_fim_prevista: '', uf: '', endereco: '', localizacao: '', desonerado: 1, data_referencia: '2024-01', bancos_ativos: '["sinapi"]' });
-        setShowSuccess("Obra atualizada com sucesso!");
-        fetchObras();
+    setErrorMsg(null);
+    try {
+      if (editingObraId) {
+        const res = await fetch(`/api/obras/${editingObraId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newObra)
+        });
+        if (res.ok) {
+          setShowModal(false);
+          setEditingObraId(null);
+          setNewObra({ nome: '', cliente: '', descricao: '', valor_total: 0, status: 'Em Planejamento', data_inicio: '', data_fim_prevista: '', uf: '', endereco: '', localizacao: '', desonerado: 1, data_referencia: '2024-01', bancos_ativos: '["sinapi"]' });
+          setShowSuccess("Obra atualizada com sucesso!");
+          fetchObras();
+        } else {
+          const data = await res.json();
+          setErrorMsg(data.message || data.error || "Erro ao atualizar obra");
+        }
+      } else {
+        const res = await fetch('/api/obras', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...newObra,
+            data_inicio: newObra.data_inicio || new Date().toISOString().split('T')[0],
+            valor_total: newObra.valor_total || 0
+          })
+        });
+        if (res.ok) {
+          setShowModal(false);
+          setNewObra({ nome: '', cliente: '', descricao: '', valor_total: 0, status: 'Em Planejamento', data_inicio: '', data_fim_prevista: '', uf: '', endereco: '', localizacao: '', desonerado: 1, data_referencia: '2024-01', bancos_ativos: '["sinapi"]' });
+          setShowSuccess("Obra criada com sucesso!");
+          fetchObras();
+        } else {
+          const data = await res.json();
+          setErrorMsg(data.message || data.error || "Erro ao criar obra");
+        }
       }
-    } else {
-      const res = await fetch('/api/obras', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...newObra,
-          data_inicio: newObra.data_inicio || new Date().toISOString().split('T')[0],
-          valor_total: newObra.valor_total || 0
-        })
-      });
-      if (res.ok) {
-        setShowModal(false);
-        setNewObra({ nome: '', cliente: '', descricao: '', valor_total: 0, status: 'Em Planejamento', data_inicio: '', data_fim_prevista: '', uf: '', endereco: '', localizacao: '', desonerado: 1, data_referencia: '2024-01', bancos_ativos: '["sinapi"]' });
-        setShowSuccess("Obra criada com sucesso!");
-        fetchObras();
-      }
+    } catch (err: any) {
+      setErrorMsg(err.message || "Erro de conexão ao salvar obra");
     }
   };
 
@@ -144,6 +159,7 @@ const ObrasView = ({ onSelectObra }: ObrasViewProps) => {
   };
 
   const handleDelete = async (id: string | number) => {
+    setErrorMsg(null);
     try {
       const response = await fetch(`/api/obras/${id}`, {
         method: 'DELETE',
@@ -153,16 +169,18 @@ const ObrasView = ({ onSelectObra }: ObrasViewProps) => {
         setShowSuccess("Obra excluída com sucesso!");
         fetchObras();
       } else {
-        console.error('Erro ao excluir obra');
+        const data = await response.json();
+        setErrorMsg(data.message || data.error || 'Erro ao excluir obra');
       }
-    } catch (err) {
-      console.error('Delete error:', err);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Erro de conexão ao excluir obra');
     } finally {
       setDeleteConfirm(null);
     }
   };
 
   const handleUpdateStatus = async (id: string | number, status: string) => {
+    setErrorMsg(null);
     try {
       const response = await fetch(`/api/obras/${id}`, {
         method: 'PUT',
@@ -171,9 +189,12 @@ const ObrasView = ({ onSelectObra }: ObrasViewProps) => {
       });
       if (response.ok) {
         fetchObras();
+      } else {
+        const data = await response.json();
+        setErrorMsg(data.message || data.error || 'Erro ao atualizar status');
       }
-    } catch (err) {
-      console.error('Update status error:', err);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Erro de conexão ao atualizar status');
     }
   };
 
@@ -196,6 +217,17 @@ const ObrasView = ({ onSelectObra }: ObrasViewProps) => {
           >
             {showSuccess.includes('excluída') ? <Trash2 size={20} /> : <Calendar size={20} />}
             {showSuccess}
+          </motion.div>
+        )}
+        {errorMsg && (
+          <motion.div 
+            initial={{ opacity: 0, y: 10, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.9 }}
+            className="fixed bottom-8 right-8 bg-red-600 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 z-[150] font-bold"
+          >
+            <X size={20} />
+            {errorMsg}
           </motion.div>
         )}
       </AnimatePresence>

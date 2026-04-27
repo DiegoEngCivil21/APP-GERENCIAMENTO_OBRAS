@@ -39,7 +39,7 @@ export const api = {
   },
 
   updateObra: async (id: string | number, data: Partial<Obra>): Promise<void> => {
-    await fetch(`${API_BASE}/obras/${id}`, {
+    return fetchJson(`${API_BASE}/obras/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
@@ -47,7 +47,7 @@ export const api = {
   },
 
   deleteObra: async (id: string | number): Promise<void> => {
-    await fetch(`${API_BASE}/obras/${id}`, {
+    return fetchJson(`${API_BASE}/obras/${id}`, {
       method: 'DELETE'
     });
   },
@@ -67,7 +67,7 @@ export const api = {
   },
 
   saveOrcamento: async (obraId: string | number, items: OrcamentoItem[]): Promise<void> => {
-    await fetch(`${API_BASE}/obras/${obraId}/orcamento`, {
+    return fetchJson(`${API_BASE}/obras/${obraId}/orcamento`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ items })
@@ -75,7 +75,7 @@ export const api = {
   },
 
   updateOrcamentoItem: async (obraId: string | number, itemId: string | number, data: Partial<OrcamentoItem>): Promise<void> => {
-    await fetch(`${API_BASE}/obras/${obraId}/orcamento/${itemId}`, {
+    return fetchJson(`${API_BASE}/obras/${obraId}/orcamento/${itemId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
@@ -87,13 +87,13 @@ export const api = {
     if (tipo) {
       url += `?tipo=${tipo}`;
     }
-    await fetch(url, {
+    return fetchJson(url, {
       method: 'DELETE'
     });
   },
 
   resequenceOrcamento: async (obraId: string | number, activeItemId?: string | number): Promise<void> => {
-    await fetch(`${API_BASE}/obras/${obraId}/orcamento/resequence`, {
+    return fetchJson(`${API_BASE}/obras/${obraId}/orcamento/resequence`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ activeItemId })

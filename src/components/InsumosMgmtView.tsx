@@ -227,24 +227,28 @@ const InsumosMgmtView = ({ isAdmin, isMaster }: InsumosMgmtViewProps) => {
     const url = editingInsumoId ? `/api/insumos/${editingInsumoId}` : '/api/insumos';
     const method = editingInsumoId ? 'PUT' : 'POST';
 
-    const res = await fetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newInsumo)
-    });
-    if (res.ok) {
-      setShowModal(false);
-      fetchInsumos();
-      fetchFilterOptions();
-      setToast({ message: 'Insumo salvo com sucesso!', type: 'success' });
-    } else {
-      const errorText = await res.text();
-      let errorMsg = errorText;
-      try {
-        const error = JSON.parse(errorText);
-        errorMsg = error.message || errorText;
-      } catch (e) {}
-      setToast({ message: `Erro ao salvar: ${errorMsg}`, type: 'error' });
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newInsumo)
+      });
+      if (res.ok) {
+        setShowModal(false);
+        fetchInsumos();
+        fetchFilterOptions();
+        setToast({ message: 'Insumo salvo com sucesso!', type: 'success' });
+      } else {
+        const errorText = await res.text();
+        let errorMsg = errorText;
+        try {
+          const error = JSON.parse(errorText);
+          errorMsg = error.message || errorText;
+        } catch (e) {}
+        setToast({ message: `Erro ao salvar: ${errorMsg}`, type: 'error' });
+      }
+    } catch (err: any) {
+      setToast({ message: `Erro de conexão: ${err.message}`, type: 'error' });
     }
   };
 

@@ -145,6 +145,14 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
   const [cronograma, setCronograma] = useState<any[]>([]);
   const [medicoes, setMedicoes] = useState<any[]>([]);
   const [activeSubTab, setActiveSubTab] = useState(() => localStorage.getItem('activeSubTab') || 'visao_geral');
+  const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
+
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
   
   const [showBdiModal, setShowBdiModal] = useState(false);
   const [showBancosModal, setShowBancosModal] = useState(false);
@@ -441,116 +449,154 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
     setEditingCell(null);
   };
 
-  const handleAddNewItem = () => {
+  const handleAddNewItem = async () => {
     if (!addingItemToEtapa) return;
     
-    const newId = Date.now();
-    const newItem: OrcamentoItem = {
-      id: newId,
-      obra_id: obraId,
-      tipo: newItemData.tipo,
-      item: newItemData.item,
-      base: newItemData.tipo === 'etapa' ? undefined : newItemData.base,
-      codigo: newItemData.tipo === 'etapa' ? undefined : newItemData.codigo,
-      descricao: newItemData.descricao,
-      unidade: newItemData.tipo === 'etapa' ? undefined : newItemData.unidade,
-      quantidade: newItemData.tipo === 'etapa' ? 0 : newItemData.quantidade,
-      valor_unitario: newItemData.tipo === 'etapa' ? 0 : newItemData.valor_unitario,
-      valor_bdi: 0, 
-      total: 0      
-    };
+    try {
+      const newId = Date.now();
+      const newItem: OrcamentoItem = {
+        id: newId,
+        obra_id: obraId,
+        tipo: newItemData.tipo,
+        item: newItemData.item,
+        base: newItemData.tipo === 'etapa' ? undefined : newItemData.base,
+        codigo: newItemData.tipo === 'etapa' ? undefined : newItemData.codigo,
+        descricao: newItemData.descricao,
+        unidade: newItemData.tipo === 'etapa' ? undefined : newItemData.unidade,
+        quantidade: newItemData.tipo === 'etapa' ? 0 : newItemData.quantidade,
+        valor_unitario: newItemData.tipo === 'etapa' ? 0 : newItemData.valor_unitario,
+        valor_bdi: 0, 
+        total: 0      
+      };
 
-    const updatedRaw = [...orcamento, newItem];
-    const sorted = applyAutoRenumber(updatedRaw);
+      const updatedRaw = [...orcamento, newItem];
+      const sorted = applyAutoRenumber(updatedRaw);
 
-    const recalculated = recalculateTotals(sorted, { porcentagem: bdiConfig.porcentagem });
-    setOrcamento(recalculated);
-    
-    const addedItemAfterRenumbering = recalculated.find(i => i.id === newItem.id);
-    const lastCodeAdded = addedItemAfterRenumbering ? addedItemAfterRenumbering.item : newItemData.item;
-    
-    const nextParent = getSemanticParent(lastCodeAdded); 
-    setAddingItemToEtapa(nextParent);
-    const nextItemVal = getNextItemNumber(recalculated, nextParent, newItemData.tipo);
-    
-    // Save to server
-    recalculated.forEach(row => {
-      const originalRow = orcamento.find(r => r.id === row.id);
-      if (!originalRow || originalRow.item !== row.item) {
-        if (!originalRow) {
-          api.saveOrcamento(obraId, [row]);
-        } else {
-          api.updateOrcamentoItem(obraId, row.id, row);
+      const recalculated = recalculateTotals(sorted, { porcentagem: bdiConfig.porcentagem });
+      setOrcamento(recalculated);
+      
+      const addedItemAfterRenumbering = recalculated.find(i => i.id === newItem.id);
+      const lastCodeAdded = addedItemAfterRenumbering ? addedItemAfterRenumbering.item : newItemData.item;
+      
+      const nextParent = getSemanticParent(lastCodeAdded); 
+      setAddingItemToEtapa(nextParent);
+      const nextItemVal = getNextItemNumber(recalculated, nextParent, newItemData.tipo);
+      
+      // Save to server
+      const savePromises = recalculated.map(async row => {
+        const originalRow = orcamento.find(r => r.id === row.id);
+        if (!originalRow || originalRow.item !== row.item) {
+          if (!originalRow) {
+            await api.saveOrcamento(obraId, [row]);
+          } else {
+            await api.updateOrcamentoItem(obraId, row.id, row);
+          }
         }
-      }
-    });
-    
-    setNewItemData({
-      item: nextItemVal,
-      codigo: '',
-      base: newItemData.base,
-      descricao: '',
-      unidade: newItemData.tipo === 'etapa' ? '' : 'un',
-      quantidade: 0,
-      valor_unitario: 0,
-      tipo: newItemData.tipo
-    });
+      });
+      
+      await Promise.all(savePromises);
+      
+      setNewItemData({
+        item: nextItemVal,
+        codigo: '',
+        base: newItemData.base,
+        descricao: '',
+        unidade: newItemData.tipo === 'etapa' ? '' : 'un',
+        quantidade: 0,
+        valor_unitario: 0,
+        tipo: newItemData.tipo
+      });
 
-    // Focus back to input for next item overseen by useEffect
-    setTimeout(() => {
-      if (newItemData.tipo === 'etapa') {
-        if (newItemDescRef.current) newItemDescRef.current.focus();
-      } else {
-        if (newItemCodigoRef.current) newItemCodigoRef.current.focus();
-      }
-    }, 100);
-  };
-
-  const handleDeleteItem = (id: string | number) => {
-    const target = orcamento.find(i => i.id === id);
-    if (!target) return;
-
-    let updated: OrcamentoItem[];
-    let itemsToDelete: OrcamentoItem[] = [];
-    
-    if (target.tipo === 'etapa') {
-      // Delete stage and all its children
-      itemsToDelete = orcamento.filter(i => 
-        i.id === id || 
-        (i.item || '').toString().startsWith((target.item || '').toString() + '.')
-      );
-      updated = orcamento.filter(i => !itemsToDelete.includes(i));
-    } else {
-      itemsToDelete = [target];
-      updated = orcamento.filter(i => i.id !== id);
+      // Focus back to input for next item overseen by useEffect
+      setTimeout(() => {
+        if (newItemData.tipo === 'etapa') {
+          if (newItemDescRef.current) newItemDescRef.current.focus();
+        } else {
+          if (newItemCodigoRef.current) newItemCodigoRef.current.focus();
+        }
+      }, 100);
+    } catch (err: any) {
+      console.error("Error adding item:", err);
+      let msg = "Erro ao adicionar item";
+      try {
+        const parsed = JSON.parse(err.message.split('message: ')[1]);
+        msg = parsed.message || msg;
+      } catch (e) {}
+      setToast({ message: msg, type: 'error' });
     }
-
-    const autoRenumbered = applyAutoRenumber(updated);
-    const recalculated = recalculateTotals(autoRenumbered, { porcentagem: bdiConfig.porcentagem });
-    setOrcamento(recalculated);
-    
-    // Delete all removed items from the database
-    itemsToDelete.forEach(item => {
-      api.deleteOrcamentoItem(obraId, item.id, item.tipo);
-    });
-
-    // We must also update the DB for the renumbered remaining items
-    autoRenumbered.forEach(row => {
-      const originalRow = orcamento.find(r => r.id === row.id);
-      if (originalRow && originalRow.item !== row.item) {
-        api.updateOrcamentoItem(obraId, row.id, row);
-      }
-    });
   };
 
-  const handleRowUpdate = (id: string | number, updates: Partial<OrcamentoItem>) => {
-    const updated = orcamento.map(row => row.id?.toString() === (id || '').toString() ? { ...row, ...updates } : row);
-    const recalculated = recalculateTotals(updated, { porcentagem: bdiConfig.porcentagem });
-    setOrcamento(recalculated);
-    
-    const updatedRow = recalculated.find(row => row.id?.toString() === (id || '').toString());
-    if (updatedRow) {
-      api.updateOrcamentoItem(obraId, id, updatedRow);
+  const handleDeleteItem = async (id: string | number) => {
+    try {
+      const target = orcamento.find(i => i.id === id);
+      if (!target) return;
+
+      let updated: OrcamentoItem[];
+      let itemsToDelete: OrcamentoItem[] = [];
+      
+      if (target.tipo === 'etapa') {
+        // Delete stage and all its children
+        itemsToDelete = orcamento.filter(i => 
+          i.id === id || 
+          (i.item || '').toString().startsWith((target.item || '').toString() + '.')
+        );
+        updated = orcamento.filter(i => !itemsToDelete.includes(i));
+      } else {
+        itemsToDelete = [target];
+        updated = orcamento.filter(i => i.id !== id);
+      }
+
+      const autoRenumbered = applyAutoRenumber(updated);
+      const recalculated = recalculateTotals(autoRenumbered, { porcentagem: bdiConfig.porcentagem });
+      setOrcamento(recalculated);
+      
+      // Delete all removed items from the database
+      const deletePromises = itemsToDelete.map(item => 
+        api.deleteOrcamentoItem(obraId, item.id, item.tipo)
+      );
+      await Promise.all(deletePromises);
+
+      // We must also update the DB for the renumbered remaining items
+      const updatePromises = autoRenumbered.map(async row => {
+        const originalRow = orcamento.find(r => r.id === row.id);
+        if (originalRow && originalRow.item !== row.item) {
+          await api.updateOrcamentoItem(obraId, row.id, row);
+        }
+      });
+      await Promise.all(updatePromises);
+      
+      setToast({ message: "Item excluído com sucesso", type: 'success' });
+    } catch (err: any) {
+      console.error("Error deleting item:", err);
+      let msg = "Erro ao excluir item";
+      try {
+        const parsed = JSON.parse(err.message.split('message: ')[1]);
+        msg = parsed.message || msg;
+      } catch (e) {}
+      setToast({ message: msg, type: 'error' });
+    }
+  };
+
+  const handleRowUpdate = async (id: string | number, updates: Partial<OrcamentoItem>) => {
+    try {
+      const updated = orcamento.map(row => row.id?.toString() === (id || '').toString() ? { ...row, ...updates } : row);
+      const recalculated = recalculateTotals(updated, { porcentagem: bdiConfig.porcentagem });
+      setOrcamento(recalculated);
+      
+      const updatedRow = recalculated.find(row => row.id?.toString() === (id || '').toString());
+      if (updatedRow) {
+        await api.updateOrcamentoItem(obraId, id, updatedRow);
+      }
+    } catch (err: any) {
+      console.error("Error updating row:", err);
+      let msg = "Erro ao atualizar item";
+      try {
+        const parsed = JSON.parse(err.message.split('message: ')[1]);
+        msg = parsed.message || msg;
+      } catch (e) {}
+      setToast({ message: msg, type: 'error' });
+      // Revert or refresh to ensure UI matches DB?
+      // api.getOrcamento(obraId, ...).then(...)
     }
   };
 
@@ -560,6 +606,21 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
 
   return (
     <div className="space-y-2">
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 50, scale: 0.9 }}
+            className={`fixed bottom-8 right-8 z-[100] px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 font-bold text-white ${
+              toast.type === 'error' ? 'bg-red-600' : 'bg-emerald-600'
+            }`}
+          >
+            {toast.type === 'error' ? <X size={20} /> : <Check size={20} />}
+            {toast.message}
+          </motion.div>
+        )}
+      </AnimatePresence>
       <div className="flex items-center gap-4 py-2 border-b border-slate-100">
         <button 
           onClick={onBack}

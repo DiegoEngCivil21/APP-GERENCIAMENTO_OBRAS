@@ -465,9 +465,12 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
       });
       if (res.ok) {
         fetchOrcamentoItens();
+      } else {
+        const data = await res.json();
+        setError(data.message || data.error || "Erro ao adicionar etapa");
       }
-    } catch (err) {
-      console.error("Error adding stage:", err);
+    } catch (err: any) {
+      setError(err.message || "Erro de conexão ao adicionar etapa");
     }
   };
 
