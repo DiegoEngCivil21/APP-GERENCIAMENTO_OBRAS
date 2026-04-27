@@ -12,6 +12,7 @@ let _db: Database.Database | null = null;
 export function initDb() {
   if (!_db) {
     _db = new Database(dbPath);
+    _db.pragma('journal_mode = WAL');
   }
 }
 

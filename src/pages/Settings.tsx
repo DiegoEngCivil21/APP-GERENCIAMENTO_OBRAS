@@ -220,12 +220,18 @@ export const SettingsView = ({ user, forceTab }: { user: any, forceTab?: string 
         setNewUser({ nome: '', email: '', password: '', role: 'orcamentista' });
         fetchData();
       } else {
-        setMessage({ type: 'error', text: data.message || 'Erro ao processar usuário.' });
-        // Hide modal on limit error as requested
-        if (data.message && data.message.includes('limite')) {
+        const isLimitError = data.message && (data.message.includes('limite') || data.message.includes('permit'));
+        
+        if (isLimitError) {
           setShowNewUserModal(false);
           setEditingUserId(null);
           setNewUser({ nome: '', email: '', password: '', role: 'orcamentista' });
+          setMessage({ 
+            type: 'error', 
+            text: 'LIMITE DE CONTAS ATINGIDO. Por favor, faça um upgrade no seu plano para adicionar mais colaboradores.' 
+          });
+        } else {
+          setMessage({ type: 'error', text: data.message || 'Erro ao processar usuário.' });
         }
       }
     } catch (err) {

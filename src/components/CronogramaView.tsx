@@ -112,7 +112,10 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
 
   const fetchMedicaoItens = () => {
     fetch(`/api/obras/${obraId}/medicao-itens-flat`)
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
       .then(data => {
         if (Array.isArray(data)) {
           setMedicaoItens(data);
@@ -123,10 +126,14 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
 
   const toggleCriticalPath = async () => {
     if (!showCriticalPath) {
-        // Fetch
-        const response = await fetch(`/api/obras/${obraId}/caminho-critico`);
-        const data = await response.json();
-        setCriticalPathAtividades(new Set(data.map((a: any) => a.id)));
+        try {
+          const response = await fetch(`/api/obras/${obraId}/caminho-critico`);
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data = await response.json();
+          setCriticalPathAtividades(new Set(data.map((a: any) => a.id)));
+        } catch (err) {
+          console.error("Error fetching critical path:", err);
+        }
     } else {
         setCriticalPathAtividades(new Set());
     }
@@ -413,7 +420,10 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
 
   const fetchAtividades = () => {
     return fetch(`/api/obras/${obraId}/cronograma`)
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
       .then(data => {
         if (Array.isArray(data)) {
           setAtividades(data);
@@ -463,7 +473,10 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
 
   const fetchCronogramaConfig = () => {
     fetch(`/api/obras/${obraId}/cronograma-config`)
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
       .then(data => {
         if (data && data.workingDays) {
           setCronogramaConfig(data);
@@ -474,7 +487,10 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
 
   const fetchObra = () => {
     return fetch(`/api/obras/${obraId}`)
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
       .then(data => {
         setObraData(data);
       })

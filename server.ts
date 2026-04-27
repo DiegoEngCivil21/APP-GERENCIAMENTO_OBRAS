@@ -1209,8 +1209,15 @@ async function startServer() {
           const settings = db.prepare("SELECT value FROM v2_settings WHERE key = 'plan_limits'").get() as any;
           if (settings) {
             const planLimits = JSON.parse(settings.value);
-            if (planLimits[tenant.plano] !== undefined) {
-              currentPlanLimit = planLimits[tenant.plano];
+            // Normalize plan name for case-insensitive lookup
+            const planName = tenant.plano || 'Starter';
+            const normalizedPlanLimits = Object.keys(planLimits).reduce((acc: any, key) => {
+              acc[key.toLowerCase()] = planLimits[key];
+              return acc;
+            }, {});
+            
+            if (normalizedPlanLimits[planName.toLowerCase()] !== undefined) {
+              currentPlanLimit = normalizedPlanLimits[planName.toLowerCase()];
             }
           }
         } catch (e) {
@@ -3034,102 +3041,6 @@ async function startServer() {
       res.json({ message: "Linha de base removida com sucesso." });
     } catch (error: any) {
       res.status(500).json({ message: "Erro ao remover linha de base.", error: error.message });
-    }
-  });
-
-  app.get("/api/obras/:id/caminho-critico", (req, res) => {
-    const obraId = req.params.id;
-    try {
-      const atividades = db.prepare("SELECT * FROM v2_atividades WHERE obra_id = ?").all(obraId) as any[];
-      const dependencias = db.prepare(`
-        SELECT d.* FROM v2_atividade_dependencias d
-        JOIN v2_atividades a ON d.atividade_id = a.id
-        WHERE a.obra_id = ?
-      `).all(obraId) as any[];
-
-      if (atividades.length === 0) return res.json([]);
-
-      const atvMap = new Map();
-      atividades.forEach(a => {
-        atvMap.set(a.id, {
-          ...a,
-          successors: [],
-          predecessors: [],
-          es: 0, ef: 0, ls: 0, lf: 0,
-          duracao: parseInt(a.duracao_dias || 0)
-        });
-      });
-
-      // Build relations
-      dependencias.forEach(d => {
-        if (atvMap.has(d.atividade_id) && atvMap.has(d.depende_de_id)) {
-          atvMap.get(d.depende_de_id).successors.push(d.atividade_id);
-          atvMap.get(d.atividade_id).predecessors.push(d.depende_de_id);
-        }
-      });
-
-      // Handle legacy predecessors
-      atividades.forEach(a => {
-        if (a.predecessor_id && atvMap.has(a.predecessor_id)) {
-          if (!atvMap.get(a.predecessor_id).successors.includes(a.id)) {
-            atvMap.get(a.predecessor_id).successors.push(a.id);
-          }
-          if (!atvMap.get(a.id).predecessors.includes(a.predecessor_id)) {
-            atvMap.get(a.id).predecessors.push(a.predecessor_id);
-          }
-        }
-      });
-
-      // Forward Pass
-      const sortedIds: number[] = [];
-      const inDegree = new Map();
-      atividades.forEach(a => inDegree.set(a.id, atvMap.get(a.id).predecessors.length));
-
-      let queue = atividades.filter(a => inDegree.get(a.id) === 0).map(a => a.id);
-      while (queue.length > 0) {
-        const id = queue.shift()!;
-        sortedIds.push(id);
-        const atv = atvMap.get(id);
-        atv.ef = atv.es + atv.duracao;
-        
-        atv.successors.forEach((succId: number) => {
-          const succ = atvMap.get(succId);
-          succ.es = Math.max(succ.es, atv.ef);
-          inDegree.set(succId, inDegree.get(succId) - 1);
-          if (inDegree.get(succId) === 0) queue.push(succId);
-        });
-      }
-
-      // Max EF for project duration
-      const maxEF = Math.max(...atividades.map(a => atvMap.get(a.id).ef));
-
-      // Backward Pass
-      atividades.forEach(a => {
-        const atv = atvMap.get(a.id);
-        atv.lf = maxEF;
-      });
-
-      for (let i = sortedIds.length - 1; i >= 0; i--) {
-        const id = sortedIds[i];
-        const atv = atvMap.get(id);
-        atv.ls = atv.lf - atv.duracao;
-
-        atv.predecessors.forEach((predId: number) => {
-          const pred = atvMap.get(predId);
-          pred.lf = Math.min(pred.lf, atv.ls);
-        });
-      }
-
-      // Critical Path: Slack = 0 (or LF - EF = 0)
-      const criticalPath = atividades.filter(a => {
-        const atv = atvMap.get(a.id);
-        return (atv.lf - atv.ef) === 0;
-      });
-
-      res.json(criticalPath);
-    } catch (error: any) {
-      console.error("Error calculating critical path:", error);
-      res.status(500).json({ message: "Erro ao calcular caminho crítico.", error: error.message });
     }
   });
 
@@ -5882,33 +5793,6 @@ app.delete("/api/composicoes/:id/subitens/:itemId", (req, res) => {
     }
   });
 
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-    
-    // Catch-all route for SPA in development
-    app.use('*', async (req, res, next) => {
-      const url = req.originalUrl;
-      try {
-        let template = fs.readFileSync(path.resolve(__dirname, 'index.html'), 'utf-8');
-        template = await vite.transformIndexHtml(url, template);
-        res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
-      } catch (e) {
-        vite.ssrFixStacktrace(e as Error);
-        next(e);
-      }
-    });
-  } else {
-    app.use(express.static(path.join(__dirname, "dist")));
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(__dirname, "dist", "index.html"));
-    });
-  }
-
   console.log("Starting server on port", PORT);
   // Signatures
   app.get("/api/settings/signatures", authenticate, (req: any, res) => {
@@ -5961,9 +5845,60 @@ app.delete("/api/composicoes/:id/subitens/:itemId", (req, res) => {
     res.json({ success: true });
   });
 
+
+  // Global API 404 Handler - MUST be before Vite/Static middleware
+  app.all('/api/*', (req, res) => {
+    console.warn(`[API 404] ${req.method} ${req.url}`);
+    res.status(404).json({ 
+      error: "Route Not Found", 
+      message: `Endpoint ${req.method} ${req.url} does not exist on this server.` 
+    });
+  });
+
+  // Vite middleware for development
+  if (process.env.NODE_ENV !== "production") {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: "spa",
+    });
+    app.use(vite.middlewares);
+    
+    // Catch-all route for SPA in development
+    app.use('*', async (req, res, next) => {
+      const url = req.originalUrl;
+      try {
+        let template = fs.readFileSync(path.resolve(__dirname, 'index.html'), 'utf-8');
+        template = await vite.transformIndexHtml(url, template);
+        res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
+      } catch (e) {
+        vite.ssrFixStacktrace(e as Error);
+        next(e);
+      }
+    });
+  } else {
+    app.use(express.static(path.join(__dirname, "dist")));
+    app.get("*", (req, res) => {
+      res.sendFile(path.join(__dirname, "dist", "index.html"));
+    });
+  }
+
+  // Global Error Handler
+  app.use((err: any, req: any, res: any, next: any) => {
+    console.error("Global Error Handler Catch-All:", err);
+    if (req.path.startsWith('/api')) {
+      return res.status(500).json({ 
+        message: "Erro interno no servidor.", 
+        error: err.message,
+        path: req.path
+      });
+    }
+    next(err);
+  });
+
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
+
 }
 
 startServer().catch((err) => {
