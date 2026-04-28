@@ -3182,7 +3182,7 @@ function AppContent() {
   };
 
   return (
-    <div className="flex min-h-screen bg-[#f8fafc]">
+    <div className="flex min-h-screen bg-[#f8fafc] gap-[0.5px]">
       {/* Sidebar */}
       <aside className={`${isSidebarCollapsed ? 'w-16' : 'w-52'} transition-all duration-300 bg-[#111827] flex flex-col sticky top-0 h-screen shadow-2xl z-[60] overflow-hidden shrink-0`}>
         <div className="w-full h-full flex flex-col">
@@ -3236,12 +3236,12 @@ function AppContent() {
       {/* Main Content */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
         {/* Fixed Header Area */}
-        <div id="top-toolbar-wrapper" className="px-4 pt-6 pb-2 z-50">
+        <div id="top-toolbar-wrapper" className="pl-0 pr-4 pt-6 pb-2 z-50">
           <TopToolbar onNavigate={handleNavigate} user={user} />
         </div>
 
         {/* Scrollable Content Area */}
-        <div id="main-scroll-area" className="flex-1 overflow-auto px-4 pb-10 w-full">
+        <div id="main-scroll-area" className="flex-1 overflow-auto pl-0 pr-4 pb-10 w-full">
           <AnimatePresence mode="wait">
               <motion.div
                 key={selectedObraId ? `obra-${selectedObraId}` : (selectedComposicaoId ? `comp-${selectedComposicaoId}` : activeTab)}
@@ -3249,7 +3249,7 @@ function AppContent() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
                 transition={{ duration: 0.2 }}
-                className="pt-4"
+                style={{ paddingRight: '197px', paddingTop: '-18px', paddingLeft: '0px', paddingBottom: '-3px', marginLeft: '7px', marginTop: '0px' }}
               >
                 {renderContent()}
             </motion.div>

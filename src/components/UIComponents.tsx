@@ -63,7 +63,7 @@ export const TopToolbar = ({ onNavigate, user }: { onNavigate?: (tab: string) =>
   }, []);
 
   return (
-    <div className="flex items-center justify-between px-4 py-2 bg-white/95 backdrop-blur-md border border-slate-200/60 rounded-2xl shadow-sm">
+    <div style={{ paddingTop: '8px', paddingLeft: '19px', paddingRight: '21px', paddingBottom: '4px', marginRight: '5px', marginLeft: '9px' }} className="flex items-center justify-between px-4 py-2 bg-white/95 backdrop-blur-md border border-slate-200/60 rounded-2xl shadow-sm">
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2 text-slate-400">
           <div className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse" />

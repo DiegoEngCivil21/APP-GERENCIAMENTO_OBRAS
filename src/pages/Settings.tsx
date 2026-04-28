@@ -380,7 +380,7 @@ export const SettingsView = ({ user, forceTab }: { user: any, forceTab?: string 
         <p className="text-slate-500 font-medium mt-1">Gerencie seu perfil, empresa e permissões do sistema.</p>
       </div>
 
-      <div className="flex flex-col md:flex-row gap-8">
+      <div className="flex flex-col md:flex-row gap-[0.5px]">
         {/* Sidebar Menu */}
         <div className="w-full md:w-72 shrink-0">
           <div className="bg-white rounded-[32px] shadow-xl shadow-slate-200/50 border border-slate-100 p-4 space-y-2">

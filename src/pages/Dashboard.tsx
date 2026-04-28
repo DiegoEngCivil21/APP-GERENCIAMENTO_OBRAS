@@ -81,7 +81,7 @@ export const Dashboard = ({ isAdmin, onSelectObra, setActiveTab }: { isAdmin: bo
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="bg-white rounded-[32px] border border-slate-100 shadow-sm overflow-hidden lg:col-span-2">
-            <div className="p-8 border-b border-slate-50 flex justify-between items-center">
+            <div style={{ paddingTop: '4px', paddingBottom: '0px', paddingRight: '41px', marginRight: '3px', marginLeft: '-10px', marginTop: '-2px', marginBottom: '2px', paddingLeft: '5px' }} className="p-8 border-b border-slate-50 flex justify-between items-center">
               <h3 style={{ height: '20px' }} className="text-xs font-black text-slate-900 uppercase tracking-widest">Projeção Financeira</h3>
               <div className="flex items-center gap-2">
                  <div className="w-3 h-3 rounded-full bg-emerald-500" />
@@ -301,7 +301,7 @@ export const Dashboard = ({ isAdmin, onSelectObra, setActiveTab }: { isAdmin: bo
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Obras Recentes */}
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-          <div className="p-6 flex justify-between items-center border-b border-slate-50">
+          <div style={{ paddingTop: '4px', paddingBottom: '0px', paddingRight: '41px', marginRight: '3px', marginLeft: '-10px', marginTop: '-2px', marginBottom: '2px', paddingLeft: '5px' }} className="p-6 flex justify-between items-center border-b border-slate-50">
             <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">Obras Recentes</h3>
             <button 
               onClick={() => setActiveTab('obras')}
