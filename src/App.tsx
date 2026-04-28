@@ -687,10 +687,12 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
     const targetRow = orcamento.find(r => r.id === id);
     if (!targetRow) return;
 
+    // Clean input by removing .0 suffix if present
+    const cleanedNewItem = newItem.endsWith('.0') ? newItem.slice(0, -2) : newItem;
     const isEtapa = targetRow.tipo === 'etapa';
 
     // Update the row itself
-    const updatedRow = { ...targetRow, item: newItem };
+    const updatedRow = { ...targetRow, item: cleanedNewItem };
     await fetch(`/api/obras/${obraId}/orcamento/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -699,20 +701,23 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
 
     // If it's an etapa, update its children's item numbers (including sub-etapas)
     if (isEtapa) {
-      const oldPrefix = targetRow.item;
-      const newPrefix = newItem;
+      const oldPrefix = targetRow.item.toString().replace(/\.0$/, '');
+      const newPrefix = cleanedNewItem;
       
       const rawEtapaId = parseInt(id.replace('etapa-', ''), 10);
       const childrenToUpdate = orcamento.filter(r => r.etapa_id === rawEtapaId || r.etapa_pai_id === rawEtapaId);
       
       for (const child of childrenToUpdate) {
-        if (child.item && child.item.startsWith(oldPrefix)) {
-          const newChildItem = child.item.replace(oldPrefix, newPrefix);
-          await fetch(`/api/obras/${obraId}/orcamento/${child.id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...child, item: newChildItem })
-          });
+        if (child.item) {
+          const childItemStr = child.item.toString();
+          if (childItemStr.startsWith(oldPrefix)) {
+            const newChildItem = childItemStr.replace(oldPrefix, newPrefix).replace(/\.0$/, '');
+            await fetch(`/api/obras/${obraId}/orcamento/${child.id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ...child, item: newChildItem })
+            });
+          }
         }
       }
     }
@@ -770,6 +775,9 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
       }
 
       let finalItemData = { ...itemData, tipo };
+      if (finalItemData.item) {
+        finalItemData.item = finalItemData.item.toString().replace(/\.0$/, '');
+      }
       if (tipo === 'etapa' && finalItemData.descricao) {
         finalItemData.descricao = finalItemData.descricao.toUpperCase();
       }
@@ -851,12 +859,17 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
   };
 
   const getNextItem = (tipo: 'etapa' | 'composicao' | 'insumo', parentId: number | string | null) => {
-    if (!orcamento || orcamento.length === 0) return '1.0';
+    if (!orcamento || orcamento.length === 0) return '1';
+
+    const cleanOrcamento = orcamento.map(i => ({
+      ...i,
+      item: (i.item || '').toString().replace(/\.0$/, '')
+    }));
 
     if (!parentId || parentId === '__root__') {
       let maxNum = 0;
-      orcamento.forEach(i => {
-        const itemStr = (i.item || '').toString();
+      cleanOrcamento.forEach(i => {
+        const itemStr = i.item;
         const parts = itemStr.split('.').filter(p => p !== '');
         if (parts.length > 0) {
           const val = parseInt(parts[0]);
@@ -864,30 +877,25 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
         }
       });
       const next = maxNum + 1;
-      const hasZeroSuffix = orcamento.some(i => (i.item || '').toString().endsWith('.0'));
-      return hasZeroSuffix || orcamento.length > 0 ? `${next}.0` : `${next}`;
+      return `${next}`;
     } else {
       // Find parent code
-      const parentRow = orcamento.find(r => r.id === parentId || (r.id && r.id.toString() === parentId.toString()));
-      if (!parentRow) return '1.0';
+      const parentRow = cleanOrcamento.find(r => r.id === parentId || (r.id && r.id.toString() === parentId.toString()));
+      if (!parentRow) return '1';
       
       const parentItem = parentRow.item;
       const parts = parentItem.split('.').filter(p => p !== '');
-      if (parts.length === 0) return '1.0';
+      if (parts.length === 0) return '1';
       
-      const isZeroEndedParent = parts.length > 1 && parts[parts.length - 1] === '0';
-      const parentPrefixParts = [...parts];
-      if (isZeroEndedParent) parentPrefixParts.pop();
-      const prefix = parentPrefixParts.join('.') + '.';
-      const parentDepth = parentPrefixParts.length - 1;
+      const prefix = parts.join('.') + '.';
+      const parentDepth = parts.length - 1;
       
-      const children = orcamento.filter(i => {
-        const itemStr = (i.item || '').toString();
+      const children = cleanOrcamento.filter(i => {
+        const itemStr = i.item;
         if (!itemStr.startsWith(prefix) || itemStr === parentItem) return false;
         
         const cParts = itemStr.split('.').filter(p => p !== '');
-        const isZ = cParts.length > 1 && cParts[cParts.length - 1] === '0';
-        const cDepth = isZ ? cParts.length - 2 : cParts.length - 1;
+        const cDepth = cParts.length - 1;
         
         return cDepth === parentDepth + 1;
       });
@@ -896,16 +904,13 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
       if (children.length > 0) {
         let maxAtLevel = 0;
         children.forEach(child => {
-          const cParts = child.item.toString().split('.').filter(p => p !== '');
+          const cParts = child.item.split('.').filter(p => p !== '');
           const val = parseInt(cParts[parentDepth + 1]);
           if (!isNaN(val) && val > maxAtLevel) maxAtLevel = val;
         });
         nextIdx = maxAtLevel + 1;
       }
       
-      if (tipo === 'etapa' && isZeroEndedParent) {
-         return `${prefix}${nextIdx}.0`;
-      }
       return `${prefix}${nextIdx}`;
     }
   };
@@ -1260,7 +1265,7 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
       </div>
 
       {/* Tabs conforme o print */}
-      <div className="flex gap-8 border-b border-slate-200 shrink-0 px-4">
+      <div style={{ fontSize: '18px', borderWidth: '-3px', paddingLeft: '4px', paddingRight: '14px', marginBottom: '-8px' }} className="flex gap-8 border-b border-slate-200 shrink-0 px-4">
         {[
           { id: 'visao_geral', label: 'Visão Geral', icon: LayoutDashboard },
           { id: 'orcamento', label: 'Orçamento', icon: FileText },
@@ -1824,7 +1829,7 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm flex-1 flex flex-col overflow-hidden budget-table-container" onClick={() => setSelectedRowId(null)}>
               <div className="p-4 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center shrink-0">
                 <div className="flex items-center gap-4">
-                  <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">Planilha de Orçamento</h3>
+                  <h3 style={{ fontSize: '27.5px', lineHeight: '25.5px' }} className="text-xs font-black text-slate-900 uppercase tracking-widest">Planilha de Orçamento</h3>
                 </div>
                 <div className="flex items-center gap-2">
                   <button 
@@ -1993,7 +1998,7 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
                             <input 
                               autoFocus
                               className="w-full bg-white border border-indigo-300 rounded px-1 py-0.5 text-center outline-none text-[13px] text-slate-700 font-medium"
-                              defaultValue={row.item}
+                              defaultValue={row.item.toString().replace(/\.0$/, '')}
                               onClick={(e) => e.stopPropagation()}
                               onBlur={(e) => {
                                 handleItemChange(row.id, e.target.value);
@@ -2014,7 +2019,7 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
                                 setEditingCell({ id: row.id, field: 'item' });
                               }}
                             >
-                              <span className={`text-[13px] text-slate-700 ${row.tipo === 'etapa' ? 'font-semibold' : 'font-medium'}`}>{row.item}</span>
+                              <span className={`text-[13px] text-slate-700 ${row.tipo === 'etapa' ? 'font-semibold' : 'font-medium'}`}>{row.item.toString().replace(/\.0$/, '')}</span>
                             </div>
                           )}
                         </div>

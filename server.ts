@@ -2517,10 +2517,10 @@ async function startServer() {
       // Second pass: calculate hierarchical totals for etapas
       for (const item of result) {
         if (item.tipo === 'etapa' || item.id.startsWith('etapa-')) {
-          const searchPrefix = item.item.replace(/\.0$/, '.');
+          const searchPrefix = item.item.toString() + '.';
           let hierarchicalTotal = 0;
           for (const other of result) {
-            if (other.id.startsWith('item-') && other.item.startsWith(searchPrefix)) {
+            if (other.id.startsWith('item-') && other.item.toString().startsWith(searchPrefix)) {
               hierarchicalTotal += other.total || 0;
             }
           }
@@ -2562,6 +2562,7 @@ async function startServer() {
 
       db.transaction(() => {
         for (const it of items) {
+          console.log("Processing save item:", { tipo: it.tipo, item: it.item, id: it.id });
           if (it.tipo === 'etapa') {
             let finalOrdem = it.ordem;
             let etapaPaiId = it.etapa_pai_id;
@@ -2572,12 +2573,6 @@ async function startServer() {
             if (finalOrdem === undefined || finalOrdem === null) {
               const maxOrdemRow = db.prepare("SELECT MAX(ordem) as max_ordem FROM v2_etapas WHERE obra_id = ? AND (etapa_pai_id = ? OR (etapa_pai_id IS NULL AND ? IS NULL))").get(req.params.id, etapaPaiId, etapaPaiId) as any;
               finalOrdem = (maxOrdemRow?.max_ordem || 0) + 1;
-            }
-
-            // Check for unique constraint conflict (obra_id, codigo)
-            // If the code already exists, clear it temporarily to avoid constraint violation
-            if (it.item) {
-              db.prepare("UPDATE v2_etapas SET codigo = NULL WHERE obra_id = ? AND codigo = ?").run(req.params.id, it.item);
             }
 
             const result = db.prepare(`
@@ -2595,21 +2590,13 @@ async function startServer() {
             if (it.item && !foundEtapaId) {
               const parts = it.item.split('.');
               // Try to find the most specific etapa by checking prefixes from longest to shortest
-              // e.g. for 1.1.1, check 1.1.0, then 1.0
               for (let i = parts.length - 1; i >= 1; i--) {
-                const prefix = parts.slice(0, i).join('.') + '.0';
+                const prefix = parts.slice(0, i).join('.');
                 const matchingEtapa = db.prepare("SELECT id FROM v2_etapas WHERE obra_id = ? AND codigo = ?").get(req.params.id, prefix) as any;
                 if (matchingEtapa) {
                   foundEtapaId = matchingEtapa.id;
                   break;
                 }
-              }
-              
-              // Fallback to the first part if still not found
-              if (!foundEtapaId) {
-                const prefix = parts[0] + '.0';
-                const matchingEtapa = db.prepare("SELECT id FROM v2_etapas WHERE obra_id = ? AND (codigo = ? OR codigo = ?)").get(req.params.id, prefix, parts[0]) as any;
-                if (matchingEtapa) foundEtapaId = matchingEtapa.id;
               }
             }
 
@@ -2674,9 +2661,8 @@ async function startServer() {
       }
 
       if (tipo !== 'etapa' && item) {
-        console.log("Receiving update for item:", { itemId, item, tipo, descricao });
-        const prefixMatch = item.match(/^(\d+)\./);
-        const prefix = prefixMatch ? prefixMatch[1] : item.split('.')[0];
+        const parts = item.split('.');
+        const prefix = parts.length > 1 ? parts.slice(0, -1).join('.') : parts[0];
         
         if (prefix) {
           // Find the obra_id for this item to search for the correct etapa
@@ -2692,19 +2678,32 @@ async function startServer() {
             let currentEtapaIsCorrect = false;
             if (parsedEtapaId) {
               const currentEtapa = db.prepare("SELECT codigo FROM v2_etapas WHERE id = ?").get(parsedEtapaId) as any;
-              if (currentEtapa && (currentEtapa.codigo === prefix || currentEtapa.codigo === `${prefix}.0`)) {
+              if (currentEtapa && currentEtapa.codigo === prefix) {
                 currentEtapaIsCorrect = true;
               }
             }
 
             if (!currentEtapaIsCorrect) {
-              const matchingEtapa = db.prepare("SELECT id FROM v2_etapas WHERE obra_id = ? AND (codigo = ? OR codigo = ?)").get(currentItem.obra_id, prefix, `${prefix}.0`) as any;
-              if (matchingEtapa) {
-                parsedEtapaId = matchingEtapa.id;
-              } else {
-                // Create a new etapa if it doesn't exist
-                const newEtapa = db.prepare("INSERT INTO v2_etapas (obra_id, nome, codigo) VALUES (?, ?, ?)").run(currentItem.obra_id, `Nova Etapa ${prefix}`, `${prefix}.0`);
-                parsedEtapaId = newEtapa.lastInsertRowid;
+              // Try to find parent by checking prefixes
+              for (let i = parts.length - 1; i >= 1; i--) {
+                const subPrefix = parts.slice(0, i).join('.');
+                const matchingEtapa = db.prepare("SELECT id FROM v2_etapas WHERE obra_id = ? AND codigo = ?").get(currentItem.obra_id, subPrefix) as any;
+                if (matchingEtapa) {
+                  parsedEtapaId = matchingEtapa.id;
+                  break;
+                }
+              }
+
+              if (!parsedEtapaId) {
+                // Create a new etapa if it doesn't exist for the top-level prefix if we still don't have one
+                const topPrefix = parts[0];
+                const matchingEtapa = db.prepare("SELECT id FROM v2_etapas WHERE obra_id = ? AND codigo = ?").get(currentItem.obra_id, topPrefix) as any;
+                if (matchingEtapa) {
+                  parsedEtapaId = matchingEtapa.id;
+                } else {
+                  const newEtapa = db.prepare("INSERT INTO v2_etapas (obra_id, nome, codigo) VALUES (?, ?, ?)").run(currentItem.obra_id, `Nova Etapa ${topPrefix}`, topPrefix);
+                  parsedEtapaId = newEtapa.lastInsertRowid;
+                }
               }
             }
           }
@@ -2715,13 +2714,6 @@ async function startServer() {
         const etapaCols = db.prepare("PRAGMA table_info(v2_etapas)").all() as any[];
         const hasEtapaUpdatedAt = etapaCols.some(c => c.name === 'updated_at');
         
-        // Check for unique constraint conflict (obra_id, codigo)
-        // If the new code already exists for another etapa in the same obra, clear it temporarily
-        const currentEtapa = db.prepare("SELECT obra_id FROM v2_etapas WHERE id = ?").get(itemId) as any;
-        if (currentEtapa) {
-          db.prepare("UPDATE v2_etapas SET codigo = NULL WHERE obra_id = ? AND codigo = ? AND id != ?").run(currentEtapa.obra_id, item, itemId);
-        }
-
         if (hasEtapaUpdatedAt) {
           db.prepare(`
             UPDATE v2_etapas 
@@ -2827,40 +2819,47 @@ async function startServer() {
         // 1. Auto-parenting: Update hierarchy based on codes
         for (const etapa of allEtapas) {
           if (!etapa.codigo) continue;
-          const parts = etapa.codigo.split('.');
-          if (parts.length >= 2) {
-            // e.g. 3.1.0 -> parent 3.0
-            // e.g. 3.2.1.0 -> parent 3.2.0
-            const parentParts = parts.slice(0, -2);
-            if (parentParts.length > 0) {
-              const parentCodeBase = parentParts.join('.');
-              const parentId = etapaMap.get(parentCodeBase + '.0') || etapaMap.get(parentCodeBase);
-              if (parentId && parentId !== etapa.id) {
-                db.prepare("UPDATE v2_etapas SET etapa_pai_id = ? WHERE id = ?").run(parentId, etapa.id);
-                etapa.etapa_pai_id = parentId; // Update in memory too
-              }
-            } else if (parts.length === 2 && parts[1] === '0') {
-              db.prepare("UPDATE v2_etapas SET etapa_pai_id = NULL WHERE id = ?").run(etapa.id);
-              etapa.etapa_pai_id = null;
+          const parts = etapa.codigo.split('.').filter(p => p !== '');
+          if (parts.length > 1) {
+            // e.g. 1.1 -> parent 1
+            const parentParts = parts.slice(0, -1);
+            const parentCode = parentParts.join('.');
+            const parentId = etapaMap.get(parentCode);
+            if (parentId && parentId !== etapa.id) {
+              db.prepare("UPDATE v2_etapas SET etapa_pai_id = ? WHERE id = ?").run(parentId, etapa.id);
+              etapa.etapa_pai_id = parentId;
             }
+          } else {
+            // Top level
+            db.prepare("UPDATE v2_etapas SET etapa_pai_id = NULL WHERE id = ?").run(etapa.id);
+            etapa.etapa_pai_id = null;
           }
         }
 
         for (const item of allItems) {
           if (!item.item_numero) continue;
-          const parts = item.item_numero.split('.');
-          if (parts.length >= 2) {
-            // e.g. 3.2.1 -> stage 3.2.0 or 3.2
-            const stageCodeBase = parts.slice(0, -1).join('.');
-            const stageId = etapaMap.get(stageCodeBase + '.0') || etapaMap.get(stageCodeBase);
+          const parts = item.item_numero.split('.').filter(p => p !== '');
+          if (parts.length > 1) {
+            // e.g. 1.1.1 -> stage 1.1
+            const stageParts = parts.slice(0, -1);
+            const stageCode = stageParts.join('.');
+            const stageId = etapaMap.get(stageCode);
             if (stageId) {
               db.prepare("UPDATE v2_orcamento_itens SET etapa_id = ? WHERE id = ?").run(stageId, item.id);
               item.etapa_id = stageId;
             }
+          } else if (parts.length === 1) {
+             // Root level item or incorrectly numbered item
+             const stageId = etapaMap.get(parts[0]);
+             if (stageId) {
+               db.prepare("UPDATE v2_orcamento_itens SET etapa_id = ? WHERE id = ?").run(stageId, item.id);
+               item.etapa_id = stageId;
+             }
           }
         }
 
-        // Clear all codes in DB to avoid unique constraint violations during resequence updates
+        // 2. Clear all codes in DB to avoid unique constraint violations during resequence updates
+        // We'll update them later
         db.prepare("UPDATE v2_etapas SET codigo = NULL WHERE obra_id = ?").run(obraId);
         db.prepare("UPDATE v2_orcamento_itens SET item_numero = NULL WHERE id IN (SELECT oi.id FROM v2_orcamento_itens oi JOIN v2_etapas e ON oi.etapa_id = e.id WHERE e.obra_id = ?)").run(obraId);
         
@@ -2874,80 +2873,76 @@ async function startServer() {
 
         const assignCodes = (parentId: number | string, prefix: string) => {
           const children = etapasByParent[parentId] || [];
-          // Sort children by their current code or order
+          // Sort children by their previous code
           children.sort((a, b) => {
-             const aCode = a.codigo;
-             const bCode = b.codigo;
-             
-             // Items without codes go to the end
+             const aCode = a.item || a.codigo || "";
+             const bCode = b.item || b.codigo || "";
              if (!aCode && !bCode) return a.id - b.id;
              if (!aCode) return 1;
              if (!bCode) return -1;
-
-             // Try to compare numerically if possible
-             const aParts = aCode.split('.').map((p: string) => parseInt(p, 10));
-             const bParts = bCode.split('.').map((p: string) => parseInt(p, 10));
-             
+             const aParts = aCode.split(".").map(p => parseInt(p, 10));
+             const bParts = bCode.split(".").map(p => parseInt(p, 10));
              for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
                const aP = isNaN(aParts[i]) ? 0 : aParts[i];
                const bP = isNaN(bParts[i]) ? 0 : bParts[i];
                if (aP !== bP) return aP - bP;
              }
-             
              return a.id - b.id;
           });
 
-          children.forEach((etapa, idx) => {
-            // Force renumbering based on the hierarchy
-            const expectedCode = parentId === 'root' ? `${idx + 1}.0` : `${prefix}.${idx + 1}.0`;
-            const newCode = expectedCode;
-            
-            // Update database (only if changed or missing)
-            if (etapa.codigo !== newCode || etapa.ordem !== idx) {
-                db.prepare("UPDATE v2_etapas SET codigo = ?, ordem = ? WHERE id = ?").run(newCode, idx, etapa.id);
-                etapa.codigo = newCode;
+          // Handle items directly under this parent (if parent is an etapa) or at root
+          const itemsFilter = parentId === 'root' ? (it: any) => !it.etapa_id : (it: any) => it.etapa_id === parentId;
+          const items = allItems.filter(itemsFilter);
+          items.sort((a, b) => {
+            const aCode = a.item_numero || "";
+            const bCode = b.item_numero || "";
+            if (!aCode && !bCode) return a.id - b.id;
+            if (!aCode) return 1;
+            if (!bCode) return -1;
+            const aParts = aCode.split(".").map(p => parseInt(p, 10));
+            const bParts = bCode.split(".").map(p => parseInt(p, 10));
+            for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+              const aP = isNaN(aParts[i]) ? 0 : aParts[i];
+              const bP = isNaN(bParts[i]) ? 0 : bParts[i];
+              if (aP !== bP) return aP - bP;
             }
-            
-            // Recurse to sub-etapas
-            assignCodes(etapa.id, newCode.replace(/\.0$/, ''));
-            
-            // Also update items under this etapa
-            const items = allItems.filter(it => it.etapa_id === etapa.id);
-            // Sort items by their current item_numero or order
-            items.sort((a, b) => {
-              const aCode = a.item_numero;
-              const bCode = b.item_numero;
+            return a.id - b.id;
+          });
 
-              if (!aCode && !bCode) return a.id - b.id;
-              if (!aCode) return 1;
-              if (!bCode) return -1;
+          items.forEach((item, itemIdx) => {
+             const expectedItemCode = prefix ? `${prefix}.${itemIdx + 1}` : `${itemIdx + 1}`;
+             db.prepare("UPDATE v2_orcamento_itens SET item_numero = ?, ordem = ? WHERE id = ?").run(expectedItemCode, itemIdx, item.id);
+             db.prepare("UPDATE v2_atividades SET item_numero = ? WHERE orcamento_item_id = ?").run(expectedItemCode, item.id);
+          });
 
-              const aParts = aCode.split('.').map((p: string) => parseInt(p, 10));
-              const bParts = bCode.split('.').map((p: string) => parseInt(p, 10));
-              for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
-                const aP = isNaN(aParts[i]) ? 0 : aParts[i];
-                const bP = isNaN(bParts[i]) ? 0 : bParts[i];
-                if (aP !== bP) return aP - bP;
-              }
-              return a.id - b.id;
-            });
-
-            items.forEach((item, itemIdx) => {
-               // Similar logic for items
-               const expectedItemCode = `${newCode.replace(/\.0$/, '')}.${itemIdx + 1}`;
-               const itemCode = expectedItemCode;
-                 
-               if (item.item_numero !== itemCode || item.ordem !== itemIdx) {
-                    db.prepare("UPDATE v2_orcamento_itens SET item_numero = ?, ordem = ? WHERE id = ?").run(itemCode, itemIdx, item.id);
-               }
-               
-               // Also update any activities linked to this budget item
-               db.prepare("UPDATE v2_atividades SET item_numero = ? WHERE orcamento_item_id = ?").run(itemCode, item.id);
-            });
+          children.forEach((etapa, idx) => {
+            const expectedCode = prefix ? `${prefix}.${idx + 1}` : `${idx + 1}`;
+            db.prepare("UPDATE v2_etapas SET codigo = ?, ordem = ? WHERE id = ?").run(expectedCode, idx, etapa.id);
+            etapa.codigo = expectedCode;
+            assignCodes(etapa.id, expectedCode);
           });
         };
 
         assignCodes('root', '');
+
+        // 3. Handle orphaned items (items without stage or whose stage wasn't reached)
+        const orphanedItems = db.prepare(`
+           SELECT oi.* FROM v2_orcamento_itens oi
+           JOIN v2_etapas e ON oi.etapa_id = e.id
+           WHERE e.obra_id = ? AND oi.item_numero IS NULL
+        `).all(obraId) as any[];
+
+        if (orphanedItems.length > 0) {
+           orphanedItems.forEach((item, idx) => {
+              // Try to find a logical stage or just put at the end of the last stage
+              const lastStage = db.prepare("SELECT codigo FROM v2_etapas WHERE obra_id = ? ORDER BY codigo DESC LIMIT 1").get(obraId) as any;
+              if (lastStage && lastStage.codigo) {
+                 const cleanLastCode = lastStage.codigo.toString().replace(/\.0$/, '');
+                 const code = `${cleanLastCode}.${idx + 100}`; // Offset to avoid collision if it happens
+                 db.prepare("UPDATE v2_orcamento_itens SET item_numero = ? WHERE id = ?").run(code, item.id);
+              }
+           });
+        }
       })();
 
       updateObraTimestamp(req.params.id);
@@ -2990,7 +2985,7 @@ async function startServer() {
         // 4. Sort and assign item_numero for activities within each stage
         Object.keys(atvByEtapa).forEach(eId => {
           const stageCode = etapaMap.get(Number(eId)) || '';
-          const baseCode = stageCode.endsWith('.0') ? stageCode.slice(0, -2) : stageCode;
+          const baseCode = (stageCode || "").toString().replace(/\.0$/, '');
           
           const stageAtvs = atvByEtapa[eId];
           stageAtvs.sort((a, b) => {
@@ -5174,7 +5169,7 @@ async function startServer() {
             let actualTipo = item.tipo; // 'INSUMO' or 'COMPOSICAO' from Excel
 
             // Try to find the item in the database first, regardless of type.
-            let existingItem = findItemAny.get(item.codigo, item.codigo + '.0', item.base_item) as any;
+            let existingItem = findItemAny.get(item.codigo, item.base_item) as any;
 
             if (existingItem) {
                id_item = existingItem.id;

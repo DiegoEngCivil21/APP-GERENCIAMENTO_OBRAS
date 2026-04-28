@@ -1021,7 +1021,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
 
       if (stageItem) {
         // Base item number (e.g., "1.0" -> "1", "1.1" -> "1.1", "2" -> "2")
-        const baseItem = stageItem.endsWith('.0') ? stageItem.slice(0, -2) : stageItem;
+        const baseItem = stageItem.toString().replace(/\.0$/, '');
         
         const stageAtividades = atividades.filter(a => a.etapa_id === etapaId);
         if (stageAtividades.length > 0) {
@@ -1384,7 +1384,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
       // Helper to calculate stage aggregations
       const getStageAggregations = (stageId: number | string, stageItem: string) => {
         const trimmedStageItem = (stageItem || '').trim();
-        const baseItem = trimmedStageItem.endsWith('.0') ? trimmedStageItem.slice(0, -2) : trimmedStageItem;
+        const baseItem = (trimmedStageItem || "").toString().replace(/\.0$/, '');
         
         const childAtvs = currentAtividades.filter(a => {
           // Match by explicit stage ID
@@ -3500,7 +3500,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                   onClick={() => {
                     if (hasBaseline) return;
                     const stageItem = hoveredRowData.item || hoveredRowData.item_numero || String(hoveredRowId);
-                    const baseItem = stageItem.endsWith('.0') ? stageItem.slice(0, -2) : stageItem;
+                    const baseItem = stageItem.toString().replace(/\.0$/, '');
                     
                     const stageAtividades = atividades.filter(a => a.etapa_id === hoveredRowId);
                     let nextItem = `${baseItem}.1`;

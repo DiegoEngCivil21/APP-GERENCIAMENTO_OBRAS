@@ -31,26 +31,24 @@ const getSemanticParent = (item: string) => {
   const parts = item.split('.').filter(p => p !== '');
   if (parts.length <= 1) return '__root__';
   
-  const isZeroTerminated = parts[parts.length - 1] === '0';
-  if (isZeroTerminated) {
-     parts.pop(); // remove current level '0'
-     if (parts.length > 0) parts.pop(); // remove current index
-     if (parts.length === 0) return '__root__';
-     return parts.join('.') + '.0';
-  } else {
-     parts.pop(); // remove current index
-     return parts.join('.') + '.0'; 
-  }
+  parts.pop(); // remove current index
+  if (parts.length === 0) return '__root__';
+  return parts.join('.');
 };
 
 const getNextItemNumber = (list: OrcamentoItem[], parentItem: string | null, targetTipo: 'etapa' | 'insumo' | 'composicao'): string => {
   try {
-    if (!list || list.length === 0) return '1.0';
+    if (!list || list.length === 0) return '1';
+
+    const cleanList = list.map(i => ({
+      ...i,
+      item: (i.item || '').toString().replace(/\.0$/, '')
+    }));
 
     if (parentItem === null || parentItem === '__root__') {
       let maxNum = 0;
-      list.forEach(i => {
-        const itemStr = (i.item || '').toString();
+      cleanList.forEach(i => {
+        const itemStr = i.item;
         const parts = itemStr.split('.').filter(p => p !== '');
         if (parts.length > 0) {
           const val = parseInt(parts[0]);
@@ -59,25 +57,21 @@ const getNextItemNumber = (list: OrcamentoItem[], parentItem: string | null, tar
       });
 
       const next = maxNum + 1;
-      const hasZeroSuffix = list.some(i => (i.item || '').toString().endsWith('.0'));
-      return hasZeroSuffix || list.length > 0 ? `${next}.0` : `${next}`;
+      return `${next}`;
     } else {
-      const parts = parentItem.split('.').filter(p => p !== '');
-      if (parts.length === 0) return '1.0';
+      const cleanParentItem = (parentItem || '').toString().replace(/\.0$/, '');
+      const parts = cleanParentItem.split('.').filter(p => p !== '');
+      if (parts.length === 0) return '1';
       
-      const isZeroEndedParent = parts.length > 1 && parts[parts.length - 1] === '0';
-      const parentPrefixParts = [...parts];
-      if (isZeroEndedParent) parentPrefixParts.pop();
-      const prefix = parentPrefixParts.join('.') + '.';
-      const parentDepth = parentPrefixParts.length - 1;
+      const prefix = parts.join('.') + '.';
+      const parentDepth = parts.length - 1;
       
-      const children = list.filter(i => {
-        const itemStr = (i.item || '').toString();
-        if (!itemStr.startsWith(prefix) || itemStr === parentItem) return false;
+      const children = cleanList.filter(i => {
+        const itemStr = i.item;
+        if (!itemStr.startsWith(prefix) || itemStr === cleanParentItem) return false;
         
         const cParts = itemStr.split('.').filter(p => p !== '');
-        const isZ = cParts.length > 1 && cParts[cParts.length - 1] === '0';
-        const cDepth = isZ ? cParts.length - 2 : cParts.length - 1;
+        const cDepth = cParts.length - 1;
         
         return cDepth === parentDepth + 1;
       });
@@ -86,57 +80,84 @@ const getNextItemNumber = (list: OrcamentoItem[], parentItem: string | null, tar
       if (children.length > 0) {
         let maxAtLevel = 0;
         children.forEach(child => {
-          const cParts = child.item.toString().split('.').filter(p => p !== '');
+          const cParts = (child.item || '').split('.').filter(p => p !== '');
           const val = parseInt(cParts[parentDepth + 1]);
           if (!isNaN(val) && val > maxAtLevel) maxAtLevel = val;
         });
         nextIdx = maxAtLevel + 1;
       }
       
-      if (targetTipo === 'etapa' && isZeroEndedParent) {
-         return `${prefix}${nextIdx}.0`;
-      }
       return `${prefix}${nextIdx}`;
     }
   } catch (err) {
     console.error("Error calculating next item:", err);
-    return '1.0';
+    return '1';
   }
 };
 
 export const applyAutoRenumber = (orcamentoList: OrcamentoItem[]): OrcamentoItem[] => {
-  if (orcamentoList.length === 0) return [];
+  if (!orcamentoList || orcamentoList.length === 0) return [];
   
-  // Use current order, or sort if items are missing
-  const sorted = [...orcamentoList].sort((a, b) => {
-    const aItem = (a.item || '').toString();
-    const bItem = (b.item || '').toString();
-    if (aItem === bItem) return 0;
-    return aItem.localeCompare(bItem, undefined, { numeric: true });
-  });
+  // Create a deep copy
+  let list = [...orcamentoList];
+  
+  const ctx: { [key: string]: number } = { root: 0 };
+  const renumbered: OrcamentoItem[] = [];
 
-  const counters: { [key: string]: number } = { root: 0 };
-  
-  return sorted.map(row => {
-    const parts = row.item ? row.item.toString().split('.').filter(p => p !== '') : [];
+  list.forEach((row, idx) => {
+    let newItem = "";
     
-    // Determine parent. If row is etapa, it's a new sub-tree level. 
-    // This logic needs to be robust for any item.
-    let parentParts: string[] = [];
-    if (parts.length > 0) {
-        parentParts = parts.length > 1 ? parts.slice(0, -1) : [];
+    if (row.tipo === 'etapa') {
+      const parts = (row.item || "").toString().split('.').filter(p => p !== '' && p !== '0');
+      const depth = Math.max(1, parts.length);
+      
+      // Look for parent stage above
+      let parentCode = "";
+      for (let i = idx - 1; i >= 0; i--) {
+        const prev = list[i];
+        if (prev.tipo === 'etapa') {
+          const prevParts = (prev.item || "").toString().split('.').filter(p => p !== '' && p !== '0');
+          if (prevParts.length < depth) {
+            parentCode = (prev.item || "").toString();
+            break;
+          }
+        }
+      }
+      
+      const pKey = parentCode || 'root';
+      if (ctx[pKey] === undefined) ctx[pKey] = 0;
+      ctx[pKey]++;
+      
+      newItem = parentCode ? `${parentCode}.${ctx[pKey]}` : `${ctx[pKey]}`;
+    } else {
+      // Find the nearest stage above this item
+      let parentEtapaCode = "";
+      for (let i = idx - 1; i >= 0; i--) {
+        if (list[i].tipo === 'etapa') {
+          // If we found a stage, but it was just renumbered in this pass, use that
+          const alreadyProcessed = renumbered[i];
+          parentEtapaCode = alreadyProcessed ? alreadyProcessed.item.toString() : list[i].item.toString();
+          break;
+        }
+      }
+      
+      const pKey = parentEtapaCode || 'root';
+      if (ctx[pKey] === undefined) ctx[pKey] = 0;
+      ctx[pKey]++;
+      
+      newItem = parentEtapaCode ? `${parentEtapaCode}.${ctx[pKey]}` : `${ctx[pKey]}`;
     }
-
-    const parentKey = parentParts.join('.') || 'root';
     
-    if (counters[parentKey] === undefined) counters[parentKey] = 0;
-    counters[parentKey]++;
+    // Fallback if renumbering failed
+    if (!newItem) newItem = (row.item || (idx + 1)).toString();
     
-    // Generate new item number
-    const newItem = parentParts.length > 0 ? `${parentParts.join('.')}.${counters[parentKey]}` : `${counters[parentKey]}`;
-
-    return { ...row, item: newItem };
+    const updatedRow = { ...row, item: newItem };
+    renumbered.push(updatedRow);
+    // Update the local list so subsequent rows see the new parent item
+    list[idx] = updatedRow;
   });
+
+  return renumbered;
 };
 
 export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack: () => void }) => {
@@ -148,14 +169,43 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
   const [activeSubTab, setActiveSubTab] = useState(() => localStorage.getItem('activeSubTab') || 'visao_geral');
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
 
+  const [bancosAtivos, setBancosAtivos] = useState<{id: string, name: string, active: boolean, available_dates: string[], data_referencia?: string}[]>([]);
+  const activeBases = useMemo(() => bancosAtivos.filter(b => b.active).map(b => b.id.toLowerCase()), [bancosAtivos]);
+
+  const [encargos, setEncargos] = useState({
+    desonerado: false, // Default to false
+    horista: 0.0,
+    mensalista: 0.0,
+    incidir: false,
+    estado: 'DF',
+    dataReferencia: '2026-04-01'
+  });
+
+  const [bdiConfig, setBdiConfig] = useState({ 
+    porcentagem: 0, 
+    incidencia: 'unitario' as 'unitario' | 'final',
+    tipo: 'unico' as 'unico' | 'detalhado'
+  });
+
   const refreshObraData = useCallback(async () => {
     try {
       const data = await api.getObraById(obraId);
       setObra(data);
+      
+      const activeBancos = bancosAtivos.filter(b => b.active).map(b => ({ id: b.id, data_referencia: b.data_referencia }));
+      const freshData = await api.getOrcamento(obraId, { 
+        desonerado: encargos.desonerado,
+        estado: encargos.estado,
+        data_referencia: encargos.dataReferencia,
+        bancos_ativos: activeBancos
+      });
+      const structuredData = applyAutoRenumber(freshData);
+      const withTotals = recalculateTotals(structuredData, { porcentagem: bdiConfig.porcentagem });
+      setOrcamento(withTotals);
     } catch (err) {
       console.error("Error refreshing obra data:", err);
     }
-  }, [obraId]);
+  }, [obraId, encargos.desonerado, encargos.estado, encargos.dataReferencia, bancosAtivos, bdiConfig.porcentagem]);
 
   const formatLastUpdated = (dateStr?: string) => {
     if (!dateStr) return '';
@@ -220,25 +270,8 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
       editingRowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }, [editingCell]);
-  const [bdiConfig, setBdiConfig] = useState({ 
-    porcentagem: 0, 
-    incidencia: 'unitario' as 'unitario' | 'final',
-    tipo: 'unico' as 'unico' | 'detalhado'
-  });
   
   const [updateMode, setUpdateMode] = useState<'estrutura' | 'precos'>('estrutura');
-  
-  const [bancosAtivos, setBancosAtivos] = useState<{id: string, name: string, active: boolean, available_dates: string[], data_referencia?: string}[]>([]);
-  const activeBases = useMemo(() => bancosAtivos.filter(b => b.active).map(b => b.id.toLowerCase()), [bancosAtivos]);
-
-  const [encargos, setEncargos] = useState({
-    desonerado: false, // Default to false
-    horista: 0.0,
-    mensalista: 0.0,
-    incidir: false,
-    estado: 'DF',
-    dataReferencia: '2025-10'
-  });
 
   const [isInitialLoad, setIsInitialLoad] = useState(true);
 
@@ -433,22 +466,23 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
     const targetRow = orcamento.find(r => r.id?.toString() === (id || '').toString());
     if (!targetRow) return;
 
-    const oldItem = targetRow.item;
+    // Clean input
+    const cleanNewItem = newItem.toString().replace(/\.0$/, '');
+    
+    const oldItem = (targetRow.item || "").toString().replace(/\.0$/, '');
     const isEtapa = targetRow.tipo === 'etapa';
     
     // First, cascade the change to children
     const oldPrefix = getSemanticRoot(oldItem);
-    const newPrefix = getSemanticRoot(newItem);
+    const newPrefix = getSemanticRoot(cleanNewItem);
 
-    // Provide a grouping suffix to keep the moved sub-tree perfectly contiguous if it collides 
-    // with an already existing sequence! We use ZZZ so it always drops BELOW existing ones of the same code.
-    // Notice that applyAutoRenumber will completely overwrite the item string at the end, so it doesn't persist!
+    // Provide a grouping suffix
     const uniqueSuffix = `_ZZZ_moved`;
 
     const updated = orcamento.map(row => {
       const currentItemStr = (row.item || '').toString();
       if (row.id?.toString() === (id || '').toString()) {
-        return { ...row, item: newItem + uniqueSuffix };
+        return { ...row, item: cleanNewItem + uniqueSuffix };
       }
       if (isEtapa && currentItemStr.startsWith(oldPrefix) && currentItemStr !== oldItem) {
         const suffix = currentItemStr.slice(oldPrefix.length);
@@ -457,34 +491,20 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
       return row;
     });
 
-    // Then Auto-renumber the whole tree effectively placing items correctly and keeping sequential order
     const autoRenumbered = applyAutoRenumber(updated);
 
     setOrcamento(autoRenumbered);
     
-    // Save to server sequentially - Use the renumbered list to detect changes
-    for (const row of autoRenumbered) {
-      const originalRow = updated.find(r => r.id === row.id);
-      if (originalRow && originalRow.item !== row.item) {
+    const reversed = [...autoRenumbered].reverse();
+    for (const row of reversed) {
+      const originalRow = orcamento.find(r => r.id === row.id);
+      if (!originalRow || originalRow.item !== row.item) {
         await api.updateOrcamentoItem(obraId, row.id, row);
       }
     }
     
+    await api.resequenceOrcamento(obraId);
     await refreshObraData();
-    
-    // Refresh orcamento to get latest server values
-    try {
-        const updatedServerOrcamento = await api.getOrcamento(obraId, {
-          desonerado: encargos.desonerado,
-          estado: encargos.estado,
-          data_referencia: encargos.dataReferencia,
-          bancos_ativos: bancosAtivos.filter(b => b.active)
-        });
-        const withTotals = recalculateTotals(updatedServerOrcamento, { porcentagem: bdiConfig.porcentagem });
-        setOrcamento(withTotals);
-    } catch (err) {
-       console.error("Failed to fetch fresh orcamento in move", err);
-    }
 
     setEditingCell(null);
   };
@@ -493,90 +513,57 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
     if (!addingItemToEtapa) return;
     
     try {
-      const newId = Date.now();
-      const newItem: OrcamentoItem = {
-        id: newId,
-        obra_id: obraId,
+      // Find the parent etapa ID if it's not root
+      let targetEtapaId: string | number | null = null;
+      if (addingItemToEtapa !== '__root__') {
+        const parentStage = orcamento.find(i => i.tipo === 'etapa' && i.item?.toString() === addingItemToEtapa);
+        if (parentStage) {
+          targetEtapaId = parentStage.id;
+        }
+      }
+
+      const newItem: any = {
+        obra_id: Number(obraId),
         tipo: newItemData.tipo,
-        item: newItemData.item,
+        item: newItemData.item?.toString().replace(/\.0$/, ''),
         base: newItemData.tipo === 'etapa' ? undefined : newItemData.base,
         codigo: newItemData.tipo === 'etapa' ? undefined : newItemData.codigo,
         descricao: newItemData.descricao,
         unidade: newItemData.tipo === 'etapa' ? undefined : newItemData.unidade,
         quantidade: newItemData.tipo === 'etapa' ? 0 : newItemData.quantidade,
         valor_unitario: newItemData.tipo === 'etapa' ? 0 : newItemData.valor_unitario,
-        valor_bdi: 0, 
-        total: 0      
+        etapa_id: targetEtapaId
       };
 
-      const updatedRaw = [...orcamento, newItem];
-      const sorted = applyAutoRenumber(updatedRaw);
+      // 1. Save new item
+      await api.saveOrcamento(obraId, [newItem]);
+      
+      // 2. Clear adding state immediately
+      setAddingItemToEtapa(null);
+      setNewItemData({ item: '', tipo: 'insumo', base: 'SINAPI', codigo: '', descricao: '', unidade: '', quantidade: 0, valor_unitario: 0 });
 
-      const recalculated = recalculateTotals(sorted, { porcentagem: bdiConfig.porcentagem });
-      setOrcamento(recalculated);
+      // 3. Trigger server-side re-sequencing to fix all numbers based on the new item
+      await api.resequenceOrcamento(obraId);
       
-      const addedItemAfterRenumbering = recalculated.find(i => i.id === newItem.id);
-      const lastCodeAdded = addedItemAfterRenumbering ? addedItemAfterRenumbering.item : newItemData.item;
-      
-      const nextParent = getSemanticParent(lastCodeAdded); 
-      setAddingItemToEtapa(nextParent);
-      const nextItemVal = getNextItemNumber(recalculated, nextParent, newItemData.tipo);
-      
-      // Save to server sequentially to avoid race conditions when creating Etapas vs Children
-      for (const row of recalculated) {
-        const originalRow = orcamento.find(r => r.id === row.id);
-        if (!originalRow || originalRow.item !== row.item) {
-          if (!originalRow) {
-            await api.saveOrcamento(obraId, [row]);
-          } else {
-            await api.updateOrcamentoItem(obraId, row.id, row);
-          }
-        }
-      }
-      
+      // 4. Refresh everything
       await refreshObraData();
       
-      // Refresh orcamento after saving to get real IDs back from the DB
-      try {
-          const updated = await api.getOrcamento(obraId, {
-            desonerado: encargos.desonerado,
-            estado: encargos.estado,
-            data_referencia: encargos.dataReferencia,
-            bancos_ativos: bancosAtivos.filter(b => b.active)
-          });
-          const withTotals = recalculateTotals(updated, { porcentagem: bdiConfig.porcentagem });
-          setOrcamento(withTotals);
-      } catch (err) {
-         console.error("Failed to fetch fresh orcamento", err);
-      }
-
-      setNewItemData({
-        item: nextItemVal,
-        codigo: '',
-        base: newItemData.base,
-        descricao: '',
-        unidade: newItemData.tipo === 'etapa' ? '' : 'un',
-        quantidade: 0,
-        valor_unitario: 0,
-        tipo: newItemData.tipo
+      // Secondary refresh of the budget itself to be double sure
+      const activeBancos = bancosAtivos.filter(b => b.active).map(b => ({ id: b.id, data_referencia: b.data_referencia }));
+      const freshData = await api.getOrcamento(obraId, { 
+        desonerado: encargos.desonerado,
+        estado: encargos.estado,
+        data_referencia: encargos.dataReferencia,
+        bancos_ativos: activeBancos
       });
+      const structuredData = applyAutoRenumber(freshData);
+      const recalculated = recalculateTotals(structuredData, { porcentagem: bdiConfig.porcentagem });
+      setOrcamento(recalculated);
 
-      // Focus back to input for next item overseen by useEffect
-      setTimeout(() => {
-        if (newItemData.tipo === 'etapa') {
-          if (newItemDescRef.current) newItemDescRef.current.focus();
-        } else {
-          if (newItemCodigoRef.current) newItemCodigoRef.current.focus();
-        }
-      }, 100);
+      setToast({ message: "Item adicionado com sucesso", type: 'success' });
     } catch (err: any) {
       console.error("Error adding item:", err);
-      let msg = "Erro ao adicionar item";
-      try {
-        const parsed = JSON.parse(err.message.split('message: ')[1]);
-        msg = parsed.message || msg;
-      } catch (e) {}
-      setToast({ message: msg, type: 'error' });
+      setToast({ message: "Erro ao adicionar item", type: 'error' });
     }
   };
 
@@ -617,16 +604,19 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
           await api.updateOrcamentoItem(obraId, row.id, row);
         }
       }
+      await api.resequenceOrcamento(obraId);
       await refreshObraData();
       
       try {
+          const activeBancos = bancosAtivos.filter(b => b.active).map(b => ({ id: b.id, data_referencia: b.data_referencia }));
           const updatedServerOrcamento = await api.getOrcamento(obraId, {
             desonerado: encargos.desonerado,
             estado: encargos.estado,
             data_referencia: encargos.dataReferencia,
-            bancos_ativos: bancosAtivos.filter(b => b.active)
+            bancos_ativos: activeBancos
           });
-          const withTotals = recalculateTotals(updatedServerOrcamento, { porcentagem: bdiConfig.porcentagem });
+          const structuredData = applyAutoRenumber(updatedServerOrcamento);
+          const withTotals = recalculateTotals(structuredData, { porcentagem: bdiConfig.porcentagem });
           setOrcamento(withTotals);
       } catch (err) {
          console.error("Failed to fetch fresh orcamento after delete", err);
@@ -706,7 +696,7 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
         </div>
       </div>
 
-      <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 w-fit">
+      <div style={{ fontSize: '18px', borderWidth: '-3px', paddingLeft: '4px', paddingRight: '14px', marginBottom: '-8px' }} className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 w-fit">
         {[
           { id: 'visao_geral', label: 'Visão Geral', icon: LayoutDashboard },
           { id: 'orcamento', label: 'Orçamento', icon: FileText },
@@ -738,7 +728,7 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
             />
 
             <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm">
-              <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-6">Informações da Obra</h3>
+              <h3 style={{ fontSize: '27.5px', lineHeight: '25.5px' }} className="text-sm font-black text-slate-900 uppercase tracking-widest mb-6">Informações da Obra</h3>
               <div className="grid grid-cols-2 gap-8">
                 <div>
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Localização</p>
@@ -863,8 +853,9 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
                     <td className="px-2 py-1 text-center border border-slate-300 w-[64px]">
                       <div className="flex items-center justify-center gap-1">
                         <input 
+                          key={`item-input-${row.id}-${row.item}`}
                           className={`w-12 bg-transparent border border-transparent rounded px-1 py-0.5 text-center outline-none transition-all focus:bg-white focus:border-[#107C41] focus:shadow-sm ${row.tipo === 'etapa' ? 'text-[#375623] font-bold' : 'text-slate-700'}`}
-                          defaultValue={row.item}
+                          defaultValue={row.item?.toString().replace(/\.0$/, '')}
                           onBlur={(e) => {
                             if (e.target.value !== row.item) {
                               handleItemChange(row.id, e.target.value);

@@ -82,7 +82,7 @@ export const Dashboard = ({ isAdmin, onSelectObra, setActiveTab }: { isAdmin: bo
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="bg-white rounded-[32px] border border-slate-100 shadow-sm overflow-hidden lg:col-span-2">
             <div className="p-8 border-b border-slate-50 flex justify-between items-center">
-              <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">Projeção Financeira</h3>
+              <h3 style={{ height: '20px' }} className="text-xs font-black text-slate-900 uppercase tracking-widest">Projeção Financeira</h3>
               <div className="flex items-center gap-2">
                  <div className="w-3 h-3 rounded-full bg-emerald-500" />
                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Receita Mensal</span>

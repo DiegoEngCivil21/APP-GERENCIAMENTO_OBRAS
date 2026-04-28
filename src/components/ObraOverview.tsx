@@ -71,7 +71,7 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({ obra, orcamento, cro
 
   return (
     <div className="space-y-6">
-      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-wrap gap-8">
+      <div style={{ fontSize: '18px', borderWidth: '-3px', paddingLeft: '0px', paddingRight: '3px', paddingTop: '0px', paddingBottom: '-5px', marginBottom: '1px', marginRight: '3px', marginLeft: '0px', marginTop: '-11px' }} className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-wrap gap-8">
         <div className="flex flex-col">
           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Estado (UF)</span>
           <span className="text-sm font-bold text-[#003366]">{uf}</span>
