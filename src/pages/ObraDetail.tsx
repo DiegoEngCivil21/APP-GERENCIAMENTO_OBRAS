@@ -836,8 +836,8 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
                   <th className="px-2 py-1 text-[11px] font-bold uppercase tracking-wider border border-slate-300 w-[112px]">Código</th>
                   <th className="px-2 py-1 text-[11px] font-bold uppercase tracking-wider border border-slate-300">Descrição</th>
                   <th className="px-2 py-1 text-[11px] font-bold uppercase tracking-wider text-center border border-slate-300 w-[48px]">Unid</th>
-                  <th className="px-2 py-1 text-[11px] font-bold uppercase tracking-wider text-right border border-slate-300 w-[80px]">Quant.</th>
-                  <th className="px-2 py-1 text-[11px] font-bold uppercase tracking-wider text-right border border-slate-300 w-[100px]">Valor Unit.</th>
+                  <th className="px-2 py-1 text-[11px] font-bold uppercase tracking-wider text-right border border-slate-300 w-[80px]">QUANT</th>
+                  <th style={{ fontSize: '10px', textAlign: 'center', lineHeight: '16.5px', paddingLeft: '38px' }} className="px-2 py-1 font-bold uppercase tracking-wider text-right border border-slate-300 w-[100px]">Valor Unit.</th>
                   <th className="px-2 py-1 text-[11px] font-bold uppercase tracking-wider text-right border border-slate-300 w-[100px]">Valor c/ BDI</th>
                   <th className="px-2 py-1 text-[11px] font-bold uppercase tracking-wider text-right border border-slate-300 w-[120px]">Total</th>
                 </tr>
@@ -1105,7 +1105,7 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
                         />
                       ) : null}
                     </td>
-                    <td className="px-2 py-1 text-right border border-slate-300">
+                    <td style={{ paddingLeft: '-30.5px' }} className="px-2 py-1 text-right border border-slate-300">
                       {row.tipo !== 'etapa' ? (
                         <input 
                           type="number"
@@ -1127,7 +1127,7 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
                       ) : null}
                     </td>
                     <td className="px-2 py-1 text-right border border-slate-300">{row.valor_bdi > 0 ? formatCurrencyPrecise(row.valor_bdi) : ''}</td>
-                    <td className="px-2 py-1 text-right border border-slate-300 font-bold">
+                    <td style={{ width: '84.997px' }} className="px-2 py-1 text-right border border-slate-300 font-bold">
                       <div className="flex items-center justify-end gap-1">
                         {formatCurrency(row.total || 0)}
                         <button 

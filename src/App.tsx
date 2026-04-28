@@ -1827,9 +1827,9 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
 
             {/* Tabela de Orçamento conforme o print */}
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm flex-1 flex flex-col overflow-hidden budget-table-container" onClick={() => setSelectedRowId(null)}>
-              <div className="p-4 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center shrink-0">
+              <div style={{ paddingLeft: '9px', paddingRight: '16px', paddingBottom: '2px', paddingTop: '2px' }} className="p-4 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center shrink-0">
                 <div className="flex items-center gap-4">
-                  <h3 style={{ fontSize: '27.5px', lineHeight: '25.5px' }} className="text-xs font-black text-slate-900 uppercase tracking-widest">Planilha de Orçamento</h3>
+                  <h3 style={{ fontSize: '15.5px', lineHeight: '21.5px', marginRight: '0px', marginBottom: '-26px', marginTop: '-36px' }} className="text-xs font-black text-slate-900 uppercase tracking-widest">Planilha de Orçamento</h3>
                 </div>
                 <div className="flex items-center gap-2">
                   <button 
@@ -1862,8 +1862,8 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
                     <th className="px-4 py-1.5 text-[11px] font-black text-slate-500 uppercase tracking-widest text-center w-24">Código</th>
                     <th className="pr-4 pl-0 py-1.5 text-[11px] font-black text-slate-500 uppercase tracking-widest"></th>
                     <th className="px-4 py-1.5 text-[11px] font-black text-slate-500 uppercase tracking-widest text-center w-16">Unid</th>
-                    <th className="px-4 py-1.5 text-[11px] font-black text-slate-500 uppercase tracking-widest text-right w-20">Quantidade</th>
-                    <th className="px-4 py-1.5 text-[11px] font-black text-slate-500 uppercase tracking-widest text-right w-28">Valor Unitário</th>
+                    <th className="px-4 py-1.5 text-[11px] font-black text-slate-500 uppercase tracking-widest text-right w-20">QUANT</th>
+                    <th style={{ fontSize: '10px', textAlign: 'center', lineHeight: '16.5px', paddingLeft: '38px' }} className="px-4 py-1.5 font-black text-slate-500 uppercase tracking-widest text-right w-28">Valor Unitário</th>
                     <th className="px-4 py-1.5 text-[11px] font-black text-slate-500 uppercase tracking-widest text-right w-28">Valor com BDI</th>
                     <th className="px-4 py-1.5 text-[11px] font-black text-slate-500 uppercase tracking-widest text-right w-32">Total</th>
                   </tr>
@@ -2174,7 +2174,7 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
                           </div>
                         ) : null}
                       </td>
-                      <td className="px-3 py-1.5 text-right text-slate-500 relative w-28">
+                      <td style={{ paddingLeft: '-30.5px' }} className="px-3 py-1.5 text-right text-slate-500 relative w-28">
                         {row.tipo !== 'etapa' ? (
                           <div className="text-right text-slate-600 font-mono text-[13px] truncate">
                             {row.valor_unitario >= 0 ? `R$ ${formatFinancial(row.valor_unitario)}` : ''}
@@ -2187,7 +2187,7 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
                           : (row.tipo !== 'etapa' ? `R$ ${formatFinancial(row.valor_unitario)}` : '')
                         }
                       </td>
-                      <td className="px-3 py-1.5 text-right w-32">
+                      <td style={{ width: '84.997px' }} className="px-3 py-1.5 text-right w-32">
                         <div className="flex items-center justify-end gap-2">
                           <span className={`font-mono text-[13px] truncate ${row.tipo === 'etapa' ? 'font-semibold text-slate-900' : 'text-slate-700'}`}>
                             R$ {formatFinancial(row.total || 0)}
