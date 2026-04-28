@@ -147,7 +147,13 @@ export const api = {
   },
 
   getMedicoes: async (obraId: string | number): Promise<any[]> => {
-    return fetchJson(`${API_BASE}/obras/${obraId}/medicao`);
+    return fetchJson(`${API_BASE}/obras/${obraId}/medicoes`);
+  },
+  getMedicaoItens: async (obraId: string | number, medicaoId: string | number): Promise<any[]> => {
+    return fetchJson(`${API_BASE}/obras/${obraId}/medicoes/${medicaoId}/itens`);
+  },
+  deleteMedicao: async (obraId: string | number, medicaoId: string | number): Promise<any> => {
+    return fetchJson(`${API_BASE}/obras/${obraId}/medicoes/${medicaoId}`, { method: "DELETE" });
   },
 
   getDatabases: async (): Promise<any[]> => {

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   ArrowLeft, LayoutDashboard, FileText, Calendar, 
   Settings, Percent, Database, ShieldCheck, 
@@ -107,35 +107,33 @@ const getNextItemNumber = (list: OrcamentoItem[], parentItem: string | null, tar
 export const applyAutoRenumber = (orcamentoList: OrcamentoItem[]): OrcamentoItem[] => {
   if (orcamentoList.length === 0) return [];
   
-  // Create a deep copy to avoid mutations
+  // Use current order, or sort if items are missing
   const sorted = [...orcamentoList].sort((a, b) => {
-    return a.item.toString().localeCompare(b.item.toString(), undefined, { numeric: true });
+    const aItem = (a.item || '').toString();
+    const bItem = (b.item || '').toString();
+    if (aItem === bItem) return 0;
+    return aItem.localeCompare(bItem, undefined, { numeric: true });
   });
 
-  const hasZeroSuffix = sorted.some(i => i.item.toString().endsWith('.0'));
-  
   const counters: { [key: string]: number } = { root: 0 };
   
-  // Helping function to get current level index
-  const getLevelKey = (parts: string[]) => parts.slice(0, -1).join('.') || 'root';
-
   return sorted.map(row => {
-    const parts = row.item.toString().split('.').filter(p => p !== '');
-    const isZeroEnded = parts.length > 1 && parts[parts.length - 1] === '0';
+    const parts = row.item ? row.item.toString().split('.').filter(p => p !== '') : [];
     
-    // Determine target depth for counting
-    const depthParts = isZeroEnded ? parts.slice(0, -1) : parts;
-    const parentKey = depthParts.slice(0, -1).join('.') || 'root';
+    // Determine parent. If row is etapa, it's a new sub-tree level. 
+    // This logic needs to be robust for any item.
+    let parentParts: string[] = [];
+    if (parts.length > 0) {
+        parentParts = parts.length > 1 ? parts.slice(0, -1) : [];
+    }
+
+    const parentKey = parentParts.join('.') || 'root';
     
     if (counters[parentKey] === undefined) counters[parentKey] = 0;
     counters[parentKey]++;
     
-    let newItem = '';
-    const parentPrefix = parentKey === 'root' ? '' : parentKey + '.';
-    newItem = `${parentPrefix}${counters[parentKey]}`;
-    
-    if (isZeroEnded) newItem += '.0';
-    else if (hasZeroSuffix && parentKey === 'root') newItem += '.0';
+    // Generate new item number
+    const newItem = parentParts.length > 0 ? `${parentParts.join('.')}.${counters[parentKey]}` : `${counters[parentKey]}`;
 
     return { ...row, item: newItem };
   });
@@ -431,7 +429,7 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
     }, 50);
   }, []);
 
-  const handleItemChange = (id: string | number, newItem: string) => {
+  const handleItemChange = async (id: string | number, newItem: string) => {
     const targetRow = orcamento.find(r => r.id?.toString() === (id || '').toString());
     if (!targetRow) return;
 
@@ -464,14 +462,30 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
 
     setOrcamento(autoRenumbered);
     
-    // Save to server
-    autoRenumbered.forEach(row => {
-      const originalRow = orcamento.find(r => r.id === row.id);
+    // Save to server sequentially - Use the renumbered list to detect changes
+    for (const row of autoRenumbered) {
+      const originalRow = updated.find(r => r.id === row.id);
       if (originalRow && originalRow.item !== row.item) {
-        api.updateOrcamentoItem(obraId, row.id, row);
+        await api.updateOrcamentoItem(obraId, row.id, row);
       }
-    });
+    }
     
+    await refreshObraData();
+    
+    // Refresh orcamento to get latest server values
+    try {
+        const updatedServerOrcamento = await api.getOrcamento(obraId, {
+          desonerado: encargos.desonerado,
+          estado: encargos.estado,
+          data_referencia: encargos.dataReferencia,
+          bancos_ativos: bancosAtivos.filter(b => b.active)
+        });
+        const withTotals = recalculateTotals(updatedServerOrcamento, { porcentagem: bdiConfig.porcentagem });
+        setOrcamento(withTotals);
+    } catch (err) {
+       console.error("Failed to fetch fresh orcamento in move", err);
+    }
+
     setEditingCell(null);
   };
 
@@ -508,8 +522,8 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
       setAddingItemToEtapa(nextParent);
       const nextItemVal = getNextItemNumber(recalculated, nextParent, newItemData.tipo);
       
-      // Save to server
-      const savePromises = recalculated.map(async row => {
+      // Save to server sequentially to avoid race conditions when creating Etapas vs Children
+      for (const row of recalculated) {
         const originalRow = orcamento.find(r => r.id === row.id);
         if (!originalRow || originalRow.item !== row.item) {
           if (!originalRow) {
@@ -518,11 +532,24 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
             await api.updateOrcamentoItem(obraId, row.id, row);
           }
         }
-      });
+      }
       
-      await Promise.all(savePromises);
       await refreshObraData();
       
+      // Refresh orcamento after saving to get real IDs back from the DB
+      try {
+          const updated = await api.getOrcamento(obraId, {
+            desonerado: encargos.desonerado,
+            estado: encargos.estado,
+            data_referencia: encargos.dataReferencia,
+            bancos_ativos: bancosAtivos.filter(b => b.active)
+          });
+          const withTotals = recalculateTotals(updated, { porcentagem: bdiConfig.porcentagem });
+          setOrcamento(withTotals);
+      } catch (err) {
+         console.error("Failed to fetch fresh orcamento", err);
+      }
+
       setNewItemData({
         item: nextItemVal,
         codigo: '',
@@ -584,15 +611,27 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
       await Promise.all(deletePromises);
 
       // We must also update the DB for the renumbered remaining items
-      const updatePromises = autoRenumbered.map(async row => {
+      for (const row of autoRenumbered) {
         const originalRow = orcamento.find(r => r.id === row.id);
         if (originalRow && originalRow.item !== row.item) {
           await api.updateOrcamentoItem(obraId, row.id, row);
         }
-      });
-      await Promise.all(updatePromises);
+      }
       await refreshObraData();
       
+      try {
+          const updatedServerOrcamento = await api.getOrcamento(obraId, {
+            desonerado: encargos.desonerado,
+            estado: encargos.estado,
+            data_referencia: encargos.dataReferencia,
+            bancos_ativos: bancosAtivos.filter(b => b.active)
+          });
+          const withTotals = recalculateTotals(updatedServerOrcamento, { porcentagem: bdiConfig.porcentagem });
+          setOrcamento(withTotals);
+      } catch (err) {
+         console.error("Failed to fetch fresh orcamento after delete", err);
+      }
+
       setToast({ message: "Item excluído com sucesso", type: 'success' });
     } catch (err: any) {
       console.error("Error deleting item:", err);
@@ -613,6 +652,7 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
       
       const updatedRow = recalculated.find(row => row.id?.toString() === (id || '').toString());
       if (updatedRow) {
+        console.log("Saving row update:", { id, updatedRow });
         await api.updateOrcamentoItem(obraId, id, updatedRow);
         await refreshObraData();
       }
@@ -1354,16 +1394,23 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
           </div>
           <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-center gap-3">
               <button
-                onClick={() => {
-                  const renumbered = applyAutoRenumber(orcamento);
-                  const withTotals = recalculateTotals(renumbered, { porcentagem: bdiConfig.porcentagem });
-                  setOrcamento(withTotals);
-                  // Notificando sucesso
-                  console.log("Sistema varrido e numeração reorganizada.");
-                  // Salvar as mudanças de numeração no servidor
-                  renumbered.forEach(row => {
-                    api.updateOrcamentoItem(obraId, row.id, row);
-                  });
+                onClick={async () => {
+                    try {
+                      await api.resequenceOrcamento(obraId);
+                      const updated = await api.getOrcamento(obraId, {
+                        desonerado: encargos.desonerado,
+                        estado: encargos.estado,
+                        data_referencia: encargos.dataReferencia,
+                        bancos_ativos: bancosAtivos.filter(b => b.active)
+                      });
+                      const withTotals = recalculateTotals(updated, { porcentagem: bdiConfig.porcentagem });
+                      setOrcamento(withTotals);
+                      await refreshObraData();
+                      setToast({ message: "Orçamento renumerado com sucesso", type: 'success' });
+                    } catch (err) {
+                      console.error("Error resequencing:", err);
+                      setToast({ message: "Erro ao renumerar orçamento", type: 'error' });
+                    }
                 }}
                 className="flex items-center gap-2 px-6 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black text-amber-600 uppercase tracking-widest hover:bg-amber-50 transition-all shadow-sm"
                 title="Corrigir lacunas e organizar toda a numeração do orçamento automaticamente"

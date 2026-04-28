@@ -2633,12 +2633,18 @@ async function startServer() {
               valor_unitario = tree.valor_total || 0;
             }
 
-            console.log("Inserting orcamento item:", { foundEtapaId, item_id: it.item_id, item_numero: it.item, quantidade: it.quantidade, valor_unitario });
+            let finalItemId = it.item_id;
+            if (!finalItemId && it.codigo) {
+              const itemRow = db.prepare("SELECT id FROM v2_itens WHERE codigo = ? LIMIT 1").get(it.codigo) as any;
+              if (itemRow) finalItemId = itemRow.id;
+            }
+
+            console.log("Inserting orcamento item:", { foundEtapaId, item_id: finalItemId, item_numero: it.item, quantidade: it.quantidade, valor_unitario });
 
             const result = db.prepare(`
               INSERT INTO v2_orcamento_itens (etapa_id, item_id, item_numero, quantidade, custo_unitario_aplicado) 
               VALUES (?, ?, ?, ?, ?)
-            `).run(foundEtapaId, it.item_id, it.item, parseNumber(it.quantidade) || 0, valor_unitario);
+            `).run(foundEtapaId, finalItemId, it.item, parseNumber(it.quantidade) || 0, valor_unitario);
             createdIds.push(`item-${result.lastInsertRowid}`);
           }
         }
@@ -2668,6 +2674,7 @@ async function startServer() {
       }
 
       if (tipo !== 'etapa' && item) {
+        console.log("Receiving update for item:", { itemId, item, tipo, descricao });
         const prefixMatch = item.match(/^(\d+)\./);
         const prefix = prefixMatch ? prefixMatch[1] : item.split('.')[0];
         
@@ -2854,7 +2861,8 @@ async function startServer() {
         }
 
         // Clear all codes in DB to avoid unique constraint violations during resequence updates
-        // db.prepare("UPDATE v2_etapas SET codigo = NULL WHERE obra_id = ?").run(obraId);
+        db.prepare("UPDATE v2_etapas SET codigo = NULL WHERE obra_id = ?").run(obraId);
+        db.prepare("UPDATE v2_orcamento_itens SET item_numero = NULL WHERE id IN (SELECT oi.id FROM v2_orcamento_itens oi JOIN v2_etapas e ON oi.etapa_id = e.id WHERE e.obra_id = ?)").run(obraId);
         
         // Group by parent using the updated hierarchy
         const etapasByParent: Record<number | string, any[]> = {};
@@ -2890,9 +2898,9 @@ async function startServer() {
           });
 
           children.forEach((etapa, idx) => {
-            // Check if we need to force renumbering
+            // Force renumbering based on the hierarchy
             const expectedCode = parentId === 'root' ? `${idx + 1}.0` : `${prefix}.${idx + 1}.0`;
-            const newCode = (etapa.codigo && etapa.codigo.split('.').length > 1) ? etapa.codigo : expectedCode;
+            const newCode = expectedCode;
             
             // Update database (only if changed or missing)
             if (etapa.codigo !== newCode || etapa.ordem !== idx) {
@@ -2927,7 +2935,7 @@ async function startServer() {
             items.forEach((item, itemIdx) => {
                // Similar logic for items
                const expectedItemCode = `${newCode.replace(/\.0$/, '')}.${itemIdx + 1}`;
-               const itemCode = (item.item_numero) ? item.item_numero : expectedItemCode;
+               const itemCode = expectedItemCode;
                  
                if (item.item_numero !== itemCode || item.ordem !== itemIdx) {
                     db.prepare("UPDATE v2_orcamento_itens SET item_numero = ?, ordem = ? WHERE id = ?").run(itemCode, itemIdx, item.id);
@@ -3652,6 +3660,40 @@ async function startServer() {
       res.json({ message: "Medição registrada com sucesso." });
     } catch (error: any) {
       res.status(500).json({ message: "Erro ao registrar medição.", error: error.message });
+    }
+  });
+
+  app.get("/api/obras/:id/medicoes/:medicaoId/itens", (req, res) => {
+    try {
+      const itens = db.prepare(`
+        SELECT mi.*, oi.descricao, oi.codigo, oi.unidade, oi.quantidade as quantidade_total, oi.custo_unitario_aplicado 
+        FROM v2_medicao_itens mi 
+        JOIN v2_orcamento_itens oi ON mi.orcamento_item_id = oi.id 
+        WHERE mi.medicao_id = ?
+      `).all(req.params.medicaoId);
+      res.json(itens);
+    } catch (error: any) {
+      res.status(500).json({ message: "Erro ao buscar itens da medição.", error: error.message });
+    }
+  });
+
+  app.delete("/api/obras/:id/medicoes/:medicaoId", (req, res) => {
+    try {
+      db.transaction(() => {
+        const itens = db.prepare("SELECT orcamento_item_id FROM v2_medicao_itens WHERE medicao_id = ?").all(req.params.medicaoId);
+        const delRes = db.prepare("DELETE FROM v2_medicoes WHERE id = ? AND obra_id = ?").run(req.params.medicaoId, req.params.id);
+        if (delRes.changes > 0) {
+          const updateOrcamentoStmt = db.prepare("UPDATE v2_orcamento_itens SET progresso = COALESCE((SELECT SUM(quantidade_medida) FROM v2_medicao_itens WHERE orcamento_item_id = ?) / quantidade * 100, 0) WHERE id = ?");
+          const updateAtividadeStmt = db.prepare("UPDATE v2_atividades SET progresso = COALESCE((SELECT progresso FROM v2_orcamento_itens WHERE id = ?), 0) WHERE orcamento_item_id = ?");
+          itens.forEach((it: any) => {
+            updateOrcamentoStmt.run(it.orcamento_item_id, it.orcamento_item_id);
+            updateAtividadeStmt.run(it.orcamento_item_id, it.orcamento_item_id);
+          });
+        }
+      })();
+      res.json({ message: "Medição excluída com sucesso." });
+    } catch (error: any) {
+      res.status(500).json({ message: "Erro ao excluir medição.", error: error.message });
     }
   });
 

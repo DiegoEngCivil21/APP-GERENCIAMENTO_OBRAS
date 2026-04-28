@@ -91,6 +91,7 @@ import { SearchDialog } from './components/SearchDialog';
 import TemplatesView from './components/TemplatesView';
 import EmpresasMgmtView from './components/EmpresasMgmtView';
 import DiarioObraTab from './components/DiarioObraTab';
+import MedicaoTab from './components/MedicaoTab';
 import { Login } from './pages/Login';
 import { SettingsView } from './pages/Settings';
 import { ResetPassword } from './pages/ResetPassword';
@@ -2528,7 +2529,7 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
         )}
 
         {activeSubTab === 'medicao' && (
-          <MedicaoView obraId={obraId} orcamento={orcamento} bdiIncidence={bdiIncidence} bdiValue={bdiValue} />
+          <MedicaoTab obraId={obraId} orcamento={orcamento} bdiIncidence={bdiIncidence} bdiValue={bdiValue} />
         )}
 
         {activeSubTab === 'diario' && (

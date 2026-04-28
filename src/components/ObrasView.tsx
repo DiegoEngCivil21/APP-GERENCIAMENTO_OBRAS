@@ -6,7 +6,8 @@ import {
   Calendar, 
   ChevronRight, 
   Edit2, 
-  Trash2 
+  Trash2,
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Obra } from '../types';
