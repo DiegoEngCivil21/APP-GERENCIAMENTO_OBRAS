@@ -110,6 +110,14 @@ function getNextProprioCode(): string {
   }
 }
 
+const updateObraTimestamp = (obraId: string | number) => {
+  try {
+    db.prepare("UPDATE v2_obras SET updated_at = ? WHERE id = ?").run(new Date().toISOString(), obraId);
+  } catch (e) {
+    console.error("Error updating obra timestamp:", e);
+  }
+};
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -428,11 +436,49 @@ function initDatabase() {
         obra_id INTEGER NOT NULL,
         data DATE NOT NULL,
         texto TEXT,
+        numero_rdo TEXT,
+        clima_manha TEXT,
+        clima_tarde TEXT,
+        temperatura_max REAL,
+        temperatura_min REAL,
+        chuva_mm REAL,
+        efetivo TEXT,
+        efetivo_total INTEGER,
+        equipamentos TEXT,
+        atividades TEXT,
+        materiais_recebidos TEXT,
+        visitas TEXT,
+        ocorrencias TEXT,
+        acidentes TEXT,
+        restricoes TEXT,
+        observacoes_gerais TEXT,
+        responsavel_registro TEXT,
+        fotos_urls TEXT,
         usuario_responsavel TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (obra_id) REFERENCES v2_obras(id) ON DELETE CASCADE
     );
   `);
+
+  // Auto-migrate to add new columns if they don't exist
+  try { db.prepare("ALTER TABLE v2_diario_obra ADD COLUMN numero_rdo TEXT").run(); } catch(e) {}
+  try { db.prepare("ALTER TABLE v2_diario_obra ADD COLUMN clima_manha TEXT").run(); } catch(e) {}
+  try { db.prepare("ALTER TABLE v2_diario_obra ADD COLUMN clima_tarde TEXT").run(); } catch(e) {}
+  try { db.prepare("ALTER TABLE v2_diario_obra ADD COLUMN temperatura_max REAL").run(); } catch(e) {}
+  try { db.prepare("ALTER TABLE v2_diario_obra ADD COLUMN temperatura_min REAL").run(); } catch(e) {}
+  try { db.prepare("ALTER TABLE v2_diario_obra ADD COLUMN chuva_mm REAL").run(); } catch(e) {}
+  try { db.prepare("ALTER TABLE v2_diario_obra ADD COLUMN efetivo TEXT").run(); } catch(e) {}
+  try { db.prepare("ALTER TABLE v2_diario_obra ADD COLUMN efetivo_total INTEGER").run(); } catch(e) {}
+  try { db.prepare("ALTER TABLE v2_diario_obra ADD COLUMN equipamentos TEXT").run(); } catch(e) {}
+  try { db.prepare("ALTER TABLE v2_diario_obra ADD COLUMN atividades TEXT").run(); } catch(e) {}
+  try { db.prepare("ALTER TABLE v2_diario_obra ADD COLUMN materiais_recebidos TEXT").run(); } catch(e) {}
+  try { db.prepare("ALTER TABLE v2_diario_obra ADD COLUMN visitas TEXT").run(); } catch(e) {}
+  try { db.prepare("ALTER TABLE v2_diario_obra ADD COLUMN ocorrencias TEXT").run(); } catch(e) {}
+  try { db.prepare("ALTER TABLE v2_diario_obra ADD COLUMN acidentes TEXT").run(); } catch(e) {}
+  try { db.prepare("ALTER TABLE v2_diario_obra ADD COLUMN restricoes TEXT").run(); } catch(e) {}
+  try { db.prepare("ALTER TABLE v2_diario_obra ADD COLUMN observacoes_gerais TEXT").run(); } catch(e) {}
+  try { db.prepare("ALTER TABLE v2_diario_obra ADD COLUMN responsavel_registro TEXT").run(); } catch(e) {}
+  try { db.prepare("ALTER TABLE v2_diario_obra ADD COLUMN fotos_urls TEXT").run(); } catch(e) {}
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS v2_diario_fotos (
@@ -2598,6 +2644,7 @@ async function startServer() {
         }
       })();
 
+      updateObraTimestamp(req.params.id);
       res.json({ message: "Orçamento salvo com sucesso.", ids: createdIds });
     } catch (error: any) {
       console.error("Error saving orcamento:", error);
@@ -2725,6 +2772,7 @@ async function startServer() {
           }
         }
       }
+      updateObraTimestamp(req.params.id);
       res.json({ message: "Item atualizado com sucesso." });
     } catch (error: any) {
       console.error("Error updating budget item:", error);
@@ -2744,6 +2792,7 @@ async function startServer() {
         db.prepare("DELETE FROM v2_medicao_itens WHERE orcamento_item_id = ?").run(itemId);
         db.prepare("DELETE FROM v2_orcamento_itens WHERE id = ?").run(itemId);
       }
+      updateObraTimestamp(req.params.id);
       res.json({ message: "Item removido com sucesso." });
     } catch (error: any) {
       res.status(500).json({ message: "Erro ao remover item.", error: error.message });
@@ -2893,6 +2942,7 @@ async function startServer() {
         assignCodes('root', '');
       })();
 
+      updateObraTimestamp(req.params.id);
       res.json({ message: "Orçamento re-sequenciado com sucesso." });
     } catch (error: any) {
       console.error("Error in resequence:", error);
@@ -3499,13 +3549,66 @@ async function startServer() {
   });
 
   app.post("/api/obras/:id/diario", (req, res) => {
-    const { data, texto, usuario_responsavel } = req.body;
+    const { 
+      data, numero_rdo, clima_manha, clima_tarde, temperatura_max, temperatura_min, chuva_mm,
+      efetivo, efetivo_total, equipamentos, atividades, materiais_recebidos, visitas, ocorrencias,
+      acidentes, restricoes, observacoes_gerais, responsavel_registro, fotos_urls, usuario_responsavel
+    } = req.body;
     try {
-      const stmt = db.prepare("INSERT INTO v2_diario_obra (obra_id, data, texto, usuario_responsavel) VALUES (?, ?, ?, ?)");
-      const info = stmt.run(req.params.id, data, texto, usuario_responsavel);
+      const stmt = db.prepare(`
+        INSERT INTO v2_diario_obra (
+          obra_id, data, texto, numero_rdo, clima_manha, clima_tarde, temperatura_max, temperatura_min, chuva_mm,
+          efetivo, efetivo_total, equipamentos, atividades, materiais_recebidos, visitas, ocorrencias,
+          acidentes, restricoes, observacoes_gerais, responsavel_registro, fotos_urls, usuario_responsavel
+        ) VALUES (
+          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        )
+      `);
+      const info = stmt.run(
+        req.params.id, data, atividades, numero_rdo, clima_manha, clima_tarde, temperatura_max, temperatura_min, chuva_mm,
+        JSON.stringify(efetivo || []), efetivo_total, JSON.stringify(equipamentos || []), atividades, JSON.stringify(materiais_recebidos || []), JSON.stringify(visitas || []), ocorrencias,
+        acidentes, restricoes, observacoes_gerais, responsavel_registro, JSON.stringify(fotos_urls || []), usuario_responsavel
+      );
       res.json({ id: info.lastInsertRowid, message: "Diário registrado com sucesso." });
     } catch (error: any) {
+      console.error(error);
       res.status(500).json({ message: "Erro ao registrar diário.", error: error.message });
+    }
+  });
+
+  app.put("/api/obras/:id/diario/:diarioId", (req, res) => {
+    const { 
+      data, numero_rdo, clima_manha, clima_tarde, temperatura_max, temperatura_min, chuva_mm,
+      efetivo, efetivo_total, equipamentos, atividades, materiais_recebidos, visitas, ocorrencias,
+      acidentes, restricoes, observacoes_gerais, responsavel_registro, fotos_urls, usuario_responsavel
+    } = req.body;
+    try {
+      const stmt = db.prepare(`
+        UPDATE v2_diario_obra SET 
+          data = ?, texto = ?, numero_rdo = ?, clima_manha = ?, clima_tarde = ?, temperatura_max = ?, temperatura_min = ?, chuva_mm = ?,
+          efetivo = ?, efetivo_total = ?, equipamentos = ?, atividades = ?, materiais_recebidos = ?, visitas = ?, ocorrencias = ?,
+          acidentes = ?, restricoes = ?, observacoes_gerais = ?, responsavel_registro = ?, fotos_urls = ?, usuario_responsavel = ?
+        WHERE id = ? AND obra_id = ?
+      `);
+      stmt.run(
+        data, atividades, numero_rdo, clima_manha, clima_tarde, temperatura_max, temperatura_min, chuva_mm,
+        JSON.stringify(efetivo || []), efetivo_total, JSON.stringify(equipamentos || []), atividades, JSON.stringify(materiais_recebidos || []), JSON.stringify(visitas || []), ocorrencias,
+        acidentes, restricoes, observacoes_gerais, responsavel_registro, JSON.stringify(fotos_urls || []), usuario_responsavel,
+        req.params.diarioId, req.params.id
+      );
+      res.json({ message: "Diário atualizado com sucesso." });
+    } catch (error: any) {
+      console.error(error);
+      res.status(500).json({ message: "Erro ao atualizar diário.", error: error.message });
+    }
+  });
+
+  app.delete("/api/obras/:id/diario/:diarioId", (req, res) => {
+    try {
+      db.prepare("DELETE FROM v2_diario_obra WHERE id = ? AND obra_id = ?").run(req.params.diarioId, req.params.id);
+      res.json({ message: "Diário excluído com sucesso." });
+    } catch (error: any) {
+      res.status(500).json({ message: "Erro ao excluir diário.", error: error.message });
     }
   });
 

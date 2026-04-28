@@ -78,13 +78,35 @@ export interface OrcamentoItem {
 }
 
 export interface DiarioObra {
-  id: number;
-  obra_id: string | number;
+  id?: number | string;
+  obra_id?: string | number;
   data: string;
-  relato: string;
-  clima: string;
-  mao_de_obra: string;
-  equipamentos?: string;
+  numero_rdo?: string;
+  clima_manha?: string;
+  clima_tarde?: string;
+  temperatura_max?: number;
+  temperatura_min?: number;
+  chuva_mm?: number;
+  efetivo?: any;
+  efetivo_total?: number;
+  equipamentos?: any;
+  atividades?: string;
+  materiais_recebidos?: any;
+  visitas?: any;
+  ocorrencias?: string;
+  acidentes?: string;
+  restricoes?: string;
+  observacoes_gerais?: string;
+  responsavel_registro?: string;
+  fotos_urls?: any;
+  usuario_responsavel?: string;
+  created_at?: string;
+  
+  // legacy
+  texto?: string;
+  relato?: string;
+  clima?: string;
+  mao_de_obra?: string;
 }
 
 export interface DashboardMetrics {

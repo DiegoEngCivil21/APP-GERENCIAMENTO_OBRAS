@@ -90,6 +90,7 @@ import AutocompleteDropdown from './components/AutocompleteDropdown';
 import { SearchDialog } from './components/SearchDialog';
 import TemplatesView from './components/TemplatesView';
 import EmpresasMgmtView from './components/EmpresasMgmtView';
+import DiarioObraTab from './components/DiarioObraTab';
 import { Login } from './pages/Login';
 import { SettingsView } from './pages/Settings';
 import { ResetPassword } from './pages/ResetPassword';
@@ -2531,102 +2532,7 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
         )}
 
         {activeSubTab === 'diario' && (
-          <div className="space-y-4">
-            <Button 
-              variant="secondary"
-              icon={Plus}
-              onClick={() => setShowDiarioModal(true)}
-            >
-              Novo Registro Diário
-            </Button>
-            {diarios.length === 0 ? (
-              <div className="p-12 bg-white rounded-2xl border border-slate-200 text-center text-slate-400">
-                <BookOpen size={45} className="mx-auto mb-4 opacity-20" />
-                <p>Nenhum registro diário encontrado para esta obra.</p>
-              </div>
-            ) : diarios.map((diario, i) => (
-              <div key={`diario-${diario.id || i}`} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                <div className="flex justify-between items-start mb-4">
-                  <div className="flex items-center gap-3">
-                    <Calendar size={17} className="text-indigo-600" />
-                    <span className="font-bold text-slate-900">{new Date(diario.data).toLocaleDateString('pt-BR')}</span>
-                  </div>
-                  <span className="px-3 py-1 bg-amber-50 text-amber-600 text-xs font-bold rounded-full uppercase tracking-wider">
-                    {diario.clima}
-                  </span>
-                </div>
-                <p className="text-slate-600 text-sm mb-4 leading-relaxed">{diario.relato}</p>
-                <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-50">
-                  <div>
-                    <p className="text-[11px] font-bold text-slate-400 uppercase mb-1">Mão de Obra</p>
-                    <p className="text-xs text-slate-700">{diario.mao_de_obra || 'Nenhuma registrada'}</p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-bold text-slate-400 uppercase mb-1">Equipamentos</p>
-                    <p className="text-xs text-slate-700">{diario.equipamentos || 'Nenhum registrado'}</p>
-                  </div>
-                </div>
-              </div>
-            ))}
-
-            {showDiarioModal && (
-              <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
-                <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white rounded-xl w-full max-w-lg shadow-2xl overflow-hidden">
-                  <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-                    <h3 className="text-xl font-bold text-slate-800 uppercase tracking-tight">Novo Registro Diário</h3>
-                    <button onClick={() => setShowDiarioModal(false)} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
-                  </div>
-                  <form onSubmit={handleAddDiario} className="p-6 space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1">
-                        <label className="text-[11px] font-bold text-slate-400 uppercase">Clima</label>
-                        <select 
-                          className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
-                          value={newDiario.clima}
-                          onChange={e => setNewDiario({...newDiario, clima: e.target.value})}
-                        >
-                          <option>Ensolarado</option>
-                          <option>Nublado</option>
-                          <option>Chuvoso</option>
-                        </select>
-                      </div>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-bold text-slate-400 uppercase">Relato do Dia</label>
-                      <textarea 
-                        required
-                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 min-h-24"
-                        value={newDiario.relato}
-                        onChange={e => setNewDiario({...newDiario, relato: e.target.value})}
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1">
-                        <label className="text-[11px] font-bold text-slate-400 uppercase">Mão de Obra</label>
-                        <input 
-                          className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
-                          value={newDiario.mao_de_obra}
-                          onChange={e => setNewDiario({...newDiario, mao_de_obra: e.target.value})}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[11px] font-bold text-slate-400 uppercase">Equipamentos</label>
-                        <input 
-                          className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
-                          value={newDiario.equipamentos}
-                          onChange={e => setNewDiario({...newDiario, equipamentos: e.target.value})}
-                        />
-                      </div>
-                    </div>
-                    <div className="pt-4 flex justify-end gap-3">
-                      <Button variant="secondary" onClick={() => setShowDiarioModal(false)}>Cancelar</Button>
-                      <Button variant="primary" type="submit">Salvar Registro</Button>
-                    </div>
-                  </form>
-                </motion.div>
-              </div>
-            )}
-          </div>
+          <DiarioObraTab obraId={obraId} />
         )}
 
         {activeSubTab === 'curva_abc' && (

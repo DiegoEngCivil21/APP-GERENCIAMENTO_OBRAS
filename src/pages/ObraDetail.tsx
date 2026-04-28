@@ -4,7 +4,7 @@ import {
   ArrowLeft, LayoutDashboard, FileText, Calendar, 
   Settings, Percent, Database, ShieldCheck, 
   Plus, ChevronDown, Check, X, Layers, Box, ListTree, Pencil, Trash2, ChevronRight, Hash,
-  Maximize2, Minimize2, RefreshCw
+  Maximize2, Minimize2, RefreshCw, Clock
 } from 'lucide-react';
 import { api } from '../services/api';
 import { Obra, OrcamentoItem, DiarioObra } from '../types/index';
@@ -15,6 +15,9 @@ import { BudgetFilterBar } from '../components/BudgetFilterBar';
 import { ObraOverview } from '../components/ObraOverview';
 import { recalculateTotals } from '../utils/calculations';
 import { truncateToTwo, formatCurrency, formatCurrencyPrecise, formatFinancial } from '../utils';
+import { format, isToday, parseISO } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+import DiarioObraTab from '../components/DiarioObraTab';
 
 export const getSemanticRoot = (itemStr: string) => {
   const parts = (itemStr || '').split('.');
@@ -146,6 +149,28 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
   const [medicoes, setMedicoes] = useState<any[]>([]);
   const [activeSubTab, setActiveSubTab] = useState(() => localStorage.getItem('activeSubTab') || 'visao_geral');
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
+
+  const refreshObraData = useCallback(async () => {
+    try {
+      const data = await api.getObraById(obraId);
+      setObra(data);
+    } catch (err) {
+      console.error("Error refreshing obra data:", err);
+    }
+  }, [obraId]);
+
+  const formatLastUpdated = (dateStr?: string) => {
+    if (!dateStr) return '';
+    try {
+      const date = parseISO(dateStr);
+      // UTC to Local (approximate if SQLite sends ISO without offset)
+      // Actually SQLite CURRENT_TIMESTAMP is UTC. ISO string might look like "2023-10-27T10:45:00Z"
+      const label = isToday(date) ? 'HOJE' : format(date, "dd/MM/yyyy", { locale: ptBR });
+      return `ÚLTIMA ALTERAÇÃO: ${label}, ${format(date, "HH:mm", { locale: ptBR })}`;
+    } catch (e) {
+      return '';
+    }
+  };
 
   useEffect(() => {
     if (toast) {
@@ -339,8 +364,8 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
   useEffect(() => {
     if (isInitialLoad || !obra) return;
 
-    const timer = setTimeout(() => {
-      api.updateObra(obraId, {
+    const timer = setTimeout(async () => {
+      await api.updateObra(obraId, {
         uf: encargos.estado,
         desonerado: encargos.desonerado ? 1 : 0,
         data_referencia: encargos.dataReferencia,
@@ -349,6 +374,7 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
         bdi_incidencia: bdiConfig.incidencia,
         bdi_tipo: bdiConfig.tipo
       });
+      await refreshObraData();
     }, 1000); // Debounce save
 
     return () => clearTimeout(timer);
@@ -495,6 +521,7 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
       });
       
       await Promise.all(savePromises);
+      await refreshObraData();
       
       setNewItemData({
         item: nextItemVal,
@@ -564,6 +591,7 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
         }
       });
       await Promise.all(updatePromises);
+      await refreshObraData();
       
       setToast({ message: "Item excluído com sucesso", type: 'success' });
     } catch (err: any) {
@@ -586,6 +614,7 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
       const updatedRow = recalculated.find(row => row.id?.toString() === (id || '').toString());
       if (updatedRow) {
         await api.updateOrcamentoItem(obraId, id, updatedRow);
+        await refreshObraData();
       }
     } catch (err: any) {
       console.error("Error updating row:", err);
@@ -688,6 +717,16 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
       {activeSubTab === 'orcamento' && (
         <div className={`space-y-1 pb-[50vb]`}>
           {/* Filtros Rápidos no Cabeçalho */}
+          <div className="flex items-center justify-between px-3 h-8">
+            <div className="flex items-center gap-2 text-slate-400">
+               {obra?.updated_at && (
+                 <div className="flex items-center gap-1.5 font-bold text-[10px] tracking-tight text-slate-400">
+                   <Clock size={12} className="text-slate-300" />
+                   <span className="uppercase">{formatLastUpdated(obra.updated_at)}</span>
+                 </div>
+               )}
+            </div>
+          </div>
           <BudgetFilterBar
             encargos={encargos}
             setEncargos={setEncargos}
@@ -728,14 +767,22 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
                   <ShieldCheck size={16} className="text-[#003366]" /> Encargos
                 </button>
                 <button 
-                  onClick={() => {
-                    const renumbered = applyAutoRenumber(orcamento);
-                    const recalculated = recalculateTotals(renumbered, { porcentagem: bdiConfig.porcentagem });
-                    setOrcamento(recalculated);
-                    // Save everything
-                    renumbered.forEach(row => {
-                      api.updateOrcamentoItem(obraId, row.id, row);
-                    });
+                  onClick={async () => {
+                    try {
+                      await api.resequenceOrcamento(obraId);
+                      const updated = await api.getOrcamento(obraId, {
+                        desonerado: encargos.desonerado,
+                        estado: encargos.estado,
+                        data_referencia: encargos.dataReferencia,
+                        bancos_ativos: bancosAtivos.filter(b => b.active)
+                      });
+                      setOrcamento(updated);
+                      await refreshObraData();
+                      setToast({ message: "Orçamento renumerado com sucesso", type: 'success' });
+                    } catch (err) {
+                      console.error("Error resequencing:", err);
+                      setToast({ message: "Erro ao renumerar orçamento", type: 'error' });
+                    }
                   }}
                   className="px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl font-bold text-[#107C41] flex items-center gap-2 hover:bg-slate-100 transition-all text-xs uppercase tracking-widest"
                   title="Corrige a numeração sequencial de todos os itens"
@@ -1352,22 +1399,7 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
       )}
 
       {activeSubTab === 'diario' && (
-        <div className="space-y-4">
-          <button className="bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-slate-50 transition-colors text-sm">
-            <Plus size={17} /> Novo Registro Diário
-          </button>
-          {diarios.map((diario, i) => (
-            <div key={`diario-${diario.id || i}`} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-              <div className="flex justify-between items-start mb-4">
-                <div className="flex items-center gap-3">
-                  <Calendar size={17} className="text-[#003366]" />
-                  <span className="font-bold text-slate-900">{new Date(diario.data).toLocaleDateString('pt-BR')}</span>
-                </div>
-              </div>
-              <p className="text-slate-600 leading-relaxed">{diario.relato}</p>
-            </div>
-          ))}
-        </div>
+        <DiarioObraTab obraId={obraId} />
       )}
 
       <BdiModal isOpen={showBdiModal} onClose={() => setShowBdiModal(false)} bdiConfig={bdiConfig} onChange={handleSaveBdi} />

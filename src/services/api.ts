@@ -120,6 +120,28 @@ export const api = {
     return fetchJson(`${API_BASE}/obras/${obraId}/diario`);
   },
 
+  createDiario: async (obraId: string | number, data: any): Promise<any> => {
+    return fetchJson(`${API_BASE}/obras/${obraId}/diario`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data)
+    });
+  },
+
+  updateDiario: async (obraId: string | number, diarioId: string | number, data: any): Promise<any> => {
+    return fetchJson(`${API_BASE}/obras/${obraId}/diario/${diarioId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data)
+    });
+  },
+
+  deleteDiario: async (obraId: string | number, diarioId: string | number): Promise<any> => {
+    return fetchJson(`${API_BASE}/obras/${obraId}/diario/${diarioId}`, {
+      method: "DELETE"
+    });
+  },
+
   getCronograma: async (obraId: string | number): Promise<any[]> => {
     return fetchJson(`${API_BASE}/obras/${obraId}/cronograma`);
   },

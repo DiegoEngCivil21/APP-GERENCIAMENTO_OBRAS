@@ -2731,16 +2731,6 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                     <polygon points="0 0, 8 3, 0 6" fill="#4f46e5" />
                   </marker>
                   <marker
-                    id="arrowhead-gray"
-                    markerWidth="8"
-                    markerHeight="6"
-                    refX="8"
-                    refY="3"
-                    orient="auto"
-                  >
-                    <polygon points="0 0, 8 3, 0 6" fill="#94a3b8" />
-                  </marker>
-                  <marker
                     id="arrowhead-amber"
                     markerWidth="8"
                     markerHeight="6"
@@ -2778,7 +2768,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
 
                   if (activePredecessors.length === 0 || !atv.data_inicio_prevista) return null;
                   
-                  return activePredecessors.map(p => {
+                  return activePredecessors.map((p, pIdx) => {
                     const predId = p.id;
                     const predTypeRel = p.type || 'FS';
                     const lag = p.lag || 0;
@@ -2837,7 +2827,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                       
                       if (!isBackward) {
                         plannedLine = (
-                          <g key={`dep-plan-${atv.id}-${predId}`}>
+                          <g key={`dep-plan-${atv.id}-${predId}-${pIdx}`}>
                             <line x1={startX} y1={startY} x2={endX} y2={startY} stroke={plannedArrowColor} strokeWidth="1.2" />
                             <line x1={endX} y1={startY} x2={endX} y2={endY} stroke={plannedArrowColor} strokeWidth="1.2" markerEnd={plannedMarker} />
                           </g>
@@ -2848,7 +2838,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                         const finalTargetY = atvRow > predRow ? atvRow * 40 + 9 : atvRow * 40 + 21;
                         
                         plannedLine = (
-                          <g key={`dep-plan-${atv.id}-${predId}`}>
+                          <g key={`dep-plan-${atv.id}-${predId}-${pIdx}`}>
                             <line x1={startX} y1={startY} x2={startStubX} y2={startY} stroke="#ef4444" strokeWidth="1.2" strokeDasharray="4 2" />
                             <line x1={startStubX} y1={startY} x2={startStubX} y2={midY} stroke="#ef4444" strokeWidth="1.2" strokeDasharray="4 2" />
                             <line x1={startStubX} y1={midY} x2={endX} y2={midY} stroke="#ef4444" strokeWidth="1.2" strokeDasharray="4 2" />
@@ -2887,7 +2877,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                         
                         if (!isBackward) {
                           actualLine = (
-                            <g key={`dep-act-${atv.id}-${predId}`}>
+                            <g key={`dep-act-${atv.id}-${predId}-${pIdx}`}>
                               <line x1={startX} y1={startY} x2={endX} y2={startY} stroke="#d97706" strokeWidth="1.2" />
                               <line x1={endX} y1={startY} x2={endX} y2={endY} stroke="#d97706" strokeWidth="1.2" markerEnd="url(#arrowhead-amber)" />
                             </g>
@@ -2898,7 +2888,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                           const finalTargetY = atvRow > predRow ? atvRow * 40 + 9 : atvRow * 40 + 19;
                           
                           actualLine = (
-                            <g key={`dep-act-${atv.id}-${predId}`}>
+                            <g key={`dep-act-${atv.id}-${predId}-${pIdx}`}>
                               <line x1={startX} y1={startY} x2={startStubX} y2={startY} stroke="#ef4444" strokeWidth="1.2" strokeDasharray="4 2" />
                               <line x1={startStubX} y1={startY} x2={startStubX} y2={midY} stroke="#ef4444" strokeWidth="1.2" strokeDasharray="4 2" />
                               <line x1={startStubX} y1={midY} x2={endX} y2={midY} stroke="#ef4444" strokeWidth="1.2" strokeDasharray="4 2" />
@@ -2910,8 +2900,9 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                     }
 
                     return (
-                      <React.Fragment key={`dep-group-${atv.id}-${predId}`}>
+                      <React.Fragment key={`dep-group-${atv.id}-${predId}-${pIdx}`}>
                         {plannedLine}
+                        {actualLine}
 
                         {/* --- BASELINE DEPENDENCY (GRAY SOLID) --- */}
                         {pred.data_inicio_base && atv.data_inicio_base && (
@@ -2942,7 +2933,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                             const isBackward = eX < sX - 0.01;
 
                             return !isBackward ? (
-                                <g key={`dep-base-${atv.id}-${predId}`}>
+                                <g key={`dep-base-${atv.id}-${predId}-${pIdx}`}>
                                     <line x1={`${sX}%`} y1={startY} x2={`${eX}%`} y2={startY} stroke="#94a3b8" strokeWidth="1.5" />
                                     <line x1={`${eX}%`} y1={startY} x2={`${eX}%`} y2={endY} stroke="#94a3b8" strokeWidth="1.5" markerEnd="url(#arrowhead-gray)" />
                                 </g>
