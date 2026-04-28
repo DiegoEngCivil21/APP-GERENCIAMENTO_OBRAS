@@ -1258,7 +1258,7 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
             {obra.status}
           </span>
         </div>
-        <p className="text-slate-500 text-sm font-medium flex items-center gap-2">
+        <p style={{ marginLeft: '0px', marginRight: '0px', marginBottom: '-17px' }} className="text-slate-500 text-sm font-medium flex items-center gap-2">
           <MapPin size={15} className="text-slate-400" />
           {obra.uf ? `${obra.uf} - ` : ''}{obra.localizacao || 'Localização não informada'}
         </p>
