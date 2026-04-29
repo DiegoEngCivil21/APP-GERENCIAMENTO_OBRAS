@@ -81,11 +81,11 @@ export const Dashboard = ({ isAdmin, onSelectObra, setActiveTab }: { isAdmin: bo
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="bg-white rounded-[32px] border border-slate-100 shadow-sm overflow-hidden lg:col-span-2">
-            <div style={{ paddingTop: '4px', paddingBottom: '0px', paddingRight: '41px', marginRight: '3px', marginLeft: '-10px', marginTop: '-2px', marginBottom: '2px', paddingLeft: '5px' }} className="p-8 border-b border-slate-50 flex justify-between items-center">
+            <div className="p-8 border-b border-slate-50 flex justify-between items-center">
               <h3 style={{ height: '20px' }} className="text-xs font-black text-slate-900 uppercase tracking-widest">Projeção Financeira</h3>
               <div className="flex items-center gap-2">
-                 <div className="w-3 h-3 rounded-full bg-emerald-500" />
-                 <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Receita Mensal</span>
+                <button className="px-3 py-1 text-[10px] font-black uppercase tracking-widest bg-slate-900 text-white rounded-lg transition-all hover:bg-slate-800">Mês</button>
+                <button className="px-3 py-1 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-600 transition-all">Semana</button>
               </div>
             </div>
             <div className="p-6 h-[300px]">
@@ -204,7 +204,7 @@ export const Dashboard = ({ isAdmin, onSelectObra, setActiveTab }: { isAdmin: bo
               <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">Empresas Recém Cadastradas</h3>
               <button 
                 onClick={() => setActiveTab('empresas')}
-                className="text-[10px] font-black text-orange-500 hover:text-orange-600 flex items-center gap-1 transition-colors uppercase tracking-widest"
+                className="text-[10px] font-black text-orange-500 hover:text-orange-600 flex items-center gap-1 transition-all uppercase tracking-widest"
               >
                 Gerenciar Empresas <ArrowRight size={14} />
               </button>
@@ -301,11 +301,11 @@ export const Dashboard = ({ isAdmin, onSelectObra, setActiveTab }: { isAdmin: bo
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Obras Recentes */}
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-          <div style={{ paddingTop: '4px', paddingBottom: '0px', paddingRight: '41px', marginRight: '3px', marginLeft: '-10px', marginTop: '-2px', marginBottom: '2px', paddingLeft: '5px' }} className="p-6 flex justify-between items-center border-b border-slate-50">
+          <div className="p-6 flex justify-between items-center border-b border-slate-50">
             <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">Obras Recentes</h3>
             <button 
               onClick={() => setActiveTab('obras')}
-              className="text-[10px] font-black text-slate-400 hover:text-slate-600 flex items-center gap-1 transition-colors uppercase tracking-widest"
+              className="text-[10px] font-black text-slate-400 hover:text-slate-600 flex items-center gap-1 transition-all uppercase tracking-widest"
             >
               Ver todas <ArrowRight size={12} />
             </button>

@@ -384,24 +384,14 @@ const ComposicaoDetailView = ({
                   </td>
                   <td className="px-3 py-1.5 text-[13px] text-slate-600 relative group/desc">
                     {(sub.e_subcomposicao || sub.tipo === 'composicao' || sub.tipo === 'Composição' || sub.tipo_item === 'COMPOSICAO') && onNavigateToComposicao ? (
-                      <>
-                        <button 
-                          onClick={() => onNavigateToComposicao(sub.item_id || sub.id_subcomposicao)}
-                          className="text-left text-slate-600 hover:text-slate-600"
-                        >
-                          {sub.descricao?.replace(/^[\d\.]+\s*/, '')}
-                        </button>
-                        <div className="absolute top-1/2 -translate-y-1/2 left-5 z-[100] bg-white border border-slate-200 shadow-xl p-3 rounded-lg text-[13px] text-slate-900 min-w-[600px] max-w-[800px] whitespace-normal break-words pointer-events-none hidden group-hover/desc:block">
-                          {sub.descricao?.replace(/^[\d\.]+\s*/, '')}
-                        </div>
-                      </>
+                      <button 
+                        onClick={() => onNavigateToComposicao(sub.item_id || sub.id_subcomposicao)}
+                        className="text-left text-slate-600 hover:text-slate-600"
+                      >
+                        {sub.descricao?.replace(/^[\d\.]+\s*/, '')}
+                      </button>
                     ) : (
-                      <>
-                        <div className="text-slate-600">{sub.descricao?.replace(/^[\d\.]+\s*/, '')}</div>
-                        <div className="absolute top-1/2 -translate-y-1/2 left-5 z-[100] bg-white border border-slate-200 shadow-xl p-3 rounded-lg text-[13px] text-slate-900 min-w-[600px] max-w-[800px] whitespace-normal break-words pointer-events-none hidden group-hover/desc:block">
-                          {sub.descricao?.replace(/^[\d\.]+\s*/, '')}
-                        </div>
-                      </>
+                      <div className="text-slate-600">{sub.descricao?.replace(/^[\d\.]+\s*/, '')}</div>
                     )}
                   </td>
                   <td className="px-3 py-1.5 text-[13px] text-slate-500 font-medium">

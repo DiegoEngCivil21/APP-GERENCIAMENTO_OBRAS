@@ -1043,9 +1043,6 @@ const ComposicoesMgmtView = ({ onSelectComposicao, isAdmin, isMaster }: Composic
                       >
                           {comp.descricao}
                         </button>
-                        <div className="absolute left-2 top-1/2 -translate-y-1/2 hidden group-hover/desc:block z-[100] bg-white border border-slate-200 shadow-xl p-3 rounded-lg text-[13px] text-slate-900 min-w-[400px] max-w-[600px] whitespace-normal break-words pointer-events-none">
-                          {comp.descricao}
-                        </div>
                       </td>
                       <td className="px-3 py-1.5">
                         <div className="text-[13px] font-medium text-slate-700 uppercase">{comp.unidade}</div>

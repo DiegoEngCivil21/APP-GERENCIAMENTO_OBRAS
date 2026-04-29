@@ -35,6 +35,7 @@ const AutocompleteDropdown = React.forwardRef<HTMLInputElement, AutocompleteDrop
   const [dropdownWidth, setDropdownWidth] = useState<number | string>(dropdownStyle?.width || '1150px');
   const [dropdownLeft, setDropdownLeft] = useState<number | string>(dropdownStyle?.left || 0);
   const containerRef = useRef<HTMLDivElement>(null);
+  const ignoreNextOpen = useRef(false);
 
   useEffect(() => {
     const tableContainer = containerRef.current?.closest('.budget-table-container');
@@ -70,24 +71,64 @@ const AutocompleteDropdown = React.forwardRef<HTMLInputElement, AutocompleteDrop
     } else {
       setInternalQuery(newQuery);
     }
+    // Only open if there's actually a change that warrants searching
     setIsOpen(true);
   };
 
   useEffect(() => {
-    if (!showInput && (codigo || descricao)) {
-      setIsOpen(true);
+    // Only open if showInput is true and we have query, 
+    // or if the search actually returned something and we are focused.
+    // Removed the force-open when showInput is false to prevent "white screen" issues on click.
+    if (showInput && (codigo || descricao)) {
+      if (containerRef.current?.contains(document.activeElement)) {
+        setIsOpen(true);
+      }
     }
   }, [codigo, descricao, showInput]);
 
   useEffect(() => {
+    const checkIsTriggerInput = (target: Node | null) => {
+      if (!target) return false;
+      const el = target as HTMLElement;
+      if (el.tagName === 'INPUT') {
+        const placeholder = el.getAttribute('placeholder') || '';
+        if (placeholder === 'Código' || placeholder.includes('Descrição')) {
+          const myRow = containerRef.current?.closest('tr');
+          const targetRow = el.closest('tr');
+          if (myRow && targetRow && myRow === targetRow) {
+            return true;
+          }
+          if (!myRow) return true;
+        }
+      }
+      return false;
+    };
+
     const handleClickOutside = (event: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        if (!showInput && checkIsTriggerInput(event.target as Node)) {
+          return;
+        }
         setIsOpen(false);
       }
     };
+
+    const handleFocusIn = (event: FocusEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        if (!showInput && checkIsTriggerInput(event.target as Node)) {
+          return;
+        }
+        setIsOpen(false);
+      }
+    };
+
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+    document.addEventListener('focusin', handleFocusIn);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('focusin', handleFocusIn);
+    };
+  }, [showInput]);
 
   useEffect(() => {
     if (value === undefined) {
@@ -98,6 +139,7 @@ const AutocompleteDropdown = React.forwardRef<HTMLInputElement, AutocompleteDrop
   }, [type]);
 
   useEffect(() => {
+    // If the query matches the description of a selected item exactly, don't open by default
     if (query.length < 2 && !codigo && !descricao) {
       setResults(prev => prev.length === 0 ? prev : []);
       return;
@@ -136,10 +178,20 @@ const AutocompleteDropdown = React.forwardRef<HTMLInputElement, AutocompleteDrop
           const newResults = filtered.slice(0, 100);
           setResults(prev => {
             const next = JSON.stringify(prev) === JSON.stringify(newResults) ? prev : newResults;
-            console.log('AutocompleteDropdown setResults:', { newResultsLength: newResults.length, nextLength: next.length });
             return next;
           });
-          setIsOpen(true);
+          
+          // Don't auto-open if it's the exact same as current query and we just selected something
+          if (ignoreNextOpen.current) {
+            setIsOpen(false);
+            ignoreNextOpen.current = false;
+          } else if (!showInput || containerRef.current?.contains(document.activeElement)) {
+            // Only open if query is not exactly one of the results (meaning it might be already selected)
+            const exactMatch = newResults.find(r => (type === 'insumo' ? r.codigo : r.codigo_composicao) === query || r.descricao === query);
+            if (!exactMatch) {
+                setIsOpen(true);
+            }
+          }
         }
       })
       .catch(err => console.error(`Error fetching autocomplete for ${endpoint}:`, err));
@@ -158,7 +210,20 @@ const AutocompleteDropdown = React.forwardRef<HTMLInputElement, AutocompleteDrop
             placeholder={placeholder || `Buscar ${type}...`}
             value={query}
             onChange={(e) => handleQueryChange(e.target.value)}
-            onFocus={() => setIsOpen(true)}
+            onFocus={() => {
+                // Only open on focus if there's enough query or it's empty
+                if (query.length > 0) {
+                   setIsOpen(true);
+                }
+            }}
+            onBlur={() => {
+              // Delay closing to allow clicking on results
+              setTimeout(() => {
+                if (!containerRef.current?.contains(document.activeElement)) {
+                  setIsOpen(false);
+                }
+              }, 50);
+            }}
           />
         </div>
       )}
@@ -197,6 +262,7 @@ const AutocompleteDropdown = React.forwardRef<HTMLInputElement, AutocompleteDrop
                   key={`${type}-${type === 'insumo' ? item.id_insumo : item.id_composicao}-${idx}`}
                   className="w-full text-left py-2 px-2 hover:bg-slate-50 transition-colors grid grid-cols-[70px_100px_1fr_50px_80px_100px] items-center group border-b border-slate-100"
                   onClick={() => {
+                    ignoreNextOpen.current = true;
                     onSelect({
                       ...item,
                       preco_unitario: price
@@ -220,6 +286,7 @@ const AutocompleteDropdown = React.forwardRef<HTMLInputElement, AutocompleteDrop
             <button
               className="w-full text-left px-4 py-3 bg-slate-50 hover:bg-indigo-50 text-indigo-600 text-[11px] font-bold flex items-center justify-center gap-2 transition-colors"
               onClick={() => {
+                ignoreNextOpen.current = true;
                 onSelect({ 
                   isNew: true, 
                   descricao: query,

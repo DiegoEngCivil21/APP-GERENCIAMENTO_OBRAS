@@ -774,7 +774,7 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
         return;
       }
 
-      let finalItemData = { ...itemData, tipo };
+      let finalItemData = { ...itemData, tipo, insert_after_id: addingRowParentId };
       if (finalItemData.item) {
         finalItemData.item = finalItemData.item.toString().replace(/\.0$/, '');
       }
@@ -858,61 +858,64 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
     }
   };
 
-  const getNextItem = (tipo: 'etapa' | 'composicao' | 'insumo', parentId: number | string | null) => {
+  const getNextItem = (targetTipo: 'etapa' | 'composicao' | 'insumo', targetId: number | string | null, behavior: 'sibling' | 'child' = 'child') => {
     if (!orcamento || orcamento.length === 0) return '1';
 
-    const cleanOrcamento = orcamento.map(i => ({
-      ...i,
-      item: (i.item || '').toString().replace(/\.0$/, '')
-    }));
+    const cleanList = orcamento.map(i => {
+      let it = (i.item || '').toString().trim();
+      if (it.endsWith('.0')) it = it.substring(0, it.length - 2);
+      if (it.endsWith('.')) it = it.substring(0, it.length - 1);
+      return it;
+    }).filter(it => it !== '');
 
-    if (!parentId || parentId === '__root__') {
-      let maxNum = 0;
-      cleanOrcamento.forEach(i => {
-        const itemStr = i.item;
-        const parts = itemStr.split('.').filter(p => p !== '');
-        if (parts.length > 0) {
-          const val = parseInt(parts[0]);
-          if (!isNaN(val) && val > maxNum) maxNum = val;
-        }
-      });
-      const next = maxNum + 1;
-      return `${next}`;
-    } else {
-      // Find parent code
-      const parentRow = cleanOrcamento.find(r => r.id === parentId || (r.id && r.id.toString() === parentId.toString()));
-      if (!parentRow) return '1';
-      
-      const parentItem = parentRow.item;
-      const parts = parentItem.split('.').filter(p => p !== '');
-      if (parts.length === 0) return '1';
-      
-      const prefix = parts.join('.') + '.';
-      const parentDepth = parts.length - 1;
-      
-      const children = cleanOrcamento.filter(i => {
-        const itemStr = i.item;
-        if (!itemStr.startsWith(prefix) || itemStr === parentItem) return false;
-        
-        const cParts = itemStr.split('.').filter(p => p !== '');
-        const cDepth = cParts.length - 1;
-        
-        return cDepth === parentDepth + 1;
-      });
-
-      let nextIdx = 1;
-      if (children.length > 0) {
-        let maxAtLevel = 0;
-        children.forEach(child => {
-          const cParts = child.item.split('.').filter(p => p !== '');
-          const val = parseInt(cParts[parentDepth + 1]);
-          if (!isNaN(val) && val > maxAtLevel) maxAtLevel = val;
-        });
-        nextIdx = maxAtLevel + 1;
+    let targetItem = "";
+    if (targetId && targetId !== '__root__') {
+      const row = orcamento.find(r => r.id === targetId || r.id?.toString() === targetId.toString());
+      if (row) {
+        targetItem = (row.item || '').toString().trim().replace(/\.0$/, '');
+        if (targetItem.endsWith('.')) targetItem = targetItem.substring(0, targetItem.length - 1);
       }
-      
-      return `${prefix}${nextIdx}`;
     }
+
+    let parent = "";
+    if (behavior === 'child') {
+      parent = (!targetItem || targetItem === '__root__') ? "" : targetItem;
+    } else {
+      // Sibling logic
+      if (!targetItem || targetItem === '__root__' || !targetItem.includes('.')) {
+        parent = "";
+      } else {
+        const parts = targetItem.split('.').filter(p => p !== '');
+        parts.pop();
+        parent = parts.join('.');
+      }
+    }
+
+    // Find max sibling number among children of 'parent'
+    const prefix = parent ? parent + '.' : '';
+    const level = parent ? parent.split('.').filter(p => p !== '').length + 1 : 1;
+    
+    let max = 0;
+    cleanList.forEach(it => {
+      if (parent) {
+        if (it.startsWith(prefix)) {
+          const parts = it.split('.').filter(p => p !== '');
+          if (parts.length === level) {
+            const lastPart = parts[parts.length - 1];
+            const lastNum = parseInt(lastPart, 10);
+            if (!isNaN(lastNum) && lastNum > max) max = lastNum;
+          }
+        }
+      } else {
+        // Root level
+        if (!it.includes('.')) {
+          const val = parseInt(it, 10);
+          if (!isNaN(val) && val > max) max = val;
+        }
+      }
+    });
+
+    return (parent ? parent + '.' : '') + (max + 1);
   };
 
   const [diarios, setDiarios] = useState<any[]>([]);
@@ -1134,47 +1137,9 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
   };
 
 
+  // Removed manual style manipulation to avoid layout issues
   useEffect(() => {
-    const mainArea = document.getElementById('main-scroll-area');
-    if (mainArea) {
-      const motionDiv = mainArea.firstElementChild as HTMLElement;
-      if (activeSubTab === 'cronograma') {
-        mainArea.style.overflow = 'hidden';
-        mainArea.style.paddingBottom = '0'; // pb-0
-        mainArea.style.paddingLeft = '2rem'; // px-8
-        mainArea.style.paddingRight = '2rem'; // px-8
-        if (motionDiv) {
-          motionDiv.style.height = '100%';
-          motionDiv.style.display = 'flex';
-          motionDiv.style.flexDirection = 'column';
-          motionDiv.style.paddingTop = '1rem'; // pt-4
-        }
-      } else {
-        mainArea.style.overflow = 'auto';
-        mainArea.style.paddingBottom = '40vh'; // pb-[40vh]
-        mainArea.style.paddingLeft = '2rem'; // px-8
-        mainArea.style.paddingRight = '2rem'; // px-8
-        if (motionDiv) {
-          motionDiv.style.height = 'auto';
-          motionDiv.style.display = 'block';
-          motionDiv.style.paddingTop = '1rem'; // pt-4
-        }
-      }
-    }
-    return () => {
-      if (mainArea) {
-        mainArea.style.overflow = 'auto';
-        mainArea.style.paddingBottom = '2.5rem';
-        mainArea.style.paddingLeft = '2rem';
-        mainArea.style.paddingRight = '2rem';
-        const motionDiv = mainArea.firstElementChild as HTMLElement;
-        if (motionDiv) {
-          motionDiv.style.height = 'auto';
-          motionDiv.style.display = 'block';
-          motionDiv.style.paddingTop = '1rem';
-        }
-      }
-    };
+    // Scroll handling moved to activeTab useEffect
   }, [activeSubTab]);
 
   if (error) {
@@ -1251,7 +1216,7 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
         </Button>
         
         <div className="flex items-center gap-4">
-          <h3 className="text-4xl font-black text-slate-900 tracking-tighter uppercase leading-none">
+          <h3 style={{ fontSize: '21px', lineHeight: '28px' }} className="font-black text-slate-900 tracking-tighter uppercase">
             {obra.nome}
           </h3>
           <span className="px-3 py-1 bg-blue-50 text-blue-600 text-[11px] font-bold uppercase tracking-wider rounded-md border border-blue-100">
@@ -1860,7 +1825,7 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
                     <th className="px-4 py-1.5 text-[11px] font-black text-slate-500 uppercase tracking-widest text-center w-28">Item</th>
                     <th className="px-4 py-1.5 text-[11px] font-black text-slate-500 uppercase tracking-widest text-center w-20">Base</th>
                     <th className="px-4 py-1.5 text-[11px] font-black text-slate-500 uppercase tracking-widest text-center w-24">Código</th>
-                    <th className="pr-4 pl-0 py-1.5 text-[11px] font-black text-slate-500 uppercase tracking-widest"></th>
+                    <th className="pr-4 pl-0 py-1.5 text-[11px] font-black text-slate-500 uppercase tracking-widest">Descrição</th>
                     <th className="px-4 py-1.5 text-[11px] font-black text-slate-500 uppercase tracking-widest text-center w-16">Unid</th>
                     <th className="px-4 py-1.5 text-[11px] font-black text-slate-500 uppercase tracking-widest text-right w-20">QUANT</th>
                     <th style={{ fontSize: '10px', textAlign: 'center', lineHeight: '16.5px', paddingLeft: '38px' }} className="px-4 py-1.5 font-black text-slate-500 uppercase tracking-widest text-right w-28">Valor Unitário</th>
@@ -1909,13 +1874,15 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
                             <button 
                               onClick={(e) => {
                                 e.stopPropagation();
-                                const nextItem = getNextItem('etapa', null);
+                                const currentParts = (row.item || '').toString().split('.');
+                                const root = parseInt(currentParts[0], 10);
+                                const nextItem = isNaN(root) ? '1' : (root + 1).toString();
                                 setNewItemData({ item: nextItem, base: '', codigo: '', descricao: '', item_tipo: 'etapa', item_id: null, quantidade: 0, preco_unitario: 0, unidade: '', etapa_id: null, etapa_pai_id: null, isNew: false });
                                 setAddingRowType('etapa');
-                                setAddingRowParentId(null);
+                                setAddingRowParentId(row.id);
                               }}
                               className="px-2 py-1 hover:bg-blue-50 rounded text-blue-600 font-black text-[10px] uppercase"
-                              title="Adicionar Etapa"
+                              title="Adicionar Etapa (Abaixo)"
                             >
                               +ETAPA
                             </button>
@@ -1923,14 +1890,24 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
                               <button 
                                 onClick={(e) => {
                                   e.stopPropagation();
+                                  let nextItem = '';
+                                  if (row.tipo === 'etapa') {
+                                    // If we click +SUB on an etapa, we create its first child right below it
+                                    nextItem = row.item + '.1';
+                                  } else {
+                                    // If we click +SUB on an item, we create a sub-etapa sibling to it
+                                    const parts = (row.item || '').toString().split('.');
+                                    const last = parseInt(parts[parts.length - 1], 10);
+                                    parts[parts.length - 1] = isNaN(last) ? '1' : (last + 1).toString();
+                                    nextItem = parts.join('.');
+                                  }
                                   const parentId = row.tipo === 'etapa' ? row.id : row.etapa_id;
-                                  const nextItem = getNextItem('etapa', parentId);
                                   setNewItemData({ ...newItemData, item: nextItem, item_tipo: 'etapa', etapa_pai_id: parentId, isNew: false });
                                   setAddingRowType('etapa');
                                   setAddingRowParentId(row.id);
                                 }}
                                 className="px-2 py-1 hover:bg-indigo-50 rounded text-indigo-600 font-black text-[10px] uppercase"
-                                title="Adicionar Sub-Etapa"
+                                title="Adicionar Sub-Etapa (Abaixo)"
                               >
                                 +SUB
                               </button>
@@ -1938,30 +1915,46 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
                             <button 
                               onClick={(e) => {
                                 e.stopPropagation();
+                                let nextItem = '';
+                                if (row.tipo === 'etapa') {
+                                  nextItem = row.item + '.1';
+                                } else {
+                                  const parts = (row.item || '').toString().split('.');
+                                  const last = parseInt(parts[parts.length - 1], 10);
+                                  parts[parts.length - 1] = isNaN(last) ? '1' : (last + 1).toString();
+                                  nextItem = parts.join('.');
+                                }
                                 const etapaId = row.tipo === 'etapa' ? row.id : row.etapa_id;
-                                const nextItem = getNextItem('composicao', etapaId);
                                 const defaultBase = bancosAtivos.find(b => b.active)?.name.split(' ')[0] || '';
                                 setNewItemData({ ...newItemData, item: nextItem, base: defaultBase, item_tipo: 'composicao', item_id: null, quantidade: 0, preco_unitario: 0, unidade: '', etapa_id: etapaId, isNew: false });
                                 setAddingRowType('composicao');
                                 setAddingRowParentId(row.id);
                               }}
                               className="px-2 py-1 hover:bg-green-50 rounded text-green-600 font-black text-[10px] uppercase"
-                              title="Adicionar Composição"
+                              title="Adicionar Composição (Abaixo)"
                             >
                               +COMP
                             </button>
                             <button 
                               onClick={(e) => {
                                 e.stopPropagation();
+                                let nextItem = '';
+                                if (row.tipo === 'etapa') {
+                                  nextItem = row.item + '.1';
+                                } else {
+                                  const parts = (row.item || '').toString().split('.');
+                                  const last = parseInt(parts[parts.length - 1], 10);
+                                  parts[parts.length - 1] = isNaN(last) ? '1' : (last + 1).toString();
+                                  nextItem = parts.join('.');
+                                }
                                 const etapaId = row.tipo === 'etapa' ? row.id : row.etapa_id;
-                                const nextItem = getNextItem('insumo', etapaId);
                                 const defaultBase = bancosAtivos.find(b => b.active)?.name.split(' ')[0] || '';
                                 setNewItemData({ ...newItemData, item: nextItem, base: defaultBase, item_tipo: 'insumo', item_id: null, quantidade: 0, preco_unitario: 0, unidade: '', etapa_id: etapaId, isNew: false });
                                 setAddingRowType('insumo');
                                 setAddingRowParentId(row.id);
                               }}
                               className="px-2 py-1 hover:bg-yellow-50 rounded text-yellow-600 font-black text-[10px] uppercase"
-                              title="Adicionar Insumo"
+                              title="Adicionar Insumo (Abaixo)"
                             >
                               +INSUMO
                             </button>
@@ -2092,12 +2085,6 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
                               }}
                             >
                               {row.tipo === 'etapa' ? row.descricao?.toUpperCase() : row.descricao}
-                              {row.tipo !== 'etapa' && (
-                                <div className="absolute top-1/2 -translate-y-1/2 left-5 z-[100] bg-white border border-slate-200 shadow-xl p-3 rounded-lg text-[13px] text-slate-900 min-w-[600px] max-w-[800px] whitespace-normal break-words pointer-events-none hidden group-hover/desc:block">
-                                  <div className="font-bold text-indigo-600 mb-1">Sub-etapa: {row.etapa_nome}</div>
-                                  {row.descricao}
-                                </div>
-                              )}
                             </div>
                           )}
                         </div>
@@ -2304,11 +2291,23 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
                         <td className="px-3 py-1.5 w-20">
                           {addingRowType !== 'etapa' && (
                             <input 
+                              type="text"
                               className="w-full bg-white border border-blue-300 rounded px-2 py-1 text-[13px] text-slate-700 outline-none focus:ring-1 focus:ring-blue-500 text-right font-mono"
                               placeholder="Qtd"
-                              value={newItemData.quantidade}
-                              onChange={e => setNewItemData({...newItemData, quantidade: parseFloat(e.target.value) || 0})}
-                              onKeyDown={e => e.key === 'Enter' && handleAddItem(addingRowType, newItemData)}
+                              value={localNewQty !== '0,00' ? localNewQty : (newItemData.quantidade ? formatFinancial(newItemData.quantidade) : '')}
+                              onChange={e => setLocalNewQty(e.target.value)}
+                              onBlur={(e) => {
+                                const val = parseBrazilianNumber(e.target.value);
+                                if (val !== null) setNewItemData({...newItemData, quantidade: val});
+                                setLocalNewQty(val !== null ? formatFinancial(val) : '');
+                              }}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') {
+                                  const val = parseBrazilianNumber(localNewQty);
+                                  if (val !== null) setNewItemData({...newItemData, quantidade: val});
+                                  handleAddItem(addingRowType, { ...newItemData, quantidade: val !== null ? val : newItemData.quantidade });
+                                }
+                              }}
                             />
                           )}
                         </td>
@@ -2473,7 +2472,12 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
                               if (val !== null) setNewItemData({...newItemData, quantidade: val});
                             }}
                             onBlur={() => setLocalNewQty(formatFinancial(newItemData.quantidade))}
-                            onKeyDown={e => e.key === 'Enter' && handleAddItem(addingRowType, newItemData)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') {
+                                const val = parseBrazilianNumber(localNewQty);
+                                handleAddItem(addingRowType, { ...newItemData, quantidade: val !== null ? val : newItemData.quantidade });
+                              }
+                            }}
                           />
                         )}
                       </td>
@@ -3236,12 +3240,12 @@ function AppContent() {
       {/* Main Content */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
         {/* Fixed Header Area */}
-        <div id="top-toolbar-wrapper" className="pl-0 pr-4 pt-6 pb-2 z-50">
+        <div id="top-toolbar-wrapper" className="px-4 pt-6 pb-2 z-50">
           <TopToolbar onNavigate={handleNavigate} user={user} />
         </div>
 
         {/* Scrollable Content Area */}
-        <div id="main-scroll-area" className="flex-1 overflow-auto pl-0 pr-4 pb-10 w-full">
+        <div id="main-scroll-area" className="flex-1 overflow-auto px-4 pb-10 w-full">
           <AnimatePresence mode="wait">
               <motion.div
                 key={selectedObraId ? `obra-${selectedObraId}` : (selectedComposicaoId ? `comp-${selectedComposicaoId}` : activeTab)}
@@ -3249,7 +3253,7 @@ function AppContent() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
                 transition={{ duration: 0.2 }}
-                style={{ paddingRight: '197px', paddingTop: '-18px', paddingLeft: '0px', paddingBottom: '-3px', marginLeft: '7px', marginTop: '0px' }}
+                className="w-full"
               >
                 {renderContent()}
             </motion.div>

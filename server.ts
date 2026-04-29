@@ -2570,6 +2570,60 @@ async function startServer() {
               etapaPaiId = parseInt(etapaPaiId.replace('etapa-', ''), 10);
             }
 
+            if (it.insert_after_id && (finalOrdem === undefined || finalOrdem === null)) {
+              const isEtapaId = it.insert_after_id.toString().startsWith('etapa-');
+              const isItemId = it.insert_after_id.toString().startsWith('item-');
+              const cleanAfterId = it.insert_after_id.toString().replace(/^(item-|etapa-)/, '');
+              
+              // New logic: if we are trying to insert a stage AFTER its new parent, 
+              // it means we want it as the FIRST child of that parent.
+              if (isEtapaId && cleanAfterId === etapaPaiId?.toString()) {
+                db.prepare("UPDATE v2_etapas SET ordem = ordem + 1 WHERE obra_id = ? AND etapa_pai_id = ?").run(req.params.id, etapaPaiId);
+                finalOrdem = 0;
+              } else if (isEtapaId) {
+                const afterRow = db.prepare("SELECT id, ordem, etapa_pai_id FROM v2_etapas WHERE id = ?").get(cleanAfterId) as any;
+                if (afterRow) {
+                  db.prepare("UPDATE v2_etapas SET ordem = ordem + 1 WHERE obra_id = ? AND (etapa_pai_id = ? OR (etapa_pai_id IS NULL AND ? IS NULL)) AND ordem > ?").run(req.params.id, afterRow.etapa_pai_id, afterRow.etapa_pai_id, afterRow.ordem);
+                  finalOrdem = afterRow.ordem + 1;
+                  etapaPaiId = afterRow.etapa_pai_id;
+                }
+              } else if (isItemId) {
+                // We are adding an Etapa (or subetapa) "after" an Item.
+                // We need to resolve what the Item's parent is.
+                const itemRow = db.prepare("SELECT etapa_id FROM v2_orcamento_itens WHERE id = ?").get(cleanAfterId) as any;
+                if (itemRow && itemRow.etapa_id) {
+                  // We are inserting an Etapa (etapaPaiId) relative to itemRow.etapa_id.
+                  // If we are inserting a root Etapa (etapaPaiId is null)
+                  if (!etapaPaiId) {
+                     // Find the top-level Etapa of itemRow.etapa_id
+                     let currentEtapaId = itemRow.etapa_id;
+                     let topOrdem = 0;
+                     while(currentEtapaId) {
+                        const erow = db.prepare("SELECT id, etapa_pai_id, ordem FROM v2_etapas WHERE id = ?").get(currentEtapaId) as any;
+                        if (!erow) break;
+                        if (!erow.etapa_pai_id) {
+                           topOrdem = erow.ordem;
+                           break;
+                        }
+                        currentEtapaId = erow.etapa_pai_id;
+                     }
+                     // Shift everything >= topOrdem + 1
+                     db.prepare("UPDATE v2_etapas SET ordem = ordem + 1 WHERE obra_id = ? AND etapa_pai_id IS NULL AND ordem > ?").run(req.params.id, topOrdem);
+                     finalOrdem = topOrdem + 1;
+                  } else {
+                     // We are inserting a sub-etapa (etapa_pai_id) after an item in the SAME parent
+                     if (etapaPaiId === itemRow.etapa_id) {
+                        // The item is inside the exact same parent we are inserting into!
+                        // In Orçafascio, sub-etapas and items are siblings. But DB tracks them separately.
+                        // For resequence to correctly order them, their string `codigo` (item_numero) handles it before `ordem` fallback.
+                        // Or we can just append it, and rely on the frontend `item` code ('2.4') to sort it during resequence!
+                        // This works flawlessly because the frontend passed `it.item = '2.4'`, and `resequence` sorts by string initially!
+                     }
+                  }
+                }
+              }
+            }
+
             if (finalOrdem === undefined || finalOrdem === null) {
               const maxOrdemRow = db.prepare("SELECT MAX(ordem) as max_ordem FROM v2_etapas WHERE obra_id = ? AND (etapa_pai_id = ? OR (etapa_pai_id IS NULL AND ? IS NULL))").get(req.params.id, etapaPaiId, etapaPaiId) as any;
               finalOrdem = (maxOrdemRow?.max_ordem || 0) + 1;
@@ -2626,12 +2680,43 @@ async function startServer() {
               if (itemRow) finalItemId = itemRow.id;
             }
 
-            console.log("Inserting orcamento item:", { foundEtapaId, item_id: finalItemId, item_numero: it.item, quantidade: it.quantidade, valor_unitario });
+            console.log("Inserting orcamento item:", { foundEtapaId, item_id: finalItemId, item_numero: it.item, quantidade: it.quantidade, valor_unitario, insert_after_id: it.insert_after_id });
+
+            // Calculate next order within this etapa
+            let nextOrdem = -1;
+            if (it.insert_after_id) {
+              const isEtapaId = it.insert_after_id.toString().startsWith('etapa-');
+              const isItemId = it.insert_after_id.toString().startsWith('item-');
+              const cleanAfterId = it.insert_after_id.toString().replace(/^(item-|etapa-)/, '');
+              
+              if (isItemId) {
+                // Try to insert after an existing item
+                const afterItem = db.prepare("SELECT id, ordem, etapa_id FROM v2_orcamento_itens WHERE id = ?").get(cleanAfterId) as any;
+                if (afterItem) {
+                  db.prepare("UPDATE v2_orcamento_itens SET ordem = ordem + 1 WHERE etapa_id = ? AND ordem > ?").run(afterItem.etapa_id, afterItem.ordem);
+                  nextOrdem = afterItem.ordem + 1;
+                  foundEtapaId = afterItem.etapa_id;
+                }
+              } else if (isEtapaId) {
+                // Try to insert as first item of an etapa
+                const afterEtapa = db.prepare("SELECT id FROM v2_etapas WHERE id = ?").get(cleanAfterId) as any;
+                if (afterEtapa) {
+                  foundEtapaId = afterEtapa.id;
+                  db.prepare("UPDATE v2_orcamento_itens SET ordem = ordem + 1 WHERE etapa_id = ?").run(foundEtapaId);
+                  nextOrdem = 0;
+                }
+              }
+            }
+
+            if (nextOrdem === -1) {
+              const maxOrderRow = db.prepare("SELECT MAX(ordem) as max_ordem FROM v2_orcamento_itens WHERE etapa_id = ?").get(foundEtapaId) as any;
+              nextOrdem = (maxOrderRow?.max_ordem ?? -1) + 1;
+            }
 
             const result = db.prepare(`
-              INSERT INTO v2_orcamento_itens (etapa_id, item_id, item_numero, quantidade, custo_unitario_aplicado) 
-              VALUES (?, ?, ?, ?, ?)
-            `).run(foundEtapaId, finalItemId, it.item, parseNumber(it.quantidade) || 0, valor_unitario);
+              INSERT INTO v2_orcamento_itens (etapa_id, item_id, item_numero, quantidade, custo_unitario_aplicado, ordem) 
+              VALUES (?, ?, ?, ?, ?, ?)
+            `).run(foundEtapaId, finalItemId, it.item, parseNumber(it.quantidade) || 0, valor_unitario, nextOrdem);
             createdIds.push(`item-${result.lastInsertRowid}`);
           }
         }
@@ -2873,10 +2958,14 @@ async function startServer() {
 
         const assignCodes = (parentId: number | string, prefix: string) => {
           const children = etapasByParent[parentId] || [];
-          // Sort children by their previous code
+          // Sort children by their previous code/ordem
           children.sort((a, b) => {
-             const aCode = a.item || a.codigo || "";
-             const bCode = b.item || b.codigo || "";
+             // Priority 1: Ordem (if set)
+             if (a.ordem !== undefined && b.ordem !== undefined && a.ordem !== b.ordem) return a.ordem - b.ordem;
+             
+             // Priority 2: Numerical Code
+             const aCode = a.codigo || "";
+             const bCode = b.codigo || "";
              if (!aCode && !bCode) return a.id - b.id;
              if (!aCode) return 1;
              if (!bCode) return -1;
@@ -2894,6 +2983,10 @@ async function startServer() {
           const itemsFilter = parentId === 'root' ? (it: any) => !it.etapa_id : (it: any) => it.etapa_id === parentId;
           const items = allItems.filter(itemsFilter);
           items.sort((a, b) => {
+            // Priority 1: Ordem
+            if (a.ordem !== undefined && b.ordem !== undefined && a.ordem !== b.ordem) return a.ordem - b.ordem;
+
+            // Priority 2: Code
             const aCode = a.item_numero || "";
             const bCode = b.item_numero || "";
             if (!aCode && !bCode) return a.id - b.id;
@@ -3654,7 +3747,8 @@ async function startServer() {
       })();
       res.json({ message: "Medição registrada com sucesso." });
     } catch (error: any) {
-      res.status(500).json({ message: "Erro ao registrar medição.", error: error.message });
+      console.error("Error inserting measuring:", error);
+      res.status(500).json({ message: "Erro ao registrar medição.", error: error.message, stack: error.stack });
     }
   });
 

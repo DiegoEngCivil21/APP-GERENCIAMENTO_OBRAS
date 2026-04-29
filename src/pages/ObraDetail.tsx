@@ -14,7 +14,7 @@ import { BdiModal, BancosModal, EncargosModal } from '../components/Modals';
 import { BudgetFilterBar } from '../components/BudgetFilterBar';
 import { ObraOverview } from '../components/ObraOverview';
 import { recalculateTotals } from '../utils/calculations';
-import { truncateToTwo, formatCurrency, formatCurrencyPrecise, formatFinancial } from '../utils';
+import { truncateToTwo, formatCurrency, formatCurrencyPrecise, formatFinancial, parseBrazilianNumber } from '../utils';
 import { format, isToday, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import DiarioObraTab from '../components/DiarioObraTab';
@@ -28,7 +28,10 @@ export const getSemanticRoot = (itemStr: string) => {
 };
 
 const getSemanticParent = (item: string) => {
-  const parts = item.split('.').filter(p => p !== '');
+  if (!item) return '__root__';
+  const cleanItem = item.toString().trim().replace(/\.0$/, '');
+  if (!cleanItem || cleanItem === '__root__') return '__root__';
+  const parts = cleanItem.split('.').filter(p => p !== '');
   if (parts.length <= 1) return '__root__';
   
   parts.pop(); // remove current index
@@ -36,63 +39,64 @@ const getSemanticParent = (item: string) => {
   return parts.join('.');
 };
 
-const getNextItemNumber = (list: OrcamentoItem[], parentItem: string | null, targetTipo: 'etapa' | 'insumo' | 'composicao'): string => {
-  try {
-    if (!list || list.length === 0) return '1';
+const getSuggestedNextNumber = (list: OrcamentoItem[], afterItem: string | null, behavior: 'sibling' | 'child'): string => {
+  if (!list || list.length === 0) return "1";
+  
+  const cleanList = list.map(i => {
+    let it = (i.item || '').toString().trim();
+    if (it.endsWith('.0')) it = it.substring(0, it.length - 2);
+    // Remove trailing dot if any
+    if (it.endsWith('.')) it = it.substring(0, it.length - 1);
+    return it;
+  }).filter(it => it !== '');
 
-    const cleanList = list.map(i => ({
-      ...i,
-      item: (i.item || '').toString().replace(/\.0$/, '')
-    }));
+  let cleanTarget = (afterItem || '').toString().trim().replace(/\.0$/, '');
+  if (cleanTarget.endsWith('.')) cleanTarget = cleanTarget.substring(0, cleanTarget.length - 1);
 
-    if (parentItem === null || parentItem === '__root__') {
-      let maxNum = 0;
-      cleanList.forEach(i => {
-        const itemStr = i.item;
-        const parts = itemStr.split('.').filter(p => p !== '');
-        if (parts.length > 0) {
-          const val = parseInt(parts[0]);
-          if (!isNaN(val) && val > maxNum) maxNum = val;
-        }
-      });
-
-      const next = maxNum + 1;
-      return `${next}`;
+  let parent = "";
+  if (behavior === 'child') {
+    parent = (cleanTarget === '__root__' || !cleanTarget) ? "" : cleanTarget;
+  } else {
+    // Sibling of cleanTarget
+    if (!cleanTarget || cleanTarget === '__root__' || !cleanTarget.includes('.')) {
+      parent = "";
     } else {
-      const cleanParentItem = (parentItem || '').toString().replace(/\.0$/, '');
-      const parts = cleanParentItem.split('.').filter(p => p !== '');
-      if (parts.length === 0) return '1';
-      
-      const prefix = parts.join('.') + '.';
-      const parentDepth = parts.length - 1;
-      
-      const children = cleanList.filter(i => {
-        const itemStr = i.item;
-        if (!itemStr.startsWith(prefix) || itemStr === cleanParentItem) return false;
-        
-        const cParts = itemStr.split('.').filter(p => p !== '');
-        const cDepth = cParts.length - 1;
-        
-        return cDepth === parentDepth + 1;
-      });
-
-      let nextIdx = 1;
-      if (children.length > 0) {
-        let maxAtLevel = 0;
-        children.forEach(child => {
-          const cParts = (child.item || '').split('.').filter(p => p !== '');
-          const val = parseInt(cParts[parentDepth + 1]);
-          if (!isNaN(val) && val > maxAtLevel) maxAtLevel = val;
-        });
-        nextIdx = maxAtLevel + 1;
-      }
-      
-      return `${prefix}${nextIdx}`;
+      const parts = cleanTarget.split('.').filter(p => p !== '');
+      parts.pop();
+      parent = parts.join('.');
     }
-  } catch (err) {
-    console.error("Error calculating next item:", err);
-    return '1';
   }
+
+  // Now find max sibling number among all children of 'parent'
+  const prefix = parent ? parent + '.' : '';
+  const level = parent ? parent.split('.').filter(p => p !== '').length + 1 : 1;
+  
+  let max = 0;
+  cleanList.forEach(it => {
+    if (parent) {
+      // It must start with parent. and have exactly one more part
+      if (it.startsWith(prefix)) {
+        const parts = it.split('.').filter(p => p !== '');
+        if (parts.length === level) {
+          const lastPart = parts[parts.length - 1];
+          const lastNum = parseInt(lastPart, 10);
+          if (!isNaN(lastNum) && lastNum > max) max = lastNum;
+        }
+      }
+    } else {
+      // Root level (no dots)
+      if (!it.includes('.')) {
+        const val = parseInt(it, 10);
+        if (!isNaN(val) && val > max) max = val;
+      }
+    }
+  });
+
+  return (parent ? parent + '.' : '') + (max + 1);
+};
+
+const getNextItemNumber = (list: OrcamentoItem[], parentItem: string | null, targetTipo: 'etapa' | 'insumo' | 'composicao'): string => {
+  return getSuggestedNextNumber(list, parentItem, 'child');
 };
 
 export const applyAutoRenumber = (orcamentoList: OrcamentoItem[]): OrcamentoItem[] => {
@@ -199,8 +203,9 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
         data_referencia: encargos.dataReferencia,
         bancos_ativos: activeBancos
       });
-      const structuredData = applyAutoRenumber(freshData);
-      const withTotals = recalculateTotals(structuredData, { porcentagem: bdiConfig.porcentagem });
+      // We rely on server sorting and re-sequencing now. 
+      // applyAutoRenumber is only for manual reordering in the UI if we add that later.
+      const withTotals = recalculateTotals(freshData, { porcentagem: bdiConfig.porcentagem });
       setOrcamento(withTotals);
     } catch (err) {
       console.error("Error refreshing obra data:", err);
@@ -243,6 +248,8 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
   });
 
   const [addingItemToEtapa, setAddingItemToEtapa] = useState<string | null>(null);
+  const [localNewQty, setLocalNewQty] = useState('');
+  const [addingAfterItemId, setAddingAfterItemId] = useState<string | number | null>(null);
   const addItemRowRef = useRef<HTMLTableRowElement>(null);
   const newItemCodigoRef = useRef<HTMLInputElement>(null);
   const newItemQuantRef = useRef<HTMLInputElement>(null);
@@ -436,8 +443,10 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
     });
     // Focus quantity after selection
     setTimeout(() => {
-      if (newItemQuantRef.current) newItemQuantRef.current.focus();
-    }, 50);
+      if (newItemQuantRef.current) {
+        newItemQuantRef.current.focus();
+      }
+    }, 150);
   }, []);
 
   const handleNewItemDescricaoChange = useCallback((val: string) => {
@@ -458,8 +467,10 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
     });
     // Focus quantity after selection
     setTimeout(() => {
-      if (newItemQuantRef.current) newItemQuantRef.current.focus();
-    }, 50);
+      if (newItemQuantRef.current) {
+        newItemQuantRef.current.focus();
+      }
+    }, 150);
   }, []);
 
   const handleItemChange = async (id: string | number, newItem: string) => {
@@ -509,57 +520,89 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
     setEditingCell(null);
   };
 
-  const handleAddNewItem = async () => {
+  const handleAddNewItem = async (overrideData?: any) => {
     if (!addingItemToEtapa) return;
     
+    // Merge newItemData with overrideData if provided
+    const payloadData = overrideData ? { ...newItemData, ...overrideData } : newItemData;
+
     try {
       // Find the parent etapa ID if it's not root
       let targetEtapaId: string | number | null = null;
       if (addingItemToEtapa !== '__root__') {
-        const parentStage = orcamento.find(i => i.tipo === 'etapa' && i.item?.toString() === addingItemToEtapa);
+        const parentStage = orcamento.find(i => (i.tipo === 'etapa' || i.id?.toString().startsWith('etapa-')) && i.item?.toString() === addingItemToEtapa);
         if (parentStage) {
           targetEtapaId = parentStage.id;
         }
       }
 
+      // Check if we are inserting after a specific item
+      // We'll calculate the index to insert at
+      let insertIdx = orcamento.length;
+      if (addingItemToEtapa === '__root__') {
+        // Find end of last stage
+        insertIdx = orcamento.length;
+      } else {
+        const parentPrefix = addingItemToEtapa + '.';
+        const children = orcamento.filter(i => i.item.toString().startsWith(parentPrefix));
+        if (children.length > 0) {
+          const lastChild = children[children.length - 1];
+          insertIdx = orcamento.indexOf(lastChild) + 1;
+        } else {
+          // If no children, insert after the parent stage
+          const parentStage = orcamento.find(i => i.item === addingItemToEtapa && (i.tipo === 'etapa' || i.id?.toString().startsWith('etapa-')));
+          if (parentStage) {
+            insertIdx = orcamento.indexOf(parentStage) + 1;
+          }
+        }
+      }
+
       const newItem: any = {
         obra_id: Number(obraId),
-        tipo: newItemData.tipo,
-        item: newItemData.item?.toString().replace(/\.0$/, ''),
-        base: newItemData.tipo === 'etapa' ? undefined : newItemData.base,
-        codigo: newItemData.tipo === 'etapa' ? undefined : newItemData.codigo,
-        descricao: newItemData.descricao,
-        unidade: newItemData.tipo === 'etapa' ? undefined : newItemData.unidade,
-        quantidade: newItemData.tipo === 'etapa' ? 0 : newItemData.quantidade,
-        valor_unitario: newItemData.tipo === 'etapa' ? 0 : newItemData.valor_unitario,
-        etapa_id: targetEtapaId
+        tipo: payloadData.tipo,
+        item: payloadData.item?.toString().trim().replace(/\.0$/, ''),
+        base: payloadData.tipo === 'etapa' ? undefined : payloadData.base,
+        codigo: payloadData.tipo === 'etapa' ? undefined : payloadData.codigo,
+        descricao: payloadData.descricao,
+        unidade: payloadData.tipo === 'etapa' ? undefined : payloadData.unidade,
+        quantidade: payloadData.tipo === 'etapa' ? 0 : payloadData.quantidade,
+        valor_unitario: payloadData.tipo === 'etapa' ? 0 : payloadData.valor_unitario,
+        etapa_id: targetEtapaId,
+        etapa_pai_id: payloadData.tipo === 'etapa' ? targetEtapaId : undefined,
+        insert_after_id: addingAfterItemId
       };
 
-      // 1. Save new item
-      await api.saveOrcamento(obraId, [newItem]);
-      
-      // 2. Clear adding state immediately
-      setAddingItemToEtapa(null);
-      setNewItemData({ item: '', tipo: 'insumo', base: 'SINAPI', codigo: '', descricao: '', unidade: '', quantidade: 0, valor_unitario: 0 });
+      // 1. Save new item and get its ID
+      const response = await api.saveOrcamento(obraId, [newItem]);
+      const savedItemId = response?.[0]?.id;
 
-      // 3. Trigger server-side re-sequencing to fix all numbers based on the new item
+      // 2. Automaitcaly move existing direct children to this new sub-stage if it's an etapa
+      if (newItem.tipo === 'etapa' && targetEtapaId) {
+          // Identify children that were direct children of targetEtapaId
+          // These are items where etapa_id == targetEtapaId
+          const childrenToMove = orcamento.filter(i => i.etapa_id === targetEtapaId && i.id !== savedItemId && i.tipo !== 'etapa');
+          
+          for (const item of childrenToMove) {
+              await api.updateOrcamentoItem(obraId, item.id, {
+                  etapa_id: savedItemId,
+                  etapa_pai_id: savedItemId
+              });
+          }
+      }
+
+      // 3. Clear adding state
+      setAddingItemToEtapa(null);
+      setAddingAfterItemId(null);
+      setNewItemData({ item: '', tipo: 'insumo', base: 'SINAPI', codigo: '', descricao: '', unidade: '', quantidade: 0, valor_unitario: 0 });
+      setLocalNewQty('');
+
+      // 3. Renumber everything locally to ensure correct sequence immediately
+      // Actually, server-side re-sequencing is more reliable for tree structure
       await api.resequenceOrcamento(obraId);
       
-      // 4. Refresh everything
+      // 4. Refresh
       await refreshObraData();
       
-      // Secondary refresh of the budget itself to be double sure
-      const activeBancos = bancosAtivos.filter(b => b.active).map(b => ({ id: b.id, data_referencia: b.data_referencia }));
-      const freshData = await api.getOrcamento(obraId, { 
-        desonerado: encargos.desonerado,
-        estado: encargos.estado,
-        data_referencia: encargos.dataReferencia,
-        bancos_ativos: activeBancos
-      });
-      const structuredData = applyAutoRenumber(freshData);
-      const recalculated = recalculateTotals(structuredData, { porcentagem: bdiConfig.porcentagem });
-      setOrcamento(recalculated);
-
       setToast({ message: "Item adicionado com sucesso", type: 'success' });
     } catch (err: any) {
       console.error("Error adding item:", err);
@@ -867,15 +910,18 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
                             }
                           }}
                         />
-                        {row.tipo === 'etapa' && (
+                        {row.tipo === 'etapa' ? (
                           <>
                             <button 
                               onClick={(e) => {
                                 e.stopPropagation();
-                                // Adicionar Etapa (Irmã)
+                                // Adicionar Etapa (Irmã) - Inserir logo acima desta etapa (para ser a nova .1 se esta for a primeira)
+                                // Ou melhor, manter como estava (inserindo após a etapa anterior)
                                 const parentOfRow = getSemanticParent(row.item);
-                                const nextVal = getNextItemNumber(orcamento, parentOfRow, 'etapa');
+                                const nextVal = getSuggestedNextNumber(orcamento, row.item, 'sibling');
+                                
                                 setAddingItemToEtapa(parentOfRow);
+                                setAddingAfterItemId(row.id);
                                 setNewItemData({
                                   item: nextVal,
                                   codigo: '',
@@ -891,7 +937,7 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
                                 }, 150);
                               }}
                               className="p-0.5 text-[#107C41] hover:bg-[#c8e6c9] rounded transition-colors opacity-0 group-hover:opacity-100 absolute right-12"
-                              title="Adicionar Etapa (Mesmo nível)"
+                              title="Adicionar Etapa (Sequencial)"
                             >
                               <Plus size={12} />
                             </button>
@@ -899,11 +945,19 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
                             <button 
                               onClick={(e) => {
                                 e.stopPropagation();
-                                // Adicionar Insumo/Composição
-                                const nextVal = getNextItemNumber(orcamento, row.item, 'insumo');
+                                // Adicionar Insumo/Composição - NO TOPO DA ETAPA (como Orçafascio)
+                                const parentPrefix = row.item + '.';
+                                const hasChildren = orcamento.some(i => i.item.toString().startsWith(parentPrefix));
+                                
+                                // Se já tem filhos, sugerimos o próximo, mas inserimos no topo
+                                // Se não tem filhos, sugerimos .1
+                                const nextVal = getSuggestedNextNumber(orcamento, row.item, 'child');
+                                const suggestedVal = hasChildren ? (row.item + '.1') : nextVal;
+
                                 setAddingItemToEtapa(row.item);
+                                setAddingAfterItemId(row.id); 
                                 setNewItemData({
-                                  item: nextVal,
+                                  item: suggestedVal,
                                   codigo: '',
                                   base: 'SINAPI',
                                   descricao: '',
@@ -917,7 +971,7 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
                                 }, 150);
                               }}
                               className="p-0.5 text-[#003366] hover:bg-slate-100 rounded transition-colors opacity-0 group-hover:opacity-100 absolute right-6"
-                              title="Adicionar Ítem"
+                              title="Adicionar Ítem Filho (Início da Etapa)"
                             >
                               <Plus size={12} />
                             </button>
@@ -925,11 +979,16 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
                             <button 
                               onClick={(e) => {
                                 e.stopPropagation();
-                                // Adicionar Sub-etapa (Filha)
-                                const nextVal = getNextItemNumber(orcamento, row.item, 'etapa');
+                                // Adicionar Sub-etapa (Filha) - NO TOPO DA ETAPA
+                                const parentPrefix = row.item + '.';
+                                const hasChildren = orcamento.some(i => i.item.toString().startsWith(parentPrefix));
+                                const nextVal = getSuggestedNextNumber(orcamento, row.item, 'child');
+                                const suggestedVal = hasChildren ? (row.item + '.1') : nextVal;
+
                                 setAddingItemToEtapa(row.item);
+                                setAddingAfterItemId(row.id);
                                 setNewItemData({
-                                  item: nextVal,
+                                  item: suggestedVal,
                                   codigo: '',
                                   base: 'SINAPI',
                                   descricao: '',
@@ -948,6 +1007,36 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
                               <Layers size={12} />
                             </button>
                           </>
+                        ) : (
+                          <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                // Adicionar Item (Irmão/Sibling)
+                                const itemStr = (row.item || '').toString().trim().replace(/\.0$/, '');
+                                const nextVal = getSuggestedNextNumber(orcamento, itemStr, 'sibling');
+                                const parentOfRow = getSemanticParent(itemStr);
+                                
+                                setAddingItemToEtapa(parentOfRow);
+                                setAddingAfterItemId(row.id);
+                                setNewItemData({
+                                  item: nextVal,
+                                  codigo: '',
+                                  base: row.base || 'SINAPI',
+                                  descricao: '',
+                                  unidade: '',
+                                  quantidade: 0,
+                                  valor_unitario: 0,
+                                  tipo: row.tipo as any,
+                                });
+                                setTimeout(() => {
+                                  if (newItemCodigoRef.current) newItemCodigoRef.current.focus();
+                                }, 150);
+                              }}
+                              className="p-0.5 text-[#003366] hover:bg-slate-100 rounded transition-colors opacity-0 group-hover:opacity-100 absolute right-1"
+                              title="Adicionar Ítem Sibling"
+                            >
+                              <Plus size={12} />
+                            </button>
                         )}
                       </div>
                     </td>
@@ -1087,15 +1176,15 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
                     <td className="px-2 py-1 text-right border border-slate-300">
                       {row.tipo !== 'etapa' ? (
                         <input 
-                          type="number"
-                          step="0.01"
+                          type="text"
                           className="w-16 bg-transparent border border-transparent rounded px-1 py-0.5 text-right outline-none transition-all focus:bg-white focus:border-[#107C41] focus:shadow-sm"
-                          defaultValue={row.quantidade}
+                          defaultValue={formatFinancial(row.quantidade)}
                           onBlur={(e) => {
-                            const val = parseFloat(e.target.value) || 0;
-                            if (val !== row.quantidade) {
+                            const val = parseBrazilianNumber(e.target.value);
+                            if (val !== null && val !== row.quantidade) {
                               handleRowUpdate(row.id, { quantidade: val });
                             }
+                            e.target.value = formatFinancial(val !== null ? val : row.quantidade);
                           }}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
@@ -1143,24 +1232,9 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
                       </div>
                     </td>
                   </tr>
-                  {/* Render the "Add Item" row if this is the last item of the stage we are adding to, or if it's the stage itself and has no items */}
+                  {/* Render the "Add Item" row if it was triggered for this row or its stage */}
                   {(() => {
-                    const isAddingToThisEtapa = addingItemToEtapa === row.item && row.tipo === 'etapa';
-                    const parentItemStr = addingItemToEtapa || '';
-                    const parentParts = parentItemStr.split('.');
-                    if (parentParts.length > 1 && parentParts[parentParts.length - 1] === '0') parentParts.pop();
-                    const parentPrefix = parentParts.join('.') + '.';
-                    
-                    const rowParts = row.item.split('.');
-                    const isChildOfAdding = addingItemToEtapa && row.item.startsWith(parentPrefix) && row.item !== addingItemToEtapa && rowParts.length > parentParts.length;
-                    
-                    const nextRow = orcamento[idx + 1];
-                    const nextRowParts = nextRow?.item.split('.') || [];
-                    const nextMatchesPrefix = nextRow?.item.startsWith(parentPrefix) && nextRowParts.length > parentParts.length;
-
-                    const isLastChildOfAddingEtapa = isChildOfAdding && !nextMatchesPrefix;
-
-                      if ((isAddingToThisEtapa && !orcamento.some(i => i.item.startsWith(parentPrefix) && i.item !== parentItemStr)) || isLastChildOfAddingEtapa) {
+                    function renderAddItemRow() {
                         const isEtapa = newItemData.tipo === 'etapa';
                         const previewTotal = (newItemData.quantidade || 0) * (newItemData.valor_unitario || 0);
                         const bdiFactor = 1 + (bdiConfig.porcentagem || 0) / 100;
@@ -1201,7 +1275,6 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
                                     {bancosAtivos.filter(b => b.active).map(b => (
                                       <option key={b.id} value={b.id.toUpperCase()}>{b.id.toUpperCase()}</option>
                                     ))}
-                                    {/* Always allow PROPRIO as a base for custom items */}
                                     <option value="PROPRIO">PROPRIO</option>
                                   </select>
                                 </div>
@@ -1270,13 +1343,23 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
                             {!isEtapa ? (
                               <input 
                                 ref={newItemQuantRef}
-                                type="number"
-                                step="0.01"
+                                type="text"
                                 className="w-16 bg-white border border-slate-300 rounded px-1 py-0.5 text-[11px] text-right text-slate-700 outline-none shadow-sm focus:border-[#107C41]"
                                 placeholder="Qtd"
-                                value={newItemData.quantidade || ''}
-                                onChange={(e) => setNewItemData({...newItemData, quantidade: parseFloat(e.target.value) || 0})}
-                                onKeyDown={(e) => e.key === 'Enter' && handleAddNewItem()}
+                                value={localNewQty !== '' ? localNewQty : (newItemData.quantidade ? formatFinancial(newItemData.quantidade) : '')}
+                                onChange={(e) => setLocalNewQty(e.target.value)}
+                                onBlur={(e) => {
+                                  const val = parseBrazilianNumber(e.target.value);
+                                  if (val !== null) setNewItemData({...newItemData, quantidade: val});
+                                  setLocalNewQty(val !== null ? formatFinancial(val) : '');
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    const val = parseBrazilianNumber(localNewQty);
+                                    if (val !== null) setNewItemData({...newItemData, quantidade: val});
+                                    handleAddNewItem({ quantidade: val !== null ? val : newItemData.quantidade });
+                                  }
+                                }}
                               />
                             ) : <div className="text-center text-slate-400">-</div>}
                           </td>
@@ -1317,7 +1400,10 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
                                 <Check size={12} strokeWidth={3} />
                               </button>
                               <button 
-                                onClick={() => setAddingItemToEtapa(null)}
+                                onClick={() => {
+                                  setAddingItemToEtapa(null);
+                                  setAddingAfterItemId(null);
+                                }}
                                 className="p-1 bg-white border border-slate-300 text-slate-500 rounded flex items-center justify-center hover:bg-slate-50 hover:text-red-500 transition-all shadow-sm"
                                 title="Cancelar"
                               >
@@ -1328,6 +1414,25 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
                         </tr>
                       );
                     }
+
+                    if (addingAfterItemId === row.id) return renderAddItemRow();
+
+                    const parentItemStr = addingItemToEtapa || '';
+                    if (!parentItemStr || parentItemStr === '__root__') return null;
+
+                    const isThisEtapa = row.item === parentItemStr && (row.tipo === 'etapa' || row.id?.toString().startsWith('etapa-'));
+                    const parentPrefix = parentItemStr + '.';
+                    const hasChildren = orcamento.some(i => i.item.toString().startsWith(parentPrefix));
+
+                    if (isThisEtapa && !hasChildren) return renderAddItemRow();
+
+                    const isChildOfAdding = row.item !== parentItemStr && row.item.toString().startsWith(parentPrefix);
+                    if (isChildOfAdding) {
+                      const nextRow = orcamento[idx + 1];
+                      const isNextChild = nextRow && nextRow.item.toString().startsWith(parentPrefix);
+                      if (!isNextChild) return renderAddItemRow();
+                    }
+                    
                     return null;
                   })()}
                   </React.Fragment>
@@ -1370,7 +1475,10 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
                           <Check size={12} strokeWidth={3} />
                         </button>
                         <button 
-                          onClick={() => setAddingItemToEtapa(null)}
+                          onClick={() => {
+                            setAddingItemToEtapa(null);
+                            setAddingAfterItemId(null);
+                          }}
                           className="p-1 bg-white border border-slate-300 text-slate-500 rounded flex items-center justify-center hover:bg-slate-50 hover:text-red-500 transition-all shadow-sm"
                           title="Cancelar"
                         >
@@ -1411,7 +1519,7 @@ export const ObraDetail = ({ obraId, onBack }: { obraId: string | number, onBack
               </button>
               <button 
                 onClick={() => {
-                  const nextVal = getNextItemNumber(orcamento, '__root__', 'etapa');
+                  const nextVal = getSuggestedNextNumber(orcamento, '__root__', 'child');
                   setAddingItemToEtapa('__root__');
                   setNewItemData({
                     item: nextVal,
