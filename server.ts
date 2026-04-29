@@ -3752,6 +3752,45 @@ async function startServer() {
     }
   });
 
+  app.post("/api/obras/:id/medicao-itens", (req, res) => {
+    const { changes } = req.body;
+    try {
+      console.log("=== INICIANDO SALVAMENTO DE MEDICAO ===");
+      console.log("Changes payload:", JSON.stringify(changes));
+      
+      db.transaction(() => {
+        const checkStmt = db.prepare("SELECT id FROM v2_medicao_itens WHERE medicao_id = ? AND orcamento_item_id = ?");
+        const insertStmt = db.prepare("INSERT INTO v2_medicao_itens (medicao_id, orcamento_item_id, quantidade_medida) VALUES (?, ?, ?)");
+        const updateStmt = db.prepare("UPDATE v2_medicao_itens SET quantidade_medida = ? WHERE id = ?");
+        const updateOrcamentoStmt = db.prepare("UPDATE v2_orcamento_itens SET progresso = (SELECT SUM(quantidade_medida) FROM v2_medicao_itens WHERE orcamento_item_id = ?) / NULLIF(quantidade, 0) * 100 WHERE id = ?");
+        const updateAtividadeStmt = db.prepare("UPDATE v2_atividades SET progresso = (SELECT progresso FROM v2_orcamento_itens WHERE id = ?) WHERE orcamento_item_id = ?");
+
+        Object.entries(changes as Record<string, number>).forEach(([key, value]) => {
+          const [medicaoId, itemId] = key.split('-').map(Number);
+          if (isNaN(medicaoId) || isNaN(itemId)) {
+              console.error("Invalid key or values:", { key, medicaoId, itemId });
+              return;
+          }
+          console.log("Updating:", { medicaoId, itemId, value });
+          const existing = checkStmt.get(medicaoId, itemId) as { id: number } | undefined;
+          if (existing) {
+              console.log("Updating existing item, ID:", existing.id);
+              updateStmt.run(value, existing.id);
+          } else {
+              console.log("Inserting new item");
+              insertStmt.run(medicaoId, itemId, value);
+          }
+          updateOrcamentoStmt.run(itemId, itemId);
+          updateAtividadeStmt.run(itemId, itemId);
+        });
+      })();
+      res.sendStatus(200);
+    } catch (e: any) {
+      console.error("ERRO NO SALVAMENTO:", e);
+      res.status(500).json({ error: "Erro ao salvar itens de medição.", details: e.message });
+    }
+  });
+
   app.get("/api/obras/:id/medicoes/:medicaoId/itens", (req, res) => {
     try {
       const itens = db.prepare(`
