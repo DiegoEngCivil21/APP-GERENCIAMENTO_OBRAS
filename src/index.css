@@ -16,20 +16,38 @@
 
 /* Custom scrollbar scoped to specific containers */
 .custom-scrollbar::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
-  @apply bg-slate-50;
+  @apply bg-slate-100;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  @apply bg-slate-400 rounded-full hover:bg-slate-500 transition-colors;
+  @apply bg-slate-500 rounded-full border-2 border-slate-100 hover:bg-slate-600 transition-colors shadow-sm;
+}
+
+/* Ensure scrollbar is always visible in Webkit browsers */
+.custom-scrollbar {
+  scrollbar-color: #64748b #f1f5f9;
+  scrollbar-width: auto;
+}
+
+.hide-vertical-scrollbar::-webkit-scrollbar:vertical,
+.hide-vertical-scrollbar::-webkit-scrollbar-thumb:vertical,
+.hide-vertical-scrollbar::-webkit-scrollbar-track:vertical {
+  width: 0px !important;
+  display: none !important;
+  background: transparent !important;
+}
+.hide-vertical-scrollbar {
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none; /* Firefox doesn't support directional, so hide all if class is hide-vertical-scrollbar */
 }
 
 .gantt-scroll-container::-webkit-scrollbar:horizontal {
-  height: 10px;
+  height: 12px;
 }
 
 /* Hide number input spinners */
@@ -49,13 +67,6 @@ input[type="number"] {
 .scrollbar-hide {
   -ms-overflow-style: none;
   scrollbar-width: none;
-}
-
-.hide-vertical-scrollbar::-webkit-scrollbar:vertical {
-  display: none;
-}
-.hide-vertical-scrollbar {
-  -ms-overflow-style: -ms-autohiding-scrollbar;
 }
 
 body.cronograma-fullscreen #top-toolbar-wrapper {

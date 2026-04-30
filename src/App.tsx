@@ -368,7 +368,10 @@ const MedicaoView = ({ obraId, orcamento, bdiIncidence, bdiValue }: { obraId: st
   );
 };
 
+import { useDragScroll } from './hooks/useDragScroll';
+
 const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = false, isMaster = false }: { obraId: string | number, onBack: () => void, onNavigateToComposicao: (id: string | number) => void, isAdmin?: boolean, isMaster?: boolean }) => {
+  const dragScroll = useDragScroll();
   const [obra, setObra] = useState<Obra | null>(null);
   const [orcamento, setOrcamento] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -1193,7 +1196,7 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
   const offsetB = totalCount > 0 ? ((classACount + classBCount) / totalCount) * 100 : 0;
 
   return (
-    <div className={`flex flex-col ${activeSubTab === 'cronograma' ? 'h-full' : 'space-y-8'}`}>
+    <div className={`flex flex-col min-h-screen ${activeSubTab === 'cronograma' ? 'flex-1' : 'space-y-8 bg-slate-50'}`}>
       {toast && (
         <div className={`fixed top-4 right-4 z-50 px-6 py-3 rounded-xl shadow-xl text-sm font-bold flex items-center gap-3 ${
           toast.type === 'success' ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'
@@ -1259,9 +1262,9 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
         ))}
       </div>
 
-      <div className={`${activeSubTab === 'curva_abc' ? 'mt-0' : 'mt-8'} flex-1 overflow-hidden flex flex-col`}>
+      <div className={`${activeSubTab === 'curva_abc' ? 'mt-0' : 'mt-8'} flex flex-col ${activeSubTab === 'cronograma' ? 'flex-1 min-h-0' : ''}`}>
         {activeSubTab === 'visao_geral' && (
-          <div className="space-y-8 overflow-auto custom-scrollbar pr-2 pb-10">
+          <div className="space-y-8 pb-10 sm:overflow-visible">
             {/* Cards de Resumo conforme o print */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="bg-white p-5 rounded-[24px] border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
@@ -1325,7 +1328,7 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
         )}
 
         {activeSubTab === 'orcamento' && (
-          <div className="flex-1 flex flex-col space-y-4">
+          <div className="flex-1 flex flex-col space-y-4 bg-[#f8fafc] pb-10">
             {/* Filtros Rápidos no Cabeçalho */}
             <BudgetFilterBar 
               encargos={encargos} 
@@ -1799,8 +1802,11 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
             )}
 
             {/* Tabela de Orçamento conforme o print */}
-            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm flex-1 flex flex-col overflow-hidden budget-table-container" onClick={() => setSelectedRowId(null)}>
-              <div style={{ paddingLeft: '9px', paddingRight: '16px', paddingBottom: '2px', paddingTop: '2px' }} className="p-4 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center shrink-0">
+            <div 
+              className="bg-white rounded-2xl border border-slate-100 shadow-sm budget-table-container" 
+              onClick={() => setSelectedRowId(null)}
+            >
+              <div style={{ paddingLeft: '9px', paddingRight: '16px', paddingBottom: '2px', paddingTop: '2px' }} className="p-4 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center">
                 <div className="flex items-center gap-4">
                   <h3 style={{ fontSize: '15.5px', lineHeight: '21.5px', marginRight: '0px', marginBottom: '-26px', marginTop: '-36px' }} className="text-xs font-black text-slate-900 uppercase tracking-widest">Planilha de Orçamento</h3>
                 </div>
@@ -1826,9 +1832,16 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
                 </div>
               </div>
               
-              <div className="flex-1 overflow-auto custom-scrollbar">
-                <table className="w-full text-left border-collapse table-fixed">
-                  <thead>
+              <div 
+                ref={dragScroll.ref}
+                onMouseDown={dragScroll.onMouseDown}
+                onMouseMove={dragScroll.onMouseMove}
+                onMouseUp={dragScroll.onMouseUp}
+                onMouseLeave={dragScroll.onMouseLeave}
+                className="overflow-x-auto custom-scrollbar"
+              >
+                <table className="w-full text-left border-collapse table-fixed min-w-[1000px]">
+                  <thead className="sticky top-0 z-10 bg-slate-50">
                     <tr className="bg-slate-50/30">
                     <th className="px-4 py-1.5 text-[11px] font-black text-slate-500 uppercase tracking-widest text-center w-28">Item</th>
                     <th className="px-4 py-1.5 text-[11px] font-black text-slate-500 uppercase tracking-widest text-center w-20">Base</th>
@@ -2540,13 +2553,15 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
         )}
 
         {activeSubTab === 'cronograma' && (
-          <div className="flex-1 overflow-hidden flex flex-col">
+          <div className="h-[calc(100vh-140px)] flex flex-col overflow-hidden bg-[#f8fafc]">
             <CronogramaView obraId={obraId} orcamento={orcamento} />
           </div>
         )}
 
         {activeSubTab === 'medicao' && (
-          <MedicaoTab obraId={obraId} orcamento={orcamento} bdiIncidence={bdiIncidence} bdiValue={bdiValue} />
+          <div className="flex-1 flex flex-col bg-[#f8fafc] pb-20">
+            <MedicaoTab obraId={obraId} orcamento={orcamento} bdiIncidence={bdiIncidence} bdiValue={bdiValue} />
+          </div>
         )}
 
         {activeSubTab === 'diario' && (
@@ -2554,7 +2569,7 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
         )}
 
         {activeSubTab === 'curva_abc' && (
-          <div className="space-y-6 pt-4">
+          <div className="space-y-6 pt-4 pb-10">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 px-4">
               <div>
                 <h3 className="text-lg font-black text-slate-900 uppercase tracking-tight">Análise Curva ABC</h3>
@@ -3253,7 +3268,10 @@ function AppContent() {
         </div>
 
         {/* Scrollable Content Area */}
-        <div id="main-scroll-area" className="flex-1 overflow-auto px-4 pb-10 w-full">
+        <div 
+          id="main-scroll-area" 
+          className="flex-1 overflow-auto px-4 pb-10 w-full"
+        >
           <AnimatePresence mode="wait">
               <motion.div
                 key={selectedObraId ? `obra-${selectedObraId}` : (selectedComposicaoId ? `comp-${selectedComposicaoId}` : activeTab)}

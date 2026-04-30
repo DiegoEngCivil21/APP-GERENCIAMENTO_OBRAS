@@ -8,6 +8,8 @@ const formatFinancial = (value: number) => {
   return value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
+import { useDragScroll } from "../hooks/useDragScroll";
+
 export default function MedicaoTab({ 
   obraId, 
   orcamento, 
@@ -19,6 +21,7 @@ export default function MedicaoTab({
   bdiIncidence?: 'unitario' | 'final',
   bdiValue?: number
 }) {
+  const dragScroll = useDragScroll();
   const [medicoes, setMedicoes] = useState<any[]>([]);
   const [itensMedicao, setItensMedicao] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -205,7 +208,7 @@ export default function MedicaoTab({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between px-4">
          <h3 className="text-lg font-bold text-slate-800">Planilha de Medições</h3>
          <div className="flex items-center gap-3">
              {saveError && (
@@ -308,9 +311,16 @@ export default function MedicaoTab({
           <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
         </div>
       ) : (
-        <div className="overflow-x-auto bg-white rounded-xl shadow-sm border border-slate-200">
-          <table className="w-full text-sm text-left border-collapse">
-              <thead>
+        <div 
+          ref={dragScroll.ref}
+          onMouseDown={dragScroll.onMouseDown}
+          onMouseMove={dragScroll.onMouseMove}
+          onMouseUp={dragScroll.onMouseUp}
+          onMouseLeave={dragScroll.onMouseLeave}
+          className="bg-white rounded-xl shadow-sm border border-slate-200 relative overflow-x-auto custom-scrollbar"
+        >
+          <table className="w-full text-sm text-left border-collapse min-w-max">
+              <thead className="sticky top-0 z-30">
                 <tr className="bg-slate-50 border-b border-slate-200">
                   <th className="px-3 py-3 font-bold text-slate-600 w-[60px] text-center">Item</th>
                   <th className="px-3 py-3 font-bold text-slate-600">Descrição dos Serviços</th>
@@ -455,7 +465,7 @@ export default function MedicaoTab({
                      </tr>
                   )})}
               </tbody>
-              <tfoot className="sticky bottom-0 z-20 bg-white border-t border-slate-200 text-[10px] text-slate-600 shadow-[0_-10px_20px_-10px_rgba(0,0,0,0.2)]">
+              <tfoot className="bg-white border-t border-slate-200 text-[10px] text-slate-600">
                 <tr className="border-t-2 border-slate-300 bg-slate-50/95 backdrop-blur-sm">
                     <td colSpan={2} className="px-3 py-3 font-bold text-slate-900 text-right uppercase tracking-[0.1em] text-[10px]">Total Geral da Obra (R$)</td>
                     <td className="px-3 py-2 text-center font-bold text-slate-900 bg-slate-100 min-w-[110px] border-r border-slate-200">

@@ -21,10 +21,14 @@ interface LayoutProps {
   children: React.ReactNode;
   activeTab: string;
   setActiveTab: (tab: string) => void;
+  activeSubTab?: string;
 }
 
-export const Layout = ({ children, activeTab, setActiveTab }: LayoutProps) => {
+import { useDragScroll } from '../hooks/useDragScroll';
+
+export const Layout = ({ children, activeTab, setActiveTab, activeSubTab }: LayoutProps) => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const dragScroll = useDragScroll();
 
   return (
     <div className="flex h-screen bg-[#f8fafc] text-slate-900 font-sans overflow-hidden">
@@ -93,8 +97,8 @@ export const Layout = ({ children, activeTab, setActiveTab }: LayoutProps) => {
       </motion.aside>
 
       {/* Main Content */}
-      <main className={`flex-1 flex flex-col transition-all duration-300 ${sidebarCollapsed ? 'ml-20' : 'ml-[260px]'} overflow-hidden`}>
-        <header className="h-28 px-10 flex items-center justify-between shrink-0">
+      <main className={`flex-1 flex flex-col transition-all duration-300 ${sidebarCollapsed ? 'ml-20' : 'ml-[260px]'} overflow-hidden relative`}>
+        <header className="h-28 px-10 flex items-center justify-between shrink-0 bg-[#f8fafc] border-b border-slate-200 z-30">
           <div>
             <h1 className="text-4xl font-black text-[#1a2233] tracking-tight uppercase">
               {activeTab === 'dashboard' ? 'Dashboard' : activeTab.replace('_', ' ')}
@@ -111,7 +115,14 @@ export const Layout = ({ children, activeTab, setActiveTab }: LayoutProps) => {
           </div>
         </header>
 
-        <div className="px-10 flex-1 flex flex-col overflow-hidden">
+        <div 
+          ref={dragScroll.ref}
+          onMouseDown={dragScroll.onMouseDown}
+          onMouseMove={dragScroll.onMouseMove}
+          onMouseUp={dragScroll.onMouseUp}
+          onMouseLeave={dragScroll.onMouseLeave}
+          className={`px-10 pb-0 flex-1 flex flex-col custom-scrollbar overflow-auto`}
+        >
           {children}
         </div>
       </main>
