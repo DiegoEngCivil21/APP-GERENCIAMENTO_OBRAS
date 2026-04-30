@@ -120,21 +120,23 @@ const updateObraTimestamp = (obraId: string | number) => {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+console.log("SERVER __dirname:", __dirname);
+console.log("SERVER process.cwd():", process.cwd());
 
-const dbPath = path.join(__dirname, "obras.db");
+
+const dbPath = path.join(process.cwd(), "obras.db");
 
 function initDatabase() {
   const dbExists = fs.existsSync(dbPath);
 
   // 1. Core tables FIRST
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS v2_tenants (
+  db.exec(`CREATE TABLE IF NOT EXISTS v2_tenants (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         nome TEXT NOT NULL,
-        documento TEXT, -- CNPJ
-        status TEXT DEFAULT 'active', -- active, trial, inactive
-        situacao TEXT DEFAULT 'ATIVO', -- ATIVO, INADIMPLENTE, CANCELADO
-        plano TEXT DEFAULT 'Básico', -- Básico, Pro, Enterprise
+        documento TEXT,
+        status TEXT DEFAULT 'active',
+        situacao TEXT DEFAULT 'ATIVO',
+        plano TEXT DEFAULT 'Básico',
         valor_mensalidade REAL DEFAULT 0,
         limite_usuarios INTEGER DEFAULT 5,
         assinatura_texto TEXT,
@@ -143,49 +145,48 @@ function initDatabase() {
         adm_nome TEXT,
         adm_email TEXT,
         adm_telefone TEXT,
-        config_json TEXT, -- Configurações gerais em JSON
+        config_json TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS v2_users (
+    );`);
+    
+  db.exec(`CREATE TABLE IF NOT EXISTS v2_users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         tenant_id INTEGER,
         nome TEXT NOT NULL,
         email TEXT NOT NULL UNIQUE,
         password TEXT NOT NULL,
-        role TEXT DEFAULT 'user', -- admin_master, admin_pj, orcamentista
+        role TEXT DEFAULT 'user',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (tenant_id) REFERENCES v2_tenants(id) ON DELETE CASCADE
-    );
+    );`);
 
-    CREATE TABLE IF NOT EXISTS v2_payments (
+  db.exec(`CREATE TABLE IF NOT EXISTS v2_payments (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         tenant_id INTEGER NOT NULL,
         valor REAL NOT NULL,
         data_pagamento DATE NOT NULL,
-        mes_referencia TEXT NOT NULL, -- e.g., "2024-05"
-        status TEXT DEFAULT 'pago', -- pendente, pago, atrasado
+        mes_referencia TEXT NOT NULL,
+        status TEXT DEFAULT 'pago',
         metodo_pagamento TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (tenant_id) REFERENCES v2_tenants(id) ON DELETE CASCADE
-    );
+    );`);
 
-    CREATE TABLE IF NOT EXISTS v2_signatures (
+  db.exec(`CREATE TABLE IF NOT EXISTS v2_signatures (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         tenant_id INTEGER NOT NULL,
         name TEXT NOT NULL,
         role TEXT,
-        image_data TEXT, -- Base64 or URL
+        image_data TEXT,
         is_default INTEGER DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (tenant_id) REFERENCES v2_tenants(id) ON DELETE CASCADE
-    );
+    );`);
 
-    CREATE TABLE IF NOT EXISTS v2_settings (
+  db.exec(`CREATE TABLE IF NOT EXISTS v2_settings (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
-    );
-  `);
+    );`);
 
   // 2. Admin seeds AFTER v2_users is created
   try {
@@ -498,6 +499,7 @@ function initDatabase() {
         periodo_fim DATE NOT NULL,
         data_medicao DATE NOT NULL,
         observacoes TEXT,
+        status TEXT DEFAULT 'aberta',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (obra_id) REFERENCES v2_obras(id) ON DELETE CASCADE
     );
@@ -643,6 +645,12 @@ function initDatabase() {
     try {
       db.prepare("ALTER TABLE v2_obras ADD COLUMN data_inicio_real DATE").run();
       console.log("✅ Coluna 'data_inicio_real' adicionada à tabela 'v2_obras'.");
+    } catch (e) {
+      // Column likely already exists
+    }
+    try {
+      db.prepare("ALTER TABLE v2_medicoes ADD COLUMN status TEXT DEFAULT 'aberta'").run();
+      console.log("✅ Coluna 'status' adicionada à tabela 'v2_medicoes'.");
     } catch (e) {
       // Column likely already exists
     }
@@ -3727,9 +3735,21 @@ async function startServer() {
           const updateAtividadeStmt = db.prepare("UPDATE v2_atividades SET progresso = (SELECT progresso FROM v2_orcamento_itens WHERE id = ?) WHERE orcamento_item_id = ?");
 
           itens.forEach((it: any) => {
-            itemStmt.run(medicaoId, it.orcamento_item_id, it.quantidade_medida, it.observacao || null);
-            updateOrcamentoStmt.run(it.orcamento_item_id, it.orcamento_item_id);
-            updateAtividadeStmt.run(it.orcamento_item_id, it.orcamento_item_id);
+            const itemId = it.orcamento_item_id;
+            const value = Number(it.quantidade_medida);
+
+            const orcamentoItemData = db.prepare("SELECT item_numero, quantidade FROM v2_orcamento_itens WHERE id = ?").get(itemId) as { item_numero: string, quantidade: number } | undefined;
+            if (orcamentoItemData) {
+                const others = db.prepare("SELECT SUM(quantidade_medida) as total FROM v2_medicao_itens WHERE orcamento_item_id = ?").get(itemId) as { total: number };
+                const sumOthers = others.total || 0;
+                if (sumOthers + value > orcamentoItemData.quantidade + 0.000001) {
+                    throw new Error(`Limite excedido no item ${orcamentoItemData.item_numero}. Orçado: ${orcamentoItemData.quantidade.toFixed(2)}, Medido: ${(sumOthers + value).toFixed(2)}.`);
+                }
+            }
+
+            itemStmt.run(medicaoId, itemId, value, it.observacao || null);
+            updateOrcamentoStmt.run(itemId, itemId);
+            updateAtividadeStmt.run(itemId, itemId);
           });
 
           // Update stage progress
@@ -3748,30 +3768,62 @@ async function startServer() {
       res.json({ message: "Medição registrada com sucesso." });
     } catch (error: any) {
       console.error("Error inserting measuring:", error);
-      res.status(500).json({ message: "Erro ao registrar medição.", error: error.message, stack: error.stack });
+      res.status(500).json({ message: "Erro ao registrar medição.", error: error.message });
     }
   });
 
   app.post("/api/obras/:id/medicao-itens", (req, res) => {
-    const { changes } = req.body;
+    const { itens } = req.body;
     try {
-      console.log("=== INICIANDO SALVAMENTO DE MEDICAO ===");
-      console.log("Changes payload:", JSON.stringify(changes));
-      
       db.transaction(() => {
         const checkStmt = db.prepare("SELECT id FROM v2_medicao_itens WHERE medicao_id = ? AND orcamento_item_id = ?");
         const insertStmt = db.prepare("INSERT INTO v2_medicao_itens (medicao_id, orcamento_item_id, quantidade_medida) VALUES (?, ?, ?)");
         const updateStmt = db.prepare("UPDATE v2_medicao_itens SET quantidade_medida = ? WHERE id = ?");
         const updateOrcamentoStmt = db.prepare("UPDATE v2_orcamento_itens SET progresso = (SELECT SUM(quantidade_medida) FROM v2_medicao_itens WHERE orcamento_item_id = ?) / NULLIF(quantidade, 0) * 100 WHERE id = ?");
         const updateAtividadeStmt = db.prepare("UPDATE v2_atividades SET progresso = (SELECT progresso FROM v2_orcamento_itens WHERE id = ?) WHERE orcamento_item_id = ?");
-
-        Object.entries(changes as Record<string, number>).forEach(([key, value]) => {
-          const [medicaoId, itemId] = key.split('-').map(Number);
-          if (isNaN(medicaoId) || isNaN(itemId)) {
-              console.error("Invalid key or values:", { key, medicaoId, itemId });
+        
+        (itens as any[]).forEach((item) => {
+          const medicaoId = Number(item.medicao_id);
+          const itemId = Number(item.orcamento_item_id);
+          const value = Number(item.quantidade_medida);
+          
+          if (isNaN(medicaoId) || isNaN(itemId) || isNaN(value)) {
+              console.error("Invalid input values detected:", { item });
               return;
           }
+          
           console.log("Updating:", { medicaoId, itemId, value });
+          if (itemId === 0) {
+              console.warn("Skipping invalid Orcamento Item ID 0");
+              return;
+          }
+          
+          // Verify foreign keys exist
+          const medicaoData = db.prepare("SELECT id, status FROM v2_medicoes WHERE id = ?").get(medicaoId) as { id: number, status: string } | undefined;
+          const orcamentoItemData = db.prepare("SELECT id, quantidade, item_numero FROM v2_orcamento_itens WHERE id = ?").get(itemId) as { id: number, quantidade: number, item_numero: string } | undefined;
+          
+          if (!medicaoData) {
+              throw new Error(`Medição ${medicaoId} não encontrada.`);
+          }
+
+          if (medicaoData.status === 'fechada') {
+              throw new Error(`A medição de ID ${medicaoId} já está encerrada e não pode ser alterada.`);
+          }
+
+          if (!orcamentoItemData) {
+              throw new Error(`Item do orçamento ${itemId} não encontrado.`);
+          }
+
+          // Check if planned quantity is exceeded
+          const others = db.prepare("SELECT SUM(quantidade_medida) as total FROM v2_medicao_itens WHERE orcamento_item_id = ? AND medicao_id != ?").get(itemId, medicaoId) as { total: number };
+          const sumOthers = others.total || 0;
+          
+          if (sumOthers + value > orcamentoItemData.quantidade + 0.000001) {
+              throw new Error(`Limite excedido no item ${orcamentoItemData.item_numero}. Orçado: ${orcamentoItemData.quantidade.toFixed(2)}, Já medido: ${sumOthers.toFixed(2)}, Tentativa: ${value.toFixed(2)}.`);
+          }
+
+          console.log("Proceeding to insert/update with:", { medicaoId, itemId, value });
+
           const existing = checkStmt.get(medicaoId, itemId) as { id: number } | undefined;
           if (existing) {
               console.log("Updating existing item, ID:", existing.id);
@@ -3787,7 +3839,7 @@ async function startServer() {
       res.sendStatus(200);
     } catch (e: any) {
       console.error("ERRO NO SALVAMENTO:", e);
-      res.status(500).json({ error: "Erro ao salvar itens de medição.", details: e.message });
+      res.status(500).json({ message: "Erro ao salvar itens de medição.", error: e.message });
     }
   });
 
@@ -3807,6 +3859,11 @@ async function startServer() {
 
   app.delete("/api/obras/:id/medicoes/:medicaoId", (req, res) => {
     try {
+      const medicao = db.prepare("SELECT status FROM v2_medicoes WHERE id = ?").get(req.params.medicaoId) as { status: string } | undefined;
+      if (medicao && medicao.status === 'fechada') {
+          return res.status(403).json({ message: "Não é possível excluir uma medição finalizada." });
+      }
+
       db.transaction(() => {
         const itens = db.prepare("SELECT orcamento_item_id FROM v2_medicao_itens WHERE medicao_id = ?").all(req.params.medicaoId);
         const delRes = db.prepare("DELETE FROM v2_medicoes WHERE id = ? AND obra_id = ?").run(req.params.medicaoId, req.params.id);
@@ -3869,6 +3926,20 @@ async function startServer() {
       res.json({ ...medicao, itens });
     } catch (error: any) {
       res.status(500).json({ message: "Erro ao buscar detalhes da medição.", error: error.message });
+    }
+  });
+  
+  app.post("/api/obras/:id/medicoes/:medicaoId/finalizar", (req, res) => {
+    const { medicaoId, id: obraId } = req.params;
+    try {
+        const medicao = db.prepare("SELECT * FROM v2_medicoes WHERE id = ? AND obra_id = ?").get(medicaoId, obraId);
+        if (!medicao) return res.status(404).json({ message: "Medição não encontrada." });
+        
+        db.prepare("UPDATE v2_medicoes SET status = 'fechada' WHERE id = ?").run(medicaoId);
+        res.json({ message: "Medição finalizada com sucesso." });
+    } catch (error: any) {
+        console.error("Error finalizing measurement:", error);
+        res.status(500).json({ message: "Erro ao finalizar medição.", error: error.message });
     }
   });
 
