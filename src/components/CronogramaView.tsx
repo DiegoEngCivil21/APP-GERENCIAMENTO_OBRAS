@@ -1597,7 +1597,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
 
       // 2. Add all activities
       currentAtividades.forEach(atv => {
-        if (!addedActivities.has(atv.id)) {
+        if (!addedActivities.has(atv.id) && atv.id !== -999) {
           addedActivities.add(atv.id);
           rows.push({
             type: 'activity',

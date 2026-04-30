@@ -1263,42 +1263,50 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
         {activeSubTab === 'visao_geral' && (
           <div className="space-y-8 overflow-auto custom-scrollbar pr-2 pb-10">
             {/* Cards de Resumo conforme o print */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-white p-8 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
-                <div className="flex justify-between items-start mb-4">
-                  <p className="text-[12px] font-bold text-slate-400 uppercase tracking-wider">Data de Entrega Prevista</p>
-                  <Calendar size={20} className="text-slate-300" />
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="bg-white p-5 rounded-[24px] border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
+                <div className="flex justify-between items-start mb-1.5">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.1em]">Entrega Prevista</p>
+                  <Calendar size={14} className="text-slate-300" />
                 </div>
-                <h4 className="text-3xl font-black text-slate-900">30/11/2026</h4>
+                <h4 className="text-xl font-black text-slate-900 leading-none">
+                  {obra.data_fim_prevista ? new Date(obra.data_fim_prevista).toLocaleDateString('pt-BR') : '30/11/2026'}
+                </h4>
               </div>
               
-              <div className="bg-white p-8 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
-                <div className="flex justify-between items-start mb-4">
-                  <p className="text-[12px] font-bold text-slate-400 uppercase tracking-wider">Cliente</p>
-                  <User size={20} className="text-slate-300" />
+              <div className="bg-white p-5 rounded-[24px] border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
+                <div className="flex justify-between items-start mb-1.5">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.1em]">Cliente</p>
+                  <User size={14} className="text-slate-300" />
                 </div>
-                <h4 className="text-2xl font-black text-slate-900 uppercase tracking-tight leading-tight">
+                <h4 className="text-[15px] font-black text-slate-900 uppercase tracking-tight leading-tight truncate" title={obra.cliente || 'Horizonte Empreendimentos'}>
                   {obra.cliente || 'Horizonte Empreendimentos'}
                 </h4>
               </div>
 
-              <div className="bg-white p-8 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
-                <div className="flex justify-between items-start mb-4">
-                  <p className="text-[12px] font-bold text-slate-400 uppercase tracking-wider">Status Atual</p>
-                  <Briefcase size={20} className="text-slate-300" />
+              <div className="bg-white p-5 rounded-[24px] border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
+                <div className="flex justify-between items-start mb-1.5">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.1em]">Status Atual</p>
+                  <Briefcase size={14} className="text-slate-300" />
                 </div>
-                <h4 className="text-3xl font-black text-slate-900 uppercase tracking-tight">
-                  {obra.status}
-                </h4>
+                <div className="flex items-center gap-2">
+                  <div className={`w-1.5 h-1.5 rounded-full ${obra.status === 'Em Andamento' ? 'bg-blue-500' : 'bg-orange-500'}`} />
+                  <h4 className="text-lg font-black text-slate-900 uppercase tracking-tight leading-none">
+                    {obra.status}
+                  </h4>
+                </div>
               </div>
-            </div>
 
-            {/* Descrição da Obra conforme o print */}
-            <div className="bg-[#1e293b] p-8 rounded-2xl shadow-xl border border-slate-800">
-              <h3 className="text-xl font-black text-white uppercase tracking-tight mb-4">Descrição da Obra</h3>
-              <p className="text-slate-300 leading-relaxed">
-                Construção de edifício residencial de alto padrão. Projeto focado em sustentabilidade e automação residencial de última geração.
-              </p>
+              {/* Descrição da Obra Compacta */}
+              <div className="bg-[#1e293b] p-5 rounded-[24px] shadow-lg border border-slate-800 md:col-span-1">
+                <div className="flex justify-between items-start mb-1.5">
+                  <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.1em]">Descrição</p>
+                  <FileText size={14} className="text-white/20" />
+                </div>
+                <p className="text-[11px] text-slate-300 leading-tight line-clamp-2">
+                  {obra.descricao || 'Sem descrição detalhada cadastrada para esta obra no momento.'}
+                </p>
+              </div>
             </div>
 
             {/* Dashboard de Evolução - Aprimoramento solicitado */}

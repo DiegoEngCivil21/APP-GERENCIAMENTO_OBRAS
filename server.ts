@@ -1971,6 +1971,77 @@ async function startServer() {
         LIMIT 5
       `).all(...tParam);
 
+      const budgetVsMedido = db.prepare(`
+        SELECT o.nome, 
+               SUM(oi.custo_unitario_aplicado * oi.quantidade * (1 + COALESCE(o.bdi, 0) / 100.0)) as orçado,
+               (SELECT SUM(mi.quantidade_medida * oi2.custo_unitario_aplicado * (1 + COALESCE(o2.bdi, 0) / 100.0))
+                FROM v2_medicao_itens mi
+                JOIN v2_orcamento_itens oi2 ON mi.orcamento_item_id = oi2.id
+                JOIN v2_etapas e2 ON oi2.etapa_id = e2.id
+                JOIN v2_obras o2 ON e2.obra_id = o2.id
+                WHERE o2.id = o.id) as medido
+        FROM v2_obras o
+        JOIN v2_etapas e ON o.id = e.id
+        JOIN v2_orcamento_itens oi ON e.id = oi.etapa_id
+        WHERE o.${tCondition}
+        GROUP BY o.id
+        ORDER BY o.created_at DESC
+        LIMIT 5
+      `).all(...tParam);
+
+      const obrasPorStatus = db.prepare(`
+        SELECT status, COUNT(*) as value
+        FROM v2_obras
+        WHERE ${tCondition}
+        GROUP BY status
+      `).all(...tParam);
+
+      // --- ALERTS SYSTEM ---
+      const alerts = [];
+      try {
+        // 1. Works without diary entries for more than 3 days
+        const obrasSemDiario = db.prepare(`
+          SELECT nome, id 
+          FROM v2_obras o
+          WHERE o.${tCondition} AND o.status = 'Em andamento'
+          AND NOT EXISTS (
+            SELECT 1 FROM v2_diario_obra d 
+            WHERE d.obra_id = o.id AND d.data >= date('now', '-3 days')
+          )
+        `).all(...tParam);
+        
+        obrasSemDiario.forEach((o: any) => {
+          alerts.push({
+            id: `diary-${o.id}`,
+            type: 'warning',
+            title: 'Diário Atrasado',
+            message: `A obra "${o.nome}" está há mais de 3 dias sem registros diários.`,
+            obraId: o.id
+          });
+        });
+
+        // 2. Overdue activities
+        const atividadesAtrasadas = db.prepare(`
+          SELECT a.nome, o.nome as obra_nome, o.id as obra_id
+          FROM v2_atividades a
+          JOIN v2_obras o ON a.obra_id = o.id
+          WHERE o.${tCondition} AND a.progresso < 100 AND a.data_fim_prevista < date('now')
+          LIMIT 5
+        `).all(...tParam);
+
+        atividadesAtrasadas.forEach((at: any, idx: number) => {
+          alerts.push({
+            id: `atraso-${at.obra_id}-${idx}`,
+            type: 'danger',
+            title: 'Atividade Atrasada',
+            message: `[${at.obra_nome}] Item "${at.nome}" ultrapassou o prazo planejado.`,
+            obraId: at.obra_id
+          });
+        });
+      } catch (err) {
+        console.error("Error generating dashboard alerts:", err);
+      }
+
       res.json({
         metrics: {
           totalObras: totalObras.count,
@@ -1983,7 +2054,12 @@ async function startServer() {
         obrasRecentes,
         cronogramasAtivos,
         ultimasMedicoes,
-        ultimosDiarios
+        ultimosDiarios,
+        alerts,
+        charts: {
+          budgetVsMedido,
+          obrasPorStatus
+        }
       });
     } catch (error: any) {
       res.status(500).json({ message: "Erro ao carregar dashboard", error: error.message });

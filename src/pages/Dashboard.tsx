@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { LayoutDashboard, Package, TrendingUp, Calendar, ArrowRight, FileText, DollarSign, Ruler, Building2, Users, Briefcase, HardHat, Plus } from 'lucide-react';
+import { LayoutDashboard, Package, TrendingUp, Calendar, ArrowRight, FileText, DollarSign, Ruler, Building2, Users, Briefcase, HardHat, Plus, AlertCircle, ChevronRight } from 'lucide-react';
 import { motion } from 'motion/react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, AreaChart, Area } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, AreaChart, Area, PieChart, Pie, Cell, Legend } from 'recharts';
 import { MetricCard, StatusBadge } from '../components/UIComponents';
 import { api } from '../services/api';
 import { Obra, DashboardMetrics } from '../types/index';
@@ -256,10 +256,49 @@ export const Dashboard = ({ isAdmin, onSelectObra, setActiveTab }: { isAdmin: bo
     );
   }
 
-  const { metrics, obrasRecentes, cronogramasAtivos, ultimasMedicoes, ultimosDiarios } = data;
+  const { metrics, obrasRecentes, cronogramasAtivos, ultimasMedicoes, ultimosDiarios, alerts } = data;
+  const hasAlerts = alerts && alerts.length > 0;
 
   return (
     <div className="space-y-8 pb-20">
+      {/* Seção de Alertas Críticos */}
+      {hasAlerts && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {alerts.map((alert: any) => (
+            <motion.div
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              key={alert.id}
+              className={`flex items-start gap-4 p-4 rounded-2xl border ${
+                alert.type === 'danger' ? 'bg-red-50 border-red-100' : 'bg-amber-50 border-amber-100'
+              }`}
+            >
+              <div className={`p-2 rounded-xl scale-75 ${
+                alert.type === 'danger' ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-600'
+              }`}>
+                <AlertCircle size={20} />
+              </div>
+              <div className="flex-1">
+                <div className="flex justify-between items-center">
+                   <h4 className={`text-xs font-black uppercase tracking-widest ${
+                     alert.type === 'danger' ? 'text-red-700' : 'text-amber-700'
+                   }`}>{alert.title}</h4>
+                   <button 
+                     onClick={() => onSelectObra(alert.obraId)}
+                     className="text-[9px] font-black uppercase text-slate-400 hover:text-slate-600 transition-all"
+                   >
+                     Resolver <ChevronRight size={10} className="inline" />
+                   </button>
+                </div>
+                <p className={`text-xs mt-1 font-medium leading-relaxed ${
+                  alert.type === 'danger' ? 'text-red-600/80' : 'text-amber-600/80'
+                }`}>{alert.message}</p>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
         <MetricCard 
           title="Total de Obras" 
@@ -296,6 +335,90 @@ export const Dashboard = ({ isAdmin, onSelectObra, setActiveTab }: { isAdmin: bo
           color="bg-indigo-500" 
           delay={0.4}
         />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Gráfico de Orçado vs Medido */}
+        <div className="bg-white rounded-[32px] border border-slate-100 shadow-sm overflow-hidden lg:col-span-2">
+          <div className="p-8 border-b border-slate-50 flex justify-between items-center">
+            <div>
+              <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">Desempenho Financeiro por Obra</h3>
+              <p className="text-[10px] text-slate-400 font-bold uppercase mt-1">Comparativo Orçado vs Medido (Executado)</p>
+            </div>
+          </div>
+          <div className="p-6 h-[350px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={data.charts?.budgetVsMedido || []} layout="vertical" margin={{ left: 40, right: 40 }}>
+                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f1f5f9" />
+                <XAxis 
+                  type="number"
+                  axisLine={false} 
+                  tickLine={false} 
+                  tickFormatter={(val) => `R$ ${val/1000}k`}
+                  tick={{ fontSize: 10, fontWeight: 700, fill: '#64748b' }}
+                />
+                <YAxis 
+                  dataKey="nome" 
+                  type="category"
+                  axisLine={false} 
+                  tickLine={false} 
+                  tick={{ fontSize: 10, fontWeight: 700, fill: '#64748b' }}
+                  width={150}
+                />
+                <Tooltip 
+                  cursor={{ fill: '#f8fafc' }}
+                  formatter={(val: any) => `R$ ${formatFinancial(val)}`}
+                  contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                />
+                <Legend iconType="circle" wrapperStyle={{ fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.05em' }} />
+                <Bar name="Orçado" dataKey="orçado" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={20} />
+                <Bar name="Medido" dataKey="medido" fill="#10b981" radius={[0, 4, 4, 0]} barSize={20} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Gráfico de Status das Obras */}
+        <div className="bg-white rounded-[32px] border border-slate-100 shadow-sm overflow-hidden">
+          <div className="p-8 border-b border-slate-50">
+            <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">Distribuição de Status</h3>
+          </div>
+          <div className="p-6 h-[350px] flex flex-col items-center justify-center">
+            <ResponsiveContainer width="100%" height={250}>
+              <PieChart>
+                <Pie
+                  data={data.charts?.obrasPorStatus || []}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={80}
+                  paddingAngle={5}
+                  dataKey="value"
+                  nameKey="status"
+                >
+                  {(data.charts?.obrasPorStatus || []).map((entry: any, index: number) => {
+                    const colors = ['#3b82f6', '#10b981', '#f59e0b', '#6366f1', '#ef4444'];
+                    return <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />;
+                  })}
+                </Pie>
+                <Tooltip 
+                  contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="grid grid-cols-2 gap-4 w-full mt-4">
+              {(data.charts?.obrasPorStatus || []).map((entry: any, index: number) => {
+                const colors = ['bg-blue-500', 'bg-emerald-500', 'bg-amber-500', 'bg-indigo-500', 'bg-red-500'];
+                return (
+                  <div key={`legend-${index}`} className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${colors[index % colors.length]}`} />
+                    <span className="text-[10px] font-bold text-slate-500 uppercase truncate">{entry.status || 'N/A'}: {entry.value}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
