@@ -314,10 +314,10 @@ export default function MedicaoTab({
                 <tr className="bg-slate-50 border-b border-slate-200">
                   <th className="px-3 py-3 font-bold text-slate-600 w-[60px] text-center">Item</th>
                   <th className="px-3 py-3 font-bold text-slate-600">Descrição dos Serviços</th>
-                  <th className="px-3 py-3 font-bold text-center text-slate-600 w-[90px]">Orçado</th>
-                  <th className="px-3 py-3 font-bold text-center text-emerald-800 w-[90px] bg-emerald-50/50">Med. Acum</th>
+                  <th className="px-3 py-3 font-bold text-center text-slate-600 w-[110px] min-w-[110px] whitespace-nowrap">Orçado</th>
+                  <th className="px-3 py-3 font-bold text-center text-emerald-800 w-[110px] min-w-[110px] bg-emerald-50/50 whitespace-nowrap">Med. Acum</th>
                   {medicoes.map(m => (
-                    <th key={m.id} className="px-1 py-2 font-bold text-center text-slate-600 w-[80px] border-l border-slate-100">
+                    <th key={m.id} className="px-1 py-2 font-bold text-center text-slate-600 w-[110px] min-w-[110px] border-l border-slate-100 whitespace-nowrap">
                       <div className="text-[10px] uppercase font-bold">{format(parseISO(m.data_medicao), "MMM/yy", { locale: ptBR })}</div>
                       <div className="text-[9px] font-normal text-slate-400">ID: {m.id}</div>
                       {m.status !== 'fechada' && (
@@ -330,7 +330,7 @@ export default function MedicaoTab({
                       )}
                     </th>
                   ))}
-                  <th className="px-1 py-1 font-bold text-center text-slate-600 w-[60px] border-l border-slate-100">Saldo</th>
+                  <th className="px-1 py-1 font-bold text-center text-slate-600 w-[110px] min-w-[110px] border-l border-slate-100 whitespace-nowrap">Saldo</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -383,11 +383,11 @@ export default function MedicaoTab({
                     <tr key={item.id} className="hover:bg-slate-50 transition-colors">
                         <td className="px-3 py-2 text-center text-slate-500 font-mono">{item.item}</td>
                         <td className="px-3 py-2 text-slate-700 truncate max-w-xs">{item.descricao}</td>
-                        <td className="px-3 py-2 text-center bg-slate-50/30">
+                        <td className="px-3 py-2 text-center bg-slate-50/30 whitespace-nowrap">
                           <div className="font-semibold text-slate-900">{formatFinancial(item.quantidade)}</div>
                           <div className="text-[10px] text-slate-400">R$ {formatFinancial(valorTotalOrcado)}</div>
                         </td>
-                        <td className="px-3 py-2 text-center bg-emerald-50/30">
+                        <td className="px-3 py-2 text-center bg-emerald-50/30 whitespace-nowrap">
                           <div className="font-semibold text-emerald-900">{formatFinancial(totalMedidoQtd)}</div>
                           <div className="text-[10px] text-emerald-600">R$ {formatFinancial(totalMedidoValor)} ({percentTotal.toFixed(1)}%)</div>
                         </td>
@@ -398,7 +398,7 @@ export default function MedicaoTab({
                            
                            if (m.status === 'fechada') {
                              return (
-                               <td key={m.id} className="px-1 py-1 text-center border-l border-slate-50">
+                               <td key={m.id} className="px-1 py-1 text-center border-l border-slate-50 whitespace-nowrap">
                                  <div className="font-semibold text-slate-900 text-[11px]">{formatFinancial(qtd)}</div>
                                  <div className="text-[9px] text-slate-400">R$ {formatFinancial(valorMedido)}</div>
                                  <div className="w-full h-1 bg-slate-100 rounded-full mt-0.5 overflow-hidden max-w-[40px] mx-auto">
@@ -412,7 +412,7 @@ export default function MedicaoTab({
                            }
 
                            return (
-                             <td key={m.id} className="px-1 py-1 text-center border-l border-slate-50">
+                             <td key={m.id} className="px-1 py-1 text-center border-l border-slate-50 whitespace-nowrap">
                                <div className="flex flex-col items-center group relative">
                                    <input
                                     type="number"
@@ -448,31 +448,97 @@ export default function MedicaoTab({
                              </td>
                            )
                          })}
-                         <td className="px-3 py-2 text-center border-l border-slate-50">
+                         <td className="px-3 py-2 text-center border-l border-slate-50 whitespace-nowrap">
                            <div className={`font-semibold ${saldoValor < 0 ? 'text-red-700' : 'text-slate-900'}`}>{formatFinancial((item.quantidade || 0) - totalMedidoQtd)}</div>
                            <div className={`text-[10px] ${saldoValor < 0 ? 'text-red-500' : 'text-slate-400'}`}>R$ {formatFinancial(saldoValor)}</div>
                          </td>
                      </tr>
                   )})}
               </tbody>
-              <tfoot className="bg-slate-50 border-t border-slate-200">
-                <tr className="border-t-2 border-slate-300">
+              <tfoot className="bg-slate-50 border-t border-slate-200 text-[10px] text-slate-600">
+                <tr className="border-t-2 border-slate-300 bg-slate-100/50">
                     <td colSpan={2} className="px-3 py-3 font-bold text-slate-700 text-right uppercase tracking-wider text-xs">Total Geral da Obra (R$)</td>
-                    <td className="px-3 py-2 text-center font-bold text-slate-900 bg-slate-100/50">
+                    <td className="px-3 py-2 text-center font-bold text-slate-900 bg-slate-100 min-w-[110px] border-r border-slate-200">
                         R$ {formatFinancial(orcamento.filter(i => i.tipo !== 'etapa' && i.tipo !== 'subetapa').reduce((acc, i) => acc + ((i.quantidade || 0) * (i.valor_unitario || 0) * bdiFactor), 0))}
                     </td>
-                    <td className="px-3 py-2 text-center font-bold text-emerald-900 bg-emerald-50">
+                    <td className="px-3 py-2 text-center font-bold text-emerald-900 bg-emerald-50 min-w-[110px] border-r border-slate-200">
                         R$ {formatFinancial(orcamento.filter(i => i.tipo !== 'etapa' && i.tipo !== 'subetapa').reduce((acc, i) => acc + (getTotalMedido(i.id) * (i.valor_unitario || 0) * bdiFactor), 0))}
                     </td>
                     {medicoes.map(m => {
                        const medTotal = orcamento.filter(i => i.tipo !== 'etapa' && i.tipo !== 'subetapa').reduce((acc, i) => acc + (getQtd(i.id, m.id) * (i.valor_unitario || 0) * bdiFactor), 0);
                        return (
-                        <td key={m.id} className="px-1 py-1 text-center font-bold text-slate-900 text-[10px] border-l border-slate-100">
+                        <td key={m.id} className="px-1 py-1 text-center font-bold text-slate-900 border-l border-slate-200 bg-slate-100/30">
                             R$ {formatFinancial(medTotal)}
                         </td>
                        );
                     })}
-                    <td className="bg-slate-100 border-l border-slate-100"></td>
+                    <td className="bg-slate-200/30 border-l border-slate-200 min-w-[110px]"></td>
+                </tr>
+
+                {/* Porcentagem Executada */}
+                <tr className="border-t border-slate-200">
+                  <td colSpan={4} className="px-3 py-2 text-right font-semibold text-slate-500 bg-slate-50/50">Porcentagem Executada</td>
+                  {medicoes.map(m => {
+                    const totalOrcado = orcamento.filter(i => i.tipo !== 'etapa' && i.tipo !== 'subetapa').reduce((acc, i) => acc + ((i.quantidade || 0) * (i.valor_unitario || 0) * bdiFactor), 0);
+                    const medTotal = orcamento.filter(i => i.tipo !== 'etapa' && i.tipo !== 'subetapa').reduce((acc, i) => acc + (getQtd(i.id, m.id) * (i.valor_unitario || 0) * bdiFactor), 0);
+                    const percent = totalOrcado > 0 ? (medTotal / totalOrcado) * 100 : 0;
+                    return (
+                      <td key={m.id} className="px-1 py-1 text-center font-medium text-slate-700 border-l border-slate-100">
+                        {percent.toFixed(2).replace('.', ',')} %
+                      </td>
+                    );
+                  })}
+                  <td className="border-l border-slate-100"></td>
+                </tr>
+
+                {/* Porcentagem Executada Acumulada */}
+                <tr className="border-t border-slate-200">
+                  <td colSpan={4} className="px-3 py-2 text-right font-semibold text-slate-500 bg-slate-50/50">Porcentagem Executada Acumulada</td>
+                  {medicoes.map((m, idx) => {
+                    const totalOrcado = orcamento.filter(i => i.tipo !== 'etapa' && i.tipo !== 'subetapa').reduce((acc, i) => acc + ((i.quantidade || 0) * (i.valor_unitario || 0) * bdiFactor), 0);
+                    // Cumulative total up to index idx
+                    const cumulativeTotal = medicoes.slice(0, idx + 1).reduce((sum, currentM) => {
+                       return sum + orcamento.filter(i => i.tipo !== 'etapa' && i.tipo !== 'subetapa').reduce((acc, i) => acc + (getQtd(i.id, currentM.id) * (i.valor_unitario || 0) * bdiFactor), 0);
+                    }, 0);
+                    const percent = totalOrcado > 0 ? (cumulativeTotal / totalOrcado) * 100 : 0;
+                    return (
+                      <td key={m.id} className="px-1 py-1 text-center font-medium text-slate-700 border-l border-slate-100">
+                        {percent.toFixed(2).replace('.', ',')} %
+                      </td>
+                    );
+                  })}
+                  <td className="border-l border-slate-100"></td>
+                </tr>
+
+                {/* Valor Executado Acumulado */}
+                <tr className="border-t border-slate-200">
+                  <td colSpan={4} className="px-3 py-2 text-right font-semibold text-slate-500 bg-slate-50/50">Valor Executado Acumulado</td>
+                  {medicoes.map((m, idx) => {
+                    const cumulativeTotal = medicoes.slice(0, idx + 1).reduce((sum, currentM) => {
+                       return sum + orcamento.filter(i => i.tipo !== 'etapa' && i.tipo !== 'subetapa').reduce((acc, i) => acc + (getQtd(i.id, currentM.id) * (i.valor_unitario || 0) * bdiFactor), 0);
+                    }, 0);
+                    return (
+                      <td key={m.id} className="px-1 py-1 text-center font-medium text-slate-700 border-l border-slate-100">
+                        R$ {formatFinancial(cumulativeTotal)}
+                      </td>
+                    );
+                  })}
+                  <td className="border-l border-slate-100"></td>
+                </tr>
+
+                {/* Saldo Total */}
+                <tr className="border-t border-slate-200">
+                  <td colSpan={4} className="px-3 py-3 text-right font-bold text-slate-600 uppercase text-[9px] tracking-widest bg-slate-50/30">Saldo Total</td>
+                  {medicoes.map(m => (
+                    <td key={m.id} className="border-l border-slate-100 bg-white"></td>
+                  ))}
+                  <td className="px-3 py-3 text-center font-bold text-slate-900 border-l border-slate-200 bg-slate-100/80 min-w-[110px]">
+                    R$ {formatFinancial(orcamento.filter(i => i.tipo !== 'etapa' && i.tipo !== 'subetapa').reduce((acc, i) => {
+                        const orcado = (i.quantidade || 0) * (i.valor_unitario || 0) * bdiFactor;
+                        const medido = getTotalMedido(i.id) * (i.valor_unitario || 0) * bdiFactor;
+                        return acc + (orcado - medido);
+                    }, 0))}
+                  </td>
                 </tr>
               </tfoot>
           </table>
