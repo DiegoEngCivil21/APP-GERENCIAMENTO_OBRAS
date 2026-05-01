@@ -617,15 +617,31 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
     const stageTotals: Record<string | number, number> = {};
     let projectTotal = 0;
 
-    // 1. Calcular Denominadores Reais (Pesos Totais)
+    // 1. Calcular Denominadores Reais (Pesos Totais) com rateio de valores entre atividades vinculadas ao mesmo item
+    const totalDurationPerBudgetItem: Record<string, number> = {};
     atividades.forEach(atv => {
       const cleanId = atv.orcamento_item_id ? String(atv.orcamento_item_id).replace('item-', '').replace('etapa-', '') : null;
-      const budgetValue = cleanId ? (itemValuesMap[cleanId] || 0) : 0;
+      if (cleanId && (itemValuesMap[cleanId] || 0) > 0) {
+        totalDurationPerBudgetItem[cleanId] = (totalDurationPerBudgetItem[cleanId] || 0) + (atv.duracao_dias || 1);
+      }
+    });
+
+    atividades.forEach(atv => {
+      const cleanId = atv.orcamento_item_id ? String(atv.orcamento_item_id).replace('item-', '').replace('etapa-', '') : null;
+      const itemTotalValue = cleanId ? (itemValuesMap[cleanId] || 0) : 0;
       
-      // Peso: Valor financeiro ou, se zero, duração em dias
-      const weight = budgetValue > 0 ? budgetValue : (atv.duracao_dias || 1);
+      let weight = 0;
+      if (itemTotalValue > 0 && cleanId) {
+        // Se o item tem valor orçado, rateia entre as atividades que o compartilham proporcionalmente à duração
+        const activityDuration = atv.duracao_dias || 1;
+        const totalItemDuration = totalDurationPerBudgetItem[cleanId] || 1;
+        weight = (activityDuration / totalItemDuration) * itemTotalValue;
+      } else {
+        // Se não tem valor, usa a duração como peso (fall-back)
+        weight = atv.duracao_dias || 1;
+      }
+      
       const stageId = atv.etapa_id || 0;
-      
       stageTotals[stageId] = (stageTotals[stageId] || 0) + weight;
       projectTotal += weight;
     });
@@ -647,7 +663,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
       projectMedicao[monthKey].valor += itemValor;
     });
 
-    // 3. PLANEJADO (Planned) - Distribuído proporcionalmente
+    // 3. PLANEJADO (Planned) - Distribuído proporcionalmente usando o weight rateado
     atividades.forEach(atv => {
       if (!atv.data_inicio_prevista || !atv.data_fim_prevista) return;
       const start = parseDate(atv.data_inicio_prevista);
@@ -655,11 +671,20 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
       if (!isValid(start) || !isValid(end)) return;
 
       const cleanId = atv.orcamento_item_id ? String(atv.orcamento_item_id).replace('item-', '').replace('etapa-', '') : null;
-      const budgetValue = cleanId ? (itemValuesMap[cleanId] || 0) : 0;
-      const weight = budgetValue > 0 ? budgetValue : (atv.duracao_dias || 1);
+      const itemTotalValue = cleanId ? (itemValuesMap[cleanId] || 0) : 0;
+      
+      let weight = 0;
+      if (itemTotalValue > 0 && cleanId) {
+        const activityDuration = atv.duracao_dias || 1;
+        const totalItemDuration = totalDurationPerBudgetItem[cleanId] || 1;
+        weight = (activityDuration / totalItemDuration) * itemTotalValue;
+      } else {
+        weight = atv.duracao_dias || 1;
+      }
+
       const totalWorkingDays = countWorkingDays(start, end) || 1;
       const dailyWeight = weight / totalWorkingDays;
-      const isSimulated = budgetValue === 0;
+      const isSimulated = itemTotalValue === 0;
       
       let current = new Date(start);
       while (!isAfter(current, end)) {
@@ -1401,7 +1426,15 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
       const addedStages = new Set<number | string>();
       const addedActivities = new Set<number | string>();
       
-      // Helper to calculate stage aggregations
+      // Helper to calculate stage aggregations with weight splitting
+      const totalDurationPerBudgetItem: Record<string, number> = {};
+      currentAtividades.forEach(atv => {
+        const cleanId = atv.orcamento_item_id ? String(atv.orcamento_item_id).replace('item-', '').replace('etapa-', '') : null;
+        if (cleanId && (itemValuesMap[cleanId] || 0) > 0) {
+          totalDurationPerBudgetItem[cleanId] = (totalDurationPerBudgetItem[cleanId] || 0) + (atv.duracao_dias || 1);
+        }
+      });
+
       const getStageAggregations = (stageId: number | string, stageItem: string) => {
         const trimmedStageItem = (stageItem || '').trim();
         const baseItem = (trimmedStageItem || "").toString().replace(/\.0$/, '');
@@ -1468,17 +1501,19 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
           }
 
           const cleanId = a.orcamento_item_id ? String(a.orcamento_item_id).replace('item-', '').replace('etapa-', '') : null;
-          const budgetValue = cleanId ? (itemValuesMap[cleanId] || 0) : 0;
+          const itemTotalValue = cleanId ? (itemValuesMap[cleanId] || 0) : 0;
           
-          if (budgetValue > 0) {
-            totalProgressoPonderado += (a.progresso || 0) * budgetValue;
-            totalValorEtapa += budgetValue;
+          let weight = 0;
+          if (itemTotalValue > 0 && cleanId) {
+            const activityDuration = a.duracao_dias || 1;
+            const totalItemDuration = totalDurationPerBudgetItem[cleanId] || 1;
+            weight = (activityDuration / totalItemDuration) * itemTotalValue;
           } else {
-            // Fallback for non-priced items based on duration to maintain coherence
-            const durationWeight = (a.duracao_dias || 1);
-            totalProgressoPonderado += (a.progresso || 0) * durationWeight;
-            totalValorEtapa += durationWeight;
+            weight = a.duracao_dias || 1;
           }
+
+          totalProgressoPonderado += (a.progresso || 0) * weight;
+          totalValorEtapa += weight;
         });
 
         const weightedProgresso = totalValorEtapa > 0 ? Math.round(totalProgressoPonderado / totalValorEtapa) : 0;
@@ -1547,17 +1582,21 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
           if (cFim && isValid(cFim)) {
             if (!maxCurrentFim || cFim > maxCurrentFim) maxCurrentFim = cFim;
           }
+          
           const cleanId = a.orcamento_item_id ? String(a.orcamento_item_id).replace('item-', '').replace('etapa-', '') : null;
-          const budgetValue = cleanId ? (itemValuesMap[cleanId] || 0) : 0;
-
-          if (budgetValue > 0) {
-            totalProgressoPonderado += (a.progresso || 0) * budgetValue;
-            totalValorProjeto += budgetValue;
+          const itemTotalValue = cleanId ? (itemValuesMap[cleanId] || 0) : 0;
+          
+          let weight = 0;
+          if (itemTotalValue > 0 && cleanId) {
+            const activityDuration = a.duracao_dias || 1;
+            const totalItemDuration = totalDurationPerBudgetItem[cleanId] || 1;
+            weight = (activityDuration / totalItemDuration) * itemTotalValue;
           } else {
-            const durationWeight = (a.duracao_dias || 1);
-            totalProgressoPonderado += (a.progresso || 0) * durationWeight;
-            totalValorProjeto += durationWeight;
+            weight = a.duracao_dias || 1;
           }
+
+          totalProgressoPonderado += (a.progresso || 0) * weight;
+          totalValorProjeto += weight;
         });
 
         const weightedProgresso = totalValorProjeto > 0 ? Math.round(totalProgressoPonderado / totalValorProjeto) : 0;
@@ -2013,6 +2052,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
         <AnimatePresence>
           {showBaselineSuccess && (
             <motion.div 
+              key="baseline-success-alert"
               initial={{ opacity: 0, scale: 0.9, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 10 }}
@@ -2025,6 +2065,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
 
           {successMessage && (
             <motion.div 
+              key="success-toast"
               initial={{ opacity: 0, scale: 0.9, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 10 }}
@@ -2581,7 +2622,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
 
                   if (activePredecessors.length === 0 || !atv.data_inicio_prevista) return null;
                   
-                  return activePredecessors.map((p, pIdx) => {
+                  const dpLines = activePredecessors.map((p, pIdx) => {
                     const predId = p.id;
                     const predTypeRel = p.type || 'FS';
                     const lag = p.lag || 0;
@@ -2757,6 +2798,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                       </React.Fragment>
                     );
                   });
+                  return <React.Fragment key={`dep-atv-${atv.id}-${idx}`}>{dpLines}</React.Fragment>;
                 })}
               </svg>
 
@@ -2791,29 +2833,38 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                             
                             if (medVal === 0 && planVal === 0) return <div key={colIdx} style={{ width: `${monthWidth}%` }} className="border-r border-slate-200/30" />;
                             
-                            const totalStageVal = isProjectSummary ? monthlySummary.projectTotal : (stageData.valor || monthlySummary.stageTotals[row.id] || 1);
-                            const medPercTotal = medVal > 0 ? (medVal / (totalStageVal || 1)) * 100 : 0;
-                            const planPercTotal = planVal > 0 ? (planVal / (totalStageVal || 1)) * 100 : 0;
+                            // Denominator logic: use the specific value from budget if available, otherwise sum of activities
+                            const budgetValue = isProjectSummary ? projectSummaryData.valor : (stageData.valor || monthlySummary.stageTotals[row.id]);
+                            const totalStageVal = budgetValue || 1;
+                            
+                            const medPercTotal = medVal > 0 ? (medVal / totalStageVal) * 100 : 0;
+                            const planPercTotal = planVal > 0 ? (planVal / totalStageVal) * 100 : 0;
 
                             return (
                               <div key={colIdx} style={{ width: `${monthWidth}%` }} className="relative h-full flex items-center px-1 border-r border-slate-200/30">
                                 <div className="bg-slate-100 h-9 w-full rounded flex flex-col items-center justify-center overflow-hidden border border-slate-200 relative">
-                                  {/* Fundo planejado */}
+                                  {/* Fundo planejado (Barra de fundo sutil) */}
                                   <div 
-                                    className="absolute inset-0 bg-slate-200/40"
-                                    style={{ width: '100%' }}
+                                    className="absolute inset-x-0 bottom-0 bg-slate-400/20"
+                                    style={{ height: planPercTotal > 0 ? '100%' : '0%' }}
                                   />
+                                  
                                   {/* Barra Principal (Executada) */}
                                   <div 
-                                    className="absolute inset-0 bg-slate-800 transition-all duration-300"
-                                    style={{ width: medPercTotal > 0 ? '100%' : '0%' }}
+                                    className="absolute inset-x-0 bottom-0 bg-emerald-600/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]"
+                                    style={{ height: medPercTotal > 0 ? '100%' : '0%' }}
                                   />
-                                   <span className={`relative z-10 text-[10px] font-black whitespace-nowrap leading-none ${medPercTotal > 0 ? 'text-white' : 'text-slate-800'}`}>
-                                     {medPercTotal > 0 ? medPercTotal.toFixed(1) : planPercTotal.toFixed(1)}%
-                                   </span>
-                                   <span className={`relative z-10 text-[8px] font-bold whitespace-nowrap mt-0.5 leading-none ${medPercTotal > 0 ? 'text-slate-300' : 'text-slate-500'}`}>
-                                     {medVal > 0 ? formatFinancial(medVal) : (planVal > 0 && !monthlySummary.planned[row.id]?.[monthKey]?.isSimulated ? formatFinancial(planVal) : 'PREVISTO')}
-                                   </span>
+
+                                  <div className="relative z-10 flex flex-col items-center">
+                                    <span className={`text-[9px] font-black whitespace-nowrap leading-none ${medPercTotal > 0 ? 'text-emerald-900' : 'text-slate-800'}`}>
+                                      {planPercTotal > 0 && medPercTotal === 0 ? planPercTotal.toFixed(1) : (medPercTotal > 0 ? medPercTotal.toFixed(1) : '0.0')}%
+                                    </span>
+                                    {medVal > 0 || planVal > 0 ? (
+                                      <span className={`text-[7px] font-bold whitespace-nowrap mt-0.5 leading-none opacity-80 ${medPercTotal > 0 ? 'text-emerald-950' : 'text-slate-500'}`}>
+                                        {medVal > 0 ? formatFinancial(medVal) : formatFinancial(planVal)}
+                                      </span>
+                                    ) : null}
+                                  </div>
                                 </div>
                               </div>
                             );
@@ -3030,6 +3081,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
         {isConfigOpen && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[2000] flex items-center justify-center p-4 overflow-y-auto">
             <motion.div 
+              key="config-modal"
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.9 }}
@@ -3116,13 +3168,13 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                     {cronogramaConfig.holidays.length === 0 ? (
                       <p className="text-slate-400 text-xs italic">Nenhum feriado adicionado</p>
                     ) : (
-                      cronogramaConfig.holidays.map(date => (
-                        <div key={date} className="bg-white border border-slate-200 px-3 py-1.5 rounded-lg flex items-center gap-2 text-xs font-medium text-slate-600 shadow-sm">
+                      cronogramaConfig.holidays.map((date, idx) => (
+                        <div key={`${date}-${idx}`} className="bg-white border border-slate-200 px-3 py-1.5 rounded-lg flex items-center gap-2 text-xs font-medium text-slate-600 shadow-sm">
                           {format(parseDate(date), 'dd/MM/yyyy')}
                           <button 
                             onClick={() => setCronogramaConfig({
                               ...cronogramaConfig,
-                              holidays: cronogramaConfig.holidays.filter(h => h !== date)
+                              holidays: cronogramaConfig.holidays.filter((_, i) => i !== idx)
                             })}
                             className="text-slate-400 hover:text-red-500"
                           >
@@ -3247,10 +3299,11 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
       <AnimatePresence>
         {hoveredRowId !== null && hoveredRowId !== 'project-summary' && (
           <motion.div
+            key="hover-bubble"
             initial={{ opacity: 0, scale: 0.9, y: 10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.9, y: 10 }}
-            className="fixed z-[200] bg-white rounded-full shadow-2xl border border-slate-200 px-4 py-2 flex items-center gap-4 pointer-events-auto"
+            className="fixed z-[9999] bg-white rounded-full shadow-2xl border border-slate-200 px-4 py-2 flex items-center gap-4 pointer-events-auto"
             style={{ 
               left: `${bubblePos.x}px`, 
               top: `${bubblePos.y}px`,
@@ -3407,6 +3460,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
           {deleteConfirmId && (
             <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[2001] flex items-center justify-center p-4">
               <motion.div 
+                key="delete-modal"
                 initial={{ opacity: 0, scale: 0.95, y: 20 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95, y: 20 }}
