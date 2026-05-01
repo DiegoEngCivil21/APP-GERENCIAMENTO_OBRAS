@@ -224,13 +224,26 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
   const resize = useCallback((e: MouseEvent) => {
     if (isResizing && containerRef.current) {
       const containerRect = containerRef.current.getBoundingClientRect();
-      const newWidth = e.clientX - containerRect.left;
-      // Define minimum and maximum limits for the left panel
-      // Columns sum to exactly 1275px, prevent dragging beyond that
-      const maxAllowedWidth = Math.min(1275, containerRect.width - 50);
-      if (newWidth >= 200 && newWidth <= maxAllowedWidth) {
-        setLeftPaneWidth(newWidth);
+      const rawWidth = e.clientX - containerRect.left;
+      
+      // Snap points based on exact column boundaries (cumulative widths)
+      // [Item+Ativ(400), +Dur(500), +Ini(600), +Fim(700), +Base(800), +Prog(860), +Rec(960), +Resp(1060), +Outro(1200), +Marco(1275)]
+      const snapPoints = [400, 500, 600, 700, 800, 860, 960, 1060, 1200, 1275];
+      
+      // Find the absolute nearest snap point to the current mouse position
+      let nearestSnap = snapPoints.reduce((prev, curr) => 
+        Math.abs(curr - rawWidth) < Math.abs(prev - rawWidth) ? curr : prev
+      );
+
+      // Enforce container boundaries
+      const maxAllowedWidth = Math.min(1275, containerRect.width - 100);
+      
+      // if the nearest snap is beyond the container, find the highest possible snap point
+      if (nearestSnap > maxAllowedWidth) {
+        nearestSnap = [...snapPoints].reverse().find(p => p <= maxAllowedWidth) || 400;
       }
+
+      setLeftPaneWidth(nearestSnap);
     }
   }, [isResizing]);
 
@@ -2003,7 +2016,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
               initial={{ opacity: 0, scale: 0.9, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 10 }}
-              className="fixed bottom-8 right-8 bg-emerald-600 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 z-[150]"
+              className="fixed bottom-8 right-8 bg-emerald-600 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 z-[2500]"
             >
               <CheckCircle size={20} />
               <span className="font-bold">Linha de base aplicada com sucesso!</span>
@@ -2015,7 +2028,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
               initial={{ opacity: 0, scale: 0.9, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 10 }}
-              className="fixed bottom-8 right-8 bg-slate-800 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 z-[150]"
+              className="fixed bottom-8 right-8 bg-slate-800 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 z-[2500]"
             >
               {successMessage.includes('excluído') ? (
                 <Trash2 size={20} className="text-red-400" />
@@ -2056,7 +2069,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
         <div className="flex items-center gap-1.5 ml-auto border-l border-slate-200 pl-8 h-full py-1">
           <span className="text-[9px] text-slate-500 mr-1">Otimizar:</span>
           <button 
-            onClick={() => setLeftPaneWidth(Math.min(1275, (containerRef.current?.offsetWidth || 1200) - 100))}
+            onClick={() => setLeftPaneWidth(1275)}
             className="px-2 py-1 rounded-lg bg-slate-50 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 text-slate-500 transition-all border border-slate-200 flex items-center gap-1.5"
             title="Focar na Tabela"
           >
@@ -2071,7 +2084,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
             Original
           </button>
           <button 
-            onClick={() => setLeftPaneWidth(250)}
+            onClick={() => setLeftPaneWidth(400)}
             className="px-2 py-1 rounded-lg bg-slate-50 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 text-slate-500 transition-all border border-slate-200 flex items-center gap-1.5"
             title="Focar no Gráfico"
           >
@@ -2103,11 +2116,11 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
             }`} 
             style={{ width: `${leftPaneWidth}px`, height: '100%' }}
           >
-            <div className="w-[1275px] max-w-[1275px] min-w-min relative pr-20">
+            <div className="w-[1275px] max-w-[1275px] min-w-min relative">
                 {/* Header structure: Row 1 Labels, Row 2 Project Summary */}
-                <div className="h-16 border-b border-slate-200 sticky top-0 z-50 min-w-full flex flex-col bg-slate-800">
+                <div className="h-16 border-b border-slate-200 sticky top-0 z-50 w-full flex flex-col bg-slate-800">
                   {/* Row 1: Labels */}
-                  <div className="h-8 border-b border-slate-700/30 flex min-w-full text-[10px] font-bold text-white uppercase tracking-wider items-center">
+                  <div className="h-8 border-b border-slate-700/30 flex w-full text-[10px] font-bold text-white uppercase tracking-wider items-center">
                     <div className="w-[100px] flex-shrink-0 text-center sticky left-0 bg-slate-800 z-[70] flex items-center justify-center border-r border-slate-700/50 h-full">Item</div>
                     <div className="w-[300px] flex-shrink-0 text-left sticky left-[100px] bg-slate-800 z-[70] shadow-[4px_0_4px_-2px_rgba(0,0,0,0.3)] flex items-center px-3 border-r border-slate-700/50 h-full">Atividade</div>
                     <div className="flex items-center h-full">
@@ -2124,7 +2137,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                   </div>
 
                   {/* Row 2: Project Summary Aligned with Sub-Header */}
-                  <div className="h-8 flex min-w-full text-[11px] font-black text-white items-center bg-slate-900/95 backdrop-blur-sm border-b border-white/5">
+                  <div className="h-8 flex w-full text-[11px] font-black text-white items-center bg-slate-900/95 backdrop-blur-sm border-b border-white/5">
                     <div className="w-[100px] flex-shrink-0 text-center sticky left-0 bg-slate-900 z-[70] flex items-center justify-center border-r border-white/10 h-full text-emerald-500">0</div>
                     <div className="w-[300px] flex-shrink-0 text-left sticky left-[100px] bg-slate-900 z-[70] shadow-[4px_0_4px_-2px_rgba(0,0,0,0.5)] flex items-center px-3 border-r border-white/10 h-full truncate text-emerald-50">
                       {projectSummaryData.nome}
@@ -2138,7 +2151,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                        <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-white/5 h-full flex items-center justify-center text-slate-500 font-normal">-</div>
                        <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-white/5 h-full flex items-center justify-center text-slate-500 font-normal">-</div>
                        <div className="w-[140px] flex-shrink-0 text-center px-1 border-r border-white/5 h-full flex items-center justify-center text-slate-500 font-normal">-</div>
-                       <div className="w-[75px] flex-shrink-0 text-center px-1 border-r border-white/5 h-full flex items-center justify-center text-slate-500 font-normal">-</div>
+                       <div className="w-[75px] flex-shrink-0 text-center px-1 h-full flex items-center justify-center text-slate-500 font-normal">-</div>
                     </div>
                   </div>
                 </div>
@@ -2186,10 +2199,10 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                          }
                       }}
                       onMouseLeave={() => setHoveredRowId(null)}
-                      className={`absolute left-0 right-0 h-10 border-b border-slate-200 flex items-center min-w-full text-[11px] ${fontClass} ${isAddingRow ? 'bg-indigo-50/50' : ''}`}
+                      className={`absolute left-0 right-0 h-10 border-b border-slate-200 flex items-center w-full text-[11px] ${fontClass} ${isStage ? 'bg-slate-200' : ''} ${isAddingRow ? 'bg-indigo-50/50' : ''}`}
                       style={{ top: rowTop }}
                     >
-                      <div className={`w-[100px] h-full flex-shrink-0 text-center sticky left-0 z-40 flex items-center justify-center p-1 ${isStage ? 'bg-slate-50' : 'bg-white'} ${isAddingRow ? 'bg-indigo-50/50' : ''}`}>
+                      <div className={`w-[100px] h-full flex-shrink-0 text-center sticky left-0 z-40 flex items-center justify-center p-1 ${isStage ? 'bg-slate-200 font-bold' : 'bg-white'} ${isAddingRow ? 'bg-indigo-50/50' : ''}`}>
                         {isAddingRow ? (
                           <span className="text-indigo-600 font-bold">{editForm.item_numero}</span>
                         ) : (
@@ -2208,7 +2221,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                             startEdit(d, 'nome');
                           }
                         }}
-                        className={`w-[300px] h-full flex-shrink-0 text-left sticky left-[100px] z-40 shadow-[4px_0_4px_-2px_rgba(0,0,0,0.1)] flex items-center px-3 cursor-text ${isStage ? 'bg-slate-50' : 'bg-white'} ${isAddingRow ? 'bg-indigo-50/50' : ''}`}
+                        className={`w-[300px] h-full flex-shrink-0 text-left sticky left-[100px] z-40 shadow-[4px_0_4px_-2px_rgba(0,0,0,0.1)] flex items-center px-3 cursor-text ${isStage ? 'bg-slate-200 font-bold uppercase tracking-tight' : 'bg-white'} ${isAddingRow ? 'bg-indigo-50/50' : ''}`}
                       >
                         {(isEditing || isEditingStage) ? (
                           <input
@@ -2412,9 +2425,9 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
               focusedSection === 'chart' ? 'shadow-[inset_4px_0_12px_-2px_rgba(79,70,229,0.1)]' : ''
             }`}
           >
-            <div className="min-w-full relative" style={{ width: columns.length > 0 ? `max(100%, ${columns.length * (viewMode === 'day' ? 40 : viewMode === 'week' ? 60 : 80)}px)` : '100%' }}>
-              <div className="h-16 border-b border-slate-200 sticky top-0 z-50 bg-slate-50 min-w-full flex flex-col">
-                <div className="h-8 border-b border-slate-700/30 bg-slate-800 flex items-center min-w-full z-[51]">
+            <div className="relative" style={{ width: columns.length > 0 ? `${columns.length * (viewMode === 'day' ? 40 : viewMode === 'week' ? 60 : 80)}px` : '100%' }}>
+              <div className="h-16 border-b border-slate-200 sticky top-0 z-50 bg-slate-50 w-full flex flex-col">
+                <div className="h-8 border-b border-slate-700/30 bg-slate-800 flex items-center w-full z-[51]">
                   {headers.topHeaders.map((header, idx) => (
                     <div 
                       key={`top-${idx}`} 
@@ -2425,7 +2438,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                     </div>
                   ))}
                 </div>
-                <div className="h-8 border-b border-slate-700/30 bg-slate-900 flex items-center min-w-full z-[51]">
+                <div className="h-8 border-b border-slate-700/30 bg-slate-900 flex items-center w-full z-[51]">
                   {headers.bottomHeaders.map((col, idx) => (
                     <div 
                       key={`bottom-${idx}`} 
@@ -2440,21 +2453,18 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
               </div>
               <div className="relative" style={{ height: allRows.length * 40 }}>
                 {/* Non-working days highlight */}
-                {viewMode === 'day' && columns.map((col, idx) => {
-                  if (!isWorkingDay(col)) {
-                    return (
+                {viewMode === 'day' && columns.map((col, idx) => (
+                  !isWorkingDay(col) ? (
                       <div 
                         key={`non-working-${idx}`}
-                        className="absolute top-0 bottom-0 pointer-events-none bg-slate-200/40 z-[2]"
+                        className="absolute top-0 bottom-0 pointer-events-none bg-slate-400/40 z-[2]"
                         style={{ 
                           left: `${(idx / columns.length) * 100}%`, 
                           width: `${(1 / columns.length) * 100}%`
                         }}
                       />
-                    );
-                  }
-                  return null;
-                })}
+                  ) : null
+                ))}
 
               {/* Today Column Highlight (Solid) */}
               {todayColumnIndex !== -1 && (
@@ -2753,6 +2763,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
               {/* Task Rows */}
               {allRows.map((row, idx) => {
                 const rowTop = idx * 40;
+                const isStage = row.type === 'stage' || row.type === 'summary';
 
                 const isActivityOrAdding = row.type === 'activity' || row.type === 'adding';
 
@@ -2767,7 +2778,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                   return (
                     <div 
                       key={`gantt-stage-${row.id}-${idx}`} 
-                      className={`absolute border-b border-slate-200 ${row.id === 0 ? 'bg-amber-50/10' : ''}`} 
+                      className={`absolute border-b border-slate-200 ${isStage ? 'bg-slate-200/50' : ''} ${row.id === 0 ? 'bg-amber-50/10' : ''}`} 
                       style={{ top: rowTop, left: 0, right: 0, height: '40px' }}
                     >
                       {viewMode === 'month' ? (
@@ -3017,7 +3028,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
     
     <AnimatePresence>
         {isConfigOpen && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4 overflow-y-auto">
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[2000] flex items-center justify-center p-4 overflow-y-auto">
             <motion.div 
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -3239,7 +3250,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
             initial={{ opacity: 0, scale: 0.9, y: 10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.9, y: 10 }}
-            className="fixed z-[100] bg-white rounded-full shadow-2xl border border-slate-200 px-4 py-2 flex items-center gap-4 pointer-events-auto"
+            className="fixed z-[200] bg-white rounded-full shadow-2xl border border-slate-200 px-4 py-2 flex items-center gap-4 pointer-events-auto"
             style={{ 
               left: `${bubblePos.x}px`, 
               top: `${bubblePos.y}px`,
@@ -3392,7 +3403,38 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
         )}
         </AnimatePresence>
 
-
+        <AnimatePresence>
+          {deleteConfirmId && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[2001] flex items-center justify-center p-4">
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                className="bg-white rounded-3xl shadow-2xl max-w-sm w-full p-8 border border-slate-100"
+              >
+                <div className="w-16 h-16 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center mb-6 mx-auto">
+                  <Trash2 size={32} />
+                </div>
+                <h3 className="text-xl font-black text-slate-900 text-center uppercase tracking-widest mb-2">Excluir Item?</h3>
+                <p className="text-slate-500 text-center text-sm mb-8">Esta ação é irreversível e removerá todos os dados vinculados a este item do cronograma.</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <button 
+                    onClick={() => setDeleteConfirmId(null)}
+                    className="px-6 py-3 border-2 border-slate-100 text-slate-500 font-bold hover:bg-slate-50 rounded-2xl transition-all"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    onClick={() => handleDelete(deleteConfirmId)}
+                    className="px-6 py-3 bg-red-600 text-white font-bold rounded-2xl hover:bg-red-700 transition-all shadow-lg shadow-red-200"
+                  >
+                    Sim, Excluir
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
     </div>
     </div>
     </div>

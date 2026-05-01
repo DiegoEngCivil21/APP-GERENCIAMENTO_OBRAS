@@ -148,7 +148,7 @@ export const CronogramaHeader: React.FC<CronogramaHeaderProps> = ({
       </div>
 
       {showClearBaselineConfirm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[2000]">
           <div className="bg-white p-6 rounded-xl shadow-xl max-w-sm">
             <h3 className="text-lg font-bold text-slate-800 mb-2">Limpar Linha de Base?</h3>
             <p className="text-sm text-slate-600 mb-4">Isso removerá a linha de base atual e desbloqueará a edição de datas e durações.</p>
