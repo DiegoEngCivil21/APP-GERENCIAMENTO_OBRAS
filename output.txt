@@ -1,45 +1,73 @@
-151:        <button 
-156:        </button>
-208:              <button onClick={() => setShowNewAtividade(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
-210:              </button>
-263:                <button type="button" onClick={() => setShowNewAtividade(false)} className="px-6 py-3 text-xs font-black text-slate-400 uppercase tracking-widest hover:text-slate-600 transition-colors">Cancelar</button>
-264:                <button type="submit" className="px-6 py-3 bg-orange-500 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-orange-600 transition-colors">Salvar Atividade</button>
-357:        <button 
-362:        </button>
-394:                  <button className="p-2 text-slate-400 hover:text-indigo-600 transition-colors">
-396:                  </button>
-413:              <button onClick={() => setShowNewMedicao(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
-415:              </button>
-509:                <button
-514:                </button>
-515:                <button
-520:                </button>
-962:          <button onClick={() => setToast(null)} className="ml-4 hover:opacity-70"><X size={16} /></button>
-1001:          <button
-1016:          </button>
-1189:                <button 
-1200:                </button>
-1202:                <button 
-1216:                </button>
-1218:                <button 
-1232:                </button>
-1325:                    <button onClick={() => setShowBdiModal(false)} className="text-slate-400 hover:text-slate-600">
-1327:                    </button>
-1402:                    <button onClick={() => setShowBancosModal(false)} className="text-slate-400 hover:text-slate-600">
-1404:                    </button>
-1457:                    <button onClick={() => setShowImportModal(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
-1459:                    </button>
-1503:                    <button onClick={() => setShowEncargosModal(false)} className="text-slate-400 hover:text-slate-600">
-1505:                    </button>
-1619:                  <button className="text-[11px] font-bold text-indigo-600 uppercase hover:underline">Ver Detalhado</button>
-1817:                          <button 
-1825:                          </button>
-1957:                            <button 
-1963:                            </button>
-1964:                            <button 
-1970:                            </button>
-2034:                    <button onClick={() => setShowDiarioModal(false)} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
-2653:              <button 
-2659:              </button>
-2662:              <button 
-2668:              </button>
+2597-                              style={{ ...(getTaskStyle(stageData.data_inicio_base, stageData.data_fim_base) as any), top: '28px' }}
+2598-                            >
+2599-                              <div className="absolute -left-px -bottom-1 w-0 h-0 border-l-[4px] border-r-[4px] border-t-[5px] border-l-transparent border-r-transparent border-t-slate-500"></div>
+2600-                              <div className="absolute -right-px -bottom-1 w-0 h-0 border-l-[4px] border-r-[4px] border-t-[5px] border-l-transparent border-r-transparent border-t-slate-500"></div>
+2601-                            </div>
+2602-                          )}
+2603-                        </>
+2604-                      )}
+2605-                    </div>
+2606-                  );
+2607-                }
+2608-                
+2609-                if (isActivityOrAdding) {
+2610-                  const atv = row.data as Atividade;
+2611-                  const isAddingRow = row.type === 'adding';
+2612:                  const isEditing = (atv && atv.id === editingId) || isAddingRow;
+2613-                  
+2614:                  const plannedInicio = isEditing ? (editForm.data_inicio_prevista || atv?.data_inicio_prevista) : atv?.data_inicio_prevista;
+2615:                  const plannedFim = isEditing ? (editForm.data_fim_prevista || atv?.data_fim_prevista) : atv?.data_fim_prevista;
+2616:                  const isMilestone = isEditing ? !!editForm.is_marco : !!atv?.is_marco;
+2617:                  const duracaoDias = isEditing ? (editForm.duracao_dias !== undefined && editForm.duracao_dias !== "" ? editForm.duracao_dias : atv?.duracao_dias) : atv?.duracao_dias;
+2618-
+2619:                  let currentInicio = isEditing ? (editForm.data_inicio_real || atv?.data_inicio_real) : atv?.data_inicio_real;
+2620-                  if (!currentInicio) currentInicio = plannedInicio;
+2621-                  
+2622:                  let currentFim = isEditing ? (editForm.data_fim_real || atv?.data_fim_real) : atv?.data_fim_real;
+2623-                  
+2624-                  if (!currentFim && currentInicio && duracaoDias !== undefined && duracaoDias !== null) {
+2625-                    const startRealDate = parseDate(currentInicio);
+2626-                    if (isValid(startRealDate)) {
+2627-                      currentFim = duracaoDias === 0 || duracaoDias === "0" ? currentInicio : format(addWorkingDays(startRealDate, Number(duracaoDias)), 'yyyy-MM-dd');
+2628-                    }
+2629-                  }
+2630-                  if (!currentFim) currentFim = plannedFim;
+2631-                  
+2632-                  const hasBaseline = !!atv.data_inicio_base;
+2633-                  const plannedStyle = (plannedInicio && plannedFim && duracaoDias !== null) ? getTaskStyle(plannedInicio, plannedFim) : { display: 'none' } as any;
+2634-                  const currentStyle = (currentInicio && currentFim && duracaoDias !== null) ? getTaskStyle(currentInicio, currentFim) : { display: 'none' } as any;
+2635-                  const baselineStyle = (atv.data_inicio_base && atv.data_fim_base) 
+2636-                    ? getTaskStyle(atv.data_inicio_base, atv.data_fim_base) as any
+2637-                    : { display: 'none' } as any;
+--
+2643-                  // Calculate Variance (Desvio) in days
+2644-                  let desvio = 0;
+2645-                  if (atv.data_fim_base && plannedFim) {
+2646-                    desvio = differenceInDays(parseDate(plannedFim), parseDate(atv.data_fim_base));
+2647-                  }
+2648-
+2649-                  return (
+2650-                    <div 
+2651-                      key={isAddingRow ? "gantt-adding-row" : `gantt-row-${atv.id}-${idx}`} 
+2652-                      className={`absolute border-b flex items-center transition-colors ${
+2653-                        isAddingRow ? 'bg-blue-50/40 border-blue-100' : 'border-slate-100/50 group hover:bg-slate-50/30'
+2654-                      }`} 
+2655-                      style={{ top: rowTop, left: 0, right: 0, height: '40px' }}
+2656-                    >
+2657-                      {/* Action Buttons (Sticky at the start of graph area during edit or adding) */}
+2658:                      {isEditing && (
+2659-                        <div className={`sticky left-0 z-50 h-full flex items-center gap-1 px-2 border-r mr-1 backdrop-blur-[2px] ${
+2660-                          isAddingRow ? 'bg-blue-100/60 border-blue-200/30' : 'bg-white/60 border-indigo-100/30'
+2661-                        }`}>
+2662-                          <button 
+2663-                            onMouseDown={(e) => {
+2664-                              e.preventDefault();
+2665-                              isAddingRow ? handleSaveNew() : handleUpdate(atv.id);
+2666-                            }}
+2667-                            className="p-1 bg-emerald-500/20 text-emerald-600 rounded-md hover:bg-emerald-500/40 transition-all"
+2668-                            title="Salvar"
+2669-                          >
+2670-                            <Check size={12} />
+2671-                          </button>
+2672-                          <button 
+2673-                            onMouseDown={(e) => {

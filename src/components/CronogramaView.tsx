@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { 
   Printer, Target, CheckCircle, RefreshCw, AlertTriangle, Layers, 
   Trash2, Settings, X, Plus, Check, Maximize2, Minimize2, 
-  Clock, Calendar, AlertCircle, Sliders, Info 
+  Clock, Calendar, AlertCircle, Sliders, Info, FolderPlus 
 } from 'lucide-react';
 import { CronogramaHeader } from './CronogramaHeader';
 import { motion, AnimatePresence } from 'motion/react';
@@ -208,6 +208,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
   };
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const [focusedSection, setFocusedSection] = useState<'table' | 'chart'>('table');
   const [leftPaneWidth, setLeftPaneWidth] = useState(Math.max(600, window.innerWidth * 0.50));
   const [isResizing, setIsResizing] = useState(false);
 
@@ -225,7 +226,9 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
       const containerRect = containerRef.current.getBoundingClientRect();
       const newWidth = e.clientX - containerRect.left;
       // Define minimum and maximum limits for the left panel
-      if (newWidth > 200 && newWidth < containerRect.width - 200) {
+      // Columns sum to exactly 1275px, prevent dragging beyond that
+      const maxAllowedWidth = Math.min(1275, containerRect.width - 50);
+      if (newWidth >= 200 && newWidth <= maxAllowedWidth) {
         setLeftPaneWidth(newWidth);
       }
     }
@@ -1317,7 +1320,8 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
 
   const taskListRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
-  const dragScroll = useDragScroll(timelineRef);
+  const taskListDragScroll = useDragScroll(taskListRef);
+  const timelineDragScroll = useDragScroll(timelineRef);
 
   const isScrollingRef = useRef<string | null>(null);
 
@@ -1657,7 +1661,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
       const finalRows: any[] = [];
       const map: Record<string, number> = {};
       
-      // Calculate Project Summary Data separately
+      // Calculate Project Summary Data
       const projectAggs = getProjectAggregations();
       const totalOrcado = orcamentoItens.reduce((sum, item) => {
           if (item.tipo === 'item' || (item.id && String(item.id).startsWith('item-'))) {
@@ -2048,608 +2052,409 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
           <div className="w-3 h-3 border border-indigo-300 rotate-45"></div>
           <span>Marco Previsto</span>
         </div>
-        <div className="flex items-center gap-2.5">
-          <div className="w-4 h-4 bg-amber-500 rotate-45"></div>
-          <span>Marco Realizado</span>
+        {/* Focus Navigation Shortcuts */}
+        <div className="flex items-center gap-1.5 ml-auto border-l border-slate-200 pl-8 h-full py-1">
+          <span className="text-[9px] text-slate-500 mr-1">Otimizar:</span>
+          <button 
+            onClick={() => setLeftPaneWidth(Math.min(1275, (containerRef.current?.offsetWidth || 1200) - 100))}
+            className="px-2 py-1 rounded-lg bg-slate-50 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 text-slate-500 transition-all border border-slate-200 flex items-center gap-1.5"
+            title="Focar na Tabela"
+          >
+            <Maximize2 size={10} />
+            Tabela
+          </button>
+          <button 
+            onClick={() => setLeftPaneWidth(Math.max(600, (containerRef.current?.offsetWidth || 1200) * 0.5))}
+            className="px-2 py-1 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 transition-all border border-slate-200"
+            title="Visão Equilibrada"
+          >
+            Original
+          </button>
+          <button 
+            onClick={() => setLeftPaneWidth(250)}
+            className="px-2 py-1 rounded-lg bg-slate-50 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 text-slate-500 transition-all border border-slate-200 flex items-center gap-1.5"
+            title="Focar no Gráfico"
+          >
+            Gráfico
+            <Maximize2 size={10} />
+          </button>
         </div>
       </div>
 
       {/* Gantt Chart Container */}
       <div 
         ref={containerRef}
-        className="bg-white flex flex-col md:flex-row flex-1 rounded-2xl border border-slate-200 shadow-sm mt-4" 
+        className="bg-white flex flex-col flex-1 rounded-2xl border border-slate-200 shadow-sm mt-4 overflow-hidden relative" 
       >
-        
-        {/* Left Pane: Task List */}
-        <div 
-          ref={taskListRef}
-          className="flex-shrink-0 bg-white overflow-x-auto overflow-y-visible gantt-scroll-container custom-scrollbar border-r border-slate-200" 
-          style={{ width: `${leftPaneWidth}px`, height: 'max-content', minHeight: '100%' }}
-        >
-          <div className="w-fit min-w-full relative">
-            <div className="h-16 border-b border-slate-200 sticky top-0 z-50 min-w-full flex flex-col">
-              {/* Row 1: Labels (Aligned with Month) */}
-              <div className="h-8 border-b border-slate-700/30 bg-slate-800 flex items-center min-w-full z-[51]">
-                <div className="flex min-w-full text-[10px] font-bold text-white uppercase tracking-wider h-full">
-                  <div className="w-[100px] flex-shrink-0 text-center sticky left-0 bg-slate-800 z-40 flex items-center justify-center">Item</div>
-                  <div className="w-[300px] flex-shrink-0 text-left sticky left-[100px] bg-slate-800 z-40 shadow-[4px_0_4px_-2px_rgba(0,0,0,0.3)] flex items-center px-3">Atividade</div>
-                  <div className="flex items-center h-full">
-                    <div className="w-[100px] flex-shrink-0 text-center px-1">Duração</div>
-                    <div className="w-[100px] flex-shrink-0 text-center px-1">Início</div>
-                    <div className="w-[100px] flex-shrink-0 text-center px-1">Fim</div>
-                    <div className="w-[100px] flex-shrink-0 text-center px-1">Pred.</div>
-                    <div className="w-[60px] flex-shrink-0 text-center px-1 font-bold">%</div>
-                    <div className="w-[100px] flex-shrink-0 text-center px-1">Início Real</div>
-                    <div className="w-[100px] flex-shrink-0 text-center px-1">Término Real</div>
-                    <div className="w-[140px] flex-shrink-0 text-center px-1">Recurso</div>
-                    <div className="w-[75px] flex-shrink-0 text-center px-1 uppercase tracking-tighter">Marco</div>
+        <div className="flex flex-row flex-1 overflow-hidden custom-scrollbar">
+          {/* Left Pane: Task List */}
+          <div 
+            ref={taskListRef}
+            onMouseDown={(e) => {
+              setFocusedSection('table');
+              taskListDragScroll.onMouseDown(e);
+            }}
+            onMouseMove={taskListDragScroll.onMouseMove}
+            onMouseUp={taskListDragScroll.onMouseUp}
+            onMouseLeave={taskListDragScroll.onMouseLeave}
+            onScroll={handleTaskListScroll}
+            className={`flex-shrink-0 bg-white overflow-auto gantt-scroll-container custom-scrollbar border-r border-slate-200 transition-shadow duration-300 relative z-20 ${
+              focusedSection === 'table' ? 'shadow-[4px_0_12px_-2px_rgba(79,70,229,0.2)]' : 'shadow-[2px_0_8px_-2px_rgba(0,0,0,0.1)]'
+            }`} 
+            style={{ width: `${leftPaneWidth}px`, height: '100%' }}
+          >
+            <div className="w-[1275px] max-w-[1275px] min-w-min relative pr-20">
+                {/* Header structure: Row 1 Labels, Row 2 Project Summary */}
+                <div className="h-16 border-b border-slate-200 sticky top-0 z-50 min-w-full flex flex-col bg-slate-800">
+                  {/* Row 1: Labels */}
+                  <div className="h-8 border-b border-slate-700/30 flex min-w-full text-[10px] font-bold text-white uppercase tracking-wider items-center">
+                    <div className="w-[100px] flex-shrink-0 text-center sticky left-0 bg-slate-800 z-[70] flex items-center justify-center border-r border-slate-700/50 h-full">Item</div>
+                    <div className="w-[300px] flex-shrink-0 text-left sticky left-[100px] bg-slate-800 z-[70] shadow-[4px_0_4px_-2px_rgba(0,0,0,0.3)] flex items-center px-3 border-r border-slate-700/50 h-full">Atividade</div>
+                    <div className="flex items-center h-full">
+                      <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-slate-700/50 h-full flex items-center justify-center">Duração</div>
+                      <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-slate-700/50 h-full flex items-center justify-center">Início</div>
+                      <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-slate-700/50 h-full flex items-center justify-center">Fim</div>
+                      <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-slate-700/50 h-full flex items-center justify-center">Pred.</div>
+                      <div className="w-[60px] flex-shrink-0 text-center px-1 font-bold border-r border-slate-700/50 h-full flex items-center justify-center">%</div>
+                      <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-slate-700/50 h-full flex items-center justify-center">Início Real</div>
+                      <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-slate-700/50 h-full flex items-center justify-center">Término Real</div>
+                      <div className="w-[140px] flex-shrink-0 text-center px-1 border-r border-slate-700/50 h-full flex items-center justify-center">Recurso</div>
+                      <div className="w-[75px] flex-shrink-0 text-center px-1 uppercase tracking-tighter border-r border-slate-700/50 h-full flex items-center justify-center">Marco</div>
+                    </div>
                   </div>
-                </div>
-              </div>
 
-              {/* Row 2: Project Info Header (Aligned with Days/Weeks) */}
-              <div className="h-8 border-b border-slate-700/30 bg-slate-900 flex items-center min-w-full z-[51]">
-                <div className="flex min-w-full items-center h-full text-white">
-                  <div className="w-[100px] flex-shrink-0 text-center sticky left-0 z-[52] h-full flex items-center justify-center bg-slate-900 font-bold text-[10px]">-</div>
-                  <div className="w-[300px] flex-shrink-0 text-left sticky left-[100px] z-[52] shadow-[6px_0_6px_-3px_rgba(0,0,0,0.1)] truncate h-full flex items-center bg-slate-900 px-3 font-bold text-xs uppercase tracking-wider">
-                    {obraData?.nome || 'OBRA'}
-                  </div>
-                  <div className="flex items-center h-full">
-                    <div className="w-[100px] flex-shrink-0 text-center text-[10px] font-black px-2">
-                      {projectSummaryData.duracao_dias}
+                  {/* Row 2: Project Summary Aligned with Sub-Header */}
+                  <div className="h-8 flex min-w-full text-[11px] font-black text-white items-center bg-slate-900/95 backdrop-blur-sm border-b border-white/5">
+                    <div className="w-[100px] flex-shrink-0 text-center sticky left-0 bg-slate-900 z-[70] flex items-center justify-center border-r border-white/10 h-full text-emerald-500">0</div>
+                    <div className="w-[300px] flex-shrink-0 text-left sticky left-[100px] bg-slate-900 z-[70] shadow-[4px_0_4px_-2px_rgba(0,0,0,0.5)] flex items-center px-3 border-r border-white/10 h-full truncate text-emerald-50">
+                      {projectSummaryData.nome}
                     </div>
-                    <div className="w-[100px] flex-shrink-0 text-center text-[9px] font-black px-2">
-                      {projectSummaryData.data_inicio_prevista ? format(parseDate(projectSummaryData.data_inicio_prevista), 'dd/MM/yy') : ''}
+                    <div className="flex items-center h-full">
+                       <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-white/5 h-full flex items-center justify-center text-slate-300">{projectSummaryData.duracao_dias}</div>
+                       <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-white/5 h-full flex items-center justify-center text-slate-300 font-bold">{projectSummaryData.data_inicio_prevista ? format(parseDate(projectSummaryData.data_inicio_prevista), 'dd/MM/yyyy') : '-'}</div>
+                       <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-white/5 h-full flex items-center justify-center text-slate-300 font-bold">{projectSummaryData.data_fim_prevista ? format(parseDate(projectSummaryData.data_fim_prevista), 'dd/MM/yyyy') : '-'}</div>
+                       <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-white/5 h-full flex items-center justify-center text-slate-500 font-normal">-</div>
+                       <div className="w-[60px] flex-shrink-0 text-center px-1 border-r border-white/5 h-full flex items-center justify-center font-black text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.3)]">{projectSummaryData.progresso}%</div>
+                       <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-white/5 h-full flex items-center justify-center text-slate-500 font-normal">-</div>
+                       <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-white/5 h-full flex items-center justify-center text-slate-500 font-normal">-</div>
+                       <div className="w-[140px] flex-shrink-0 text-center px-1 border-r border-white/5 h-full flex items-center justify-center text-slate-500 font-normal">-</div>
+                       <div className="w-[75px] flex-shrink-0 text-center px-1 border-r border-white/5 h-full flex items-center justify-center text-slate-500 font-normal">-</div>
                     </div>
-                    <div className="w-[100px] flex-shrink-0 text-center text-[9px] font-black px-2">
-                      {projectSummaryData.data_fim_prevista ? format(parseDate(projectSummaryData.data_fim_prevista), 'dd/MM/yy') : ''}
-                    </div>
-                    <div className="w-[100px] flex-shrink-0"></div>
-                    <div className="w-[60px] flex-shrink-0 text-center text-[10px] font-black px-2">
-                      {projectSummaryData.progresso || 0}%
-                    </div>
-                    <div className="w-[100px] flex-shrink-0 text-center text-[9px] font-black px-2">
-                      {projectSummaryData.data_inicio_real ? format(parseDate(projectSummaryData.data_inicio_real), 'dd/MM/yy') : ''}
-                    </div>
-                    <div className="w-[100px] flex-shrink-0 text-center text-[9px] font-black px-2">
-                      {projectSummaryData.data_fim_real ? format(parseDate(projectSummaryData.data_fim_real), 'dd/MM/yy') : ''}
-                    </div>
-                    <div className="w-[140px] flex-shrink-0 px-2 text-center text-[9px] font-black">-</div>
-                    <div className="w-[75px] flex-shrink-0 px-2 text-center text-[9px] font-black">-</div>
                   </div>
                 </div>
-              </div>
-            </div>
-            
-            <div className="relative" style={{ height: allRows.length * 40 }}>
-              {allRows.length === 0 ? (
-                <div className="p-8 text-center text-slate-400 text-xs font-bold uppercase tracking-widest">Nenhuma atividade ou etapa definida</div>
-              ) : (
-                allRows.map((row, idx) => {
+              
+              <div className="relative" style={{ height: allRows.length * 40 }}>
+                {allRows.map((row, idx) => {
                   const rowTop = idx * 40;
+                  const isStage = row.type === 'stage' || row.type === 'summary';
+                  const isSummary = row.type === 'summary';
+                  const isAddingRow = row.type === 'adding';
+                  const d = row.data as any;
+                  const fontClass = isStage ? (isSummary ? 'font-black bg-slate-100 text-slate-900 border-b-2 border-slate-300' : 'font-bold bg-slate-50') : 'bg-white hover:bg-slate-50 transition-colors';
                   
-                   if (row.type === 'stage') {
-                    const etapaId = row.id;
-                    const etapaData = row.data;
+                  const isEditing = (editingId === d.id && !isStage && !isAddingRow) || isAddingRow;
+                  const isEditingStage = (editingId === d.id && isStage && !isSummary);
 
-                    return (
-                      <div 
-                        key={`etapa-${etapaId}-${idx}`} 
-                        className={`absolute flex items-center font-bold text-xs border-b border-slate-200 uppercase tracking-wider group min-w-full ${etapaId === 0 ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-700'}`}
-                        style={{ top: rowTop, height: '40px', left: 0, right: 0 }}
-                        onMouseEnter={(e) => {
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          const tlLeft = taskListRef.current ? taskListRef.current.getBoundingClientRect().left : rect.left;
-                          setHoveredRowId(etapaId);
-                          setHoveredRowType('stage');
-                          setHoveredRowData(etapaData);
-                          setBubblePos({ x: tlLeft + 150, y: rect.top + 20 });
-                        }}
-                        onMouseLeave={() => setHoveredRowId(null)}
-                      >
-                        <div className="flex min-w-full items-center h-full">
-                          <div className={`w-[100px] flex-shrink-0 text-center sticky left-0 z-30 h-full flex items-center justify-center ${etapaId === 0 ? 'bg-amber-50' : 'bg-slate-100'}`}>
-                            {etapaData.item}
-                          </div>
-                          <div 
-                            className={`w-[300px] flex-shrink-0 text-left sticky left-[100px] z-30 shadow-[8px_0_6px_-3px_rgba(0,0,0,0.1)] truncate h-full flex items-center ${etapaId === 0 ? 'bg-amber-50' : 'bg-slate-100'}`}
-                          >
-                            <span style={{ paddingLeft: `${(etapaData.item.split('.').length - 1) * 12}px` }} className="flex flex-col">
-                              <span className="truncate">{etapaData.nome}</span>
-                            </span>
-                          </div>
-                          <div className="flex items-center">
-                            <div className="w-[100px] flex-shrink-0 text-center text-[10px] font-bold text-slate-600" title="Duração calculada automaticamente com base nas sub-atividades">
-                              {(etapaData.duracao_dias !== undefined && etapaData.duracao_dias !== null) ? etapaData.duracao_dias : '-'}
-                            </div>
-                            <div className="w-[100px] flex-shrink-0 text-center text-[9px] font-bold text-slate-600">
-                              {etapaData.data_inicio_prevista ? format(parseDate(etapaData.data_inicio_prevista), 'dd/MM/yy') : '-'}
-                            </div>
-                            <div className="w-[100px] flex-shrink-0 text-center text-[9px] font-bold text-slate-600">
-                              {etapaData.data_fim_prevista ? format(parseDate(etapaData.data_fim_prevista), 'dd/MM/yy') : '-'}
-                            </div>
-                            <div className="w-[100px] flex-shrink-0 text-center text-[10px] font-bold text-slate-400">-</div>
-                            <div className="w-[60px] flex-shrink-0 text-center text-[10px] font-bold text-slate-600">
-                              {etapaData.progresso || 0}%
-                            </div>
-                            <div className="w-[100px] flex-shrink-0 text-center text-[9px] font-bold text-slate-600">
-                              {etapaData.data_inicio_real ? format(parseDate(etapaData.data_inicio_real), 'dd/MM/yy') : '-'}
-                            </div>
-                            <div className="w-[100px] flex-shrink-0 text-center text-[9px] font-bold text-slate-600">
-                              {etapaData.data_fim_real ? format(parseDate(etapaData.data_fim_real), 'dd/MM/yy') : '-'}
-                            </div>
-                            <div className="w-[140px] flex-shrink-0 text-center text-[9px] font-bold text-slate-400">-</div>
-                            <div className="w-[75px] flex-shrink-0 flex items-center justify-center">
-                              {viewMode !== 'month' && (
-                                <button 
-                                  onClick={(e) => { e.stopPropagation(); startAdding(typeof etapaId === 'string' ? parseInt(etapaId) : etapaId, row.item); }}
-                                  className="p-1 hover:bg-slate-200 rounded text-slate-500 hover:text-indigo-600 transition-colors"
-                                  title="Adicionar Atividade nesta Etapa"
-                                >
-                                  <Plus size={14} />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        </div>
+                  return (
+                    <div 
+                      key={`left-row-${isAddingRow ? 'adding' : d.id}-${idx}`}
+                      onMouseEnter={(e) => {
+                        if (!isResizing && !editingId && !isAdding) {
+                          setHoveredRowId(isAddingRow ? 'adding' : d.id);
+                          setHoveredRowType(row.type);
+                          setHoveredRowData(d);
+                          
+                          // Balloon is fixed horizontally to the start of the item column
+                          if (containerRef.current) {
+                            const rect = containerRef.current.getBoundingClientRect();
+                            const rowRect = e.currentTarget.getBoundingClientRect();
+                            setBubblePos({
+                               x: rect.left, 
+                               y: rowRect.top + rowRect.height / 2
+                            });
+                          }
+                        }
+                      }}
+                      onMouseMove={(e) => {
+                         if (hoveredRowId !== null && !editingId && containerRef.current) {
+                            const rect = containerRef.current.getBoundingClientRect();
+                            const rowRect = e.currentTarget.getBoundingClientRect();
+                            setBubblePos({
+                               x: rect.left,
+                               y: rowRect.top + rowRect.height / 2
+                            });
+                         }
+                      }}
+                      onMouseLeave={() => setHoveredRowId(null)}
+                      className={`absolute left-0 right-0 h-10 border-b border-slate-200 flex items-center min-w-full text-[11px] ${fontClass} ${isAddingRow ? 'bg-indigo-50/50' : ''}`}
+                      style={{ top: rowTop }}
+                    >
+                      <div className={`w-[100px] h-full flex-shrink-0 text-center sticky left-0 z-40 flex items-center justify-center p-1 ${isStage ? 'bg-slate-50' : 'bg-white'} ${isAddingRow ? 'bg-indigo-50/50' : ''}`}>
+                        {isAddingRow ? (
+                          <span className="text-indigo-600 font-bold">{editForm.item_numero}</span>
+                        ) : (
+                          d.item_numero || row.item
+                        )}
                       </div>
-                    );
-                  } else if (row.type === 'activity' || row.type === 'adding') {
-                    const atv = row.type === 'activity' ? row.data as Atividade : null;
-                    const isEditing = (atv && editingId === atv.id) || row.type === 'adding';
-                    
-                    const isLocked = hasBaseline;
-                    
-                    if (isEditing) {
-                      return (
-                        <div 
-                          key={atv ? `edit-task-${atv.id}-${idx}` : `adding-task-${idx}`}
-                          className={`absolute border-b border-indigo-100 flex items-center bg-indigo-50/30 min-w-full z-50 edit-row-${atv ? atv.id : 'adding'}`}
-                          style={{ top: rowTop, height: '40px', left: 0, right: 0 }}
-                        >
-                            <div className="w-[100px] flex-shrink-0 sticky left-0 z-30 bg-indigo-50/50 h-full flex items-center justify-center">
-                              <input 
-                                type="text"
-                                autoFocus={editingField === 'item_numero'}
-                                value={editForm.item_numero || ''}
-                                onChange={e => {
-                                 const val = e.target.value;
-                                 setEditForm(prev => {
-                                   const next = { ...prev, item_numero: val };
-                                   editFormRef.current = next;
-                                   return next;
-                                 });
-                               }}
-                                onKeyDown={e => handleKeyDown(e, atv?.id)}
-                                onBlur={(e) => atv && handleBlur(e, atv.id)}
-                                disabled={isLocked}
-                                className={`w-full bg-white border border-indigo-200 rounded px-1 py-0.5 text-[10px] font-bold text-slate-700 text-center outline-none focus:ring-1 focus:ring-indigo-500 ${isLocked ? 'opacity-50 cursor-not-allowed' : ''}`}
-                              />
-                            </div>
-                            <div className="w-[300px] flex-shrink-0 sticky left-[100px] z-30 bg-indigo-50/50 shadow-[8px_0_6px_-3px_rgba(0,0,0,0.1)] h-full flex items-center px-3">
-                              <input 
-                                type="text"
-                                autoFocus={editingField === 'nome' || !editingField}
-                                value={editForm.nome || ''}
-                                onChange={e => {
-                                 const val = e.target.value;
-                                 setEditForm(prev => {
-                                   const next = { ...prev, nome: val };
-                                   editFormRef.current = next;
-                                   return next;
-                                 });
-                               }}
-                                onKeyDown={e => handleKeyDown(e, atv?.id)}
-                                onBlur={(e) => atv && handleBlur(e, atv.id)}
-                                disabled={isLocked}
-                                className={`w-full bg-white border border-indigo-200 rounded px-2 py-0.5 text-xs font-bold text-slate-800 outline-none focus:ring-1 focus:ring-indigo-500 ${isLocked ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                placeholder="Nome da Atividade"
-                              />
-                            </div>
-                            
-                            <div className="flex items-center">
-                              {(row.type === 'activity' || row.type === 'adding') ? (
-                                <>
-                                    <div className="relative w-[100px] flex-shrink-0 px-1 flex items-center justify-center">
-                                      {isLocked ? (
-                                        <span className="text-[10px] font-bold text-slate-700">
-                                          {editForm.duracao_dias !== undefined && editForm.duracao_dias !== null ? editForm.duracao_dias : 1}
-                                        </span>
-                                      ) : (
-                                        <input 
-                                          type="number"
-                                          autoFocus={editingField === 'duracao'}
-                                          value={editForm.duracao_dias !== undefined && editForm.duracao_dias !== null ? editForm.duracao_dias : ''}
-                                          onChange={e => {
-                                            const val = e.target.value;
-                                            handleDuracaoChange(val === "" ? "" : parseInt(val));
-                                          }}
-                                          onKeyDown={e => handleKeyDown(e, row.id)}
-                                          onBlur={(e) => atv && handleBlur(e, atv.id)}
-                                          min="0"
-                                          className="w-full bg-white border border-indigo-200 rounded px-1 py-0.5 text-[10px] font-medium text-center outline-none focus:ring-1 focus:ring-indigo-500"
-                                        />
-                                      )}
-                                    </div>
-                                  <div className="w-[100px] flex-shrink-0 px-1 flex items-center justify-center">
-                                    {isLocked ? (
-                                      <span className="text-[9px] font-medium text-slate-600">
-                                        {editForm.data_inicio_prevista ? format(parseDate(editForm.data_inicio_prevista), 'dd/MM/yy') : ''}
-                                      </span>
-                                    ) : (
-                                      <input 
-                                        type="date"
-                                        autoFocus={editingField === 'inicio'}
-                                        value={editForm.data_inicio_prevista || ''}
-                                        onChange={e => handleDataInicioChange(e.target.value)}
-                                        onKeyDown={e => handleKeyDown(e, row.id)}
-                                        onBlur={(e) => atv && handleBlur(e, atv.id)}
-                                        className="w-full bg-white border border-indigo-200 rounded px-0.5 py-0.5 text-[9px] font-medium text-center outline-none focus:ring-1 focus:ring-indigo-500"
-                                      />
-                                    )}
-                                  </div>
-                                  <div className="w-[100px] flex-shrink-0 px-1 flex items-center justify-center">
-                                    {isLocked ? (
-                                      <span className="text-[9px] font-medium text-slate-600">
-                                        {editForm.data_fim_prevista ? format(parseDate(editForm.data_fim_prevista), 'dd/MM/yy') : ''}
-                                      </span>
-                                    ) : (
-                                      <input 
-                                        type="date"
-                                        autoFocus={editingField === 'fim'}
-                                        value={editForm.data_fim_prevista || ''}
-                                        onChange={e => handleDataFimChange(e.target.value)}
-                                        onKeyDown={e => handleKeyDown(e, row.id)}
-                                        onBlur={(e) => atv && handleBlur(e, atv.id)}
-                                        className="w-full bg-white border border-indigo-200 rounded px-0.5 py-0.5 text-[9px] font-medium text-center outline-none focus:ring-1 focus:ring-indigo-500"
-                                      />
-                                    )}
-                                  </div>
-                                  <div className="w-[100px] flex-shrink-0 px-1 flex items-center justify-center">
-                                    {isLocked ? (
-                                      <span className="text-[10px] font-bold text-indigo-600">
-                                        {editForm.predecessores_texto || ''}
-                                      </span>
-                                    ) : (
-                                      <input 
-                                        type="text"
-                                        autoFocus={editingField === 'pred'}
-                                        value={editForm.predecessores_texto || ''}
-                                        onChange={e => {
-                                          const val = e.target.value;
-                                          setEditForm(prev => {
-                                            const next = { ...prev, predecessores_texto: val };
-                                            editFormRef.current = next;
-                                            return next;
-                                          });
-                                        }}
-                                        onKeyDown={e => handleKeyDown(e, row.id)}
-                                        onBlur={(e) => atv && handleBlur(e, atv.id)}
-                                        className="w-full bg-white border border-indigo-200 rounded px-1 py-0.5 text-[10px] font-bold text-indigo-600 text-left outline-none focus:ring-1 focus:ring-indigo-500"
-                                      />
-                                    )}
-                                  </div>
-                                </>
-                              ) : null}
-                             <div className="w-[60px] flex-shrink-0 px-1">
-                               <input 
-                                 type="number"
-                                 min="0" max="100"
-                                 autoFocus={editingField === 'progresso'}
-                                 value={editForm.progresso !== undefined && editForm.progresso !== null ? editForm.progresso : ''}
-                                 onChange={e => {
-                                   const val = e.target.value;
-                                   setEditForm(prev => {
-                                     const next = { ...prev, progresso: val === "" ? "" : parseInt(val) };
-                                     editFormRef.current = next;
-                                     return next;
-                                   });
-                                 }}
-                                 onKeyDown={e => handleKeyDown(e, row.id)}
-                                 onBlur={(e) => atv && handleBlur(e, atv.id)}
-                                 className="w-full bg-white border border-indigo-200 rounded px-1 py-0.5 text-[10px] font-medium text-center outline-none focus:ring-1 focus:ring-indigo-500"
-                               />
-                             </div>
-                            <div className="w-[100px] flex-shrink-0 px-1">
-                              <input 
-                                type="date"
-                                autoFocus={editingField === 'inicio_real'}
-                                value={editForm.data_inicio_real || ''}
-                                onChange={e => {
-                                  const val = e.target.value;
-                                  setEditForm(prev => {
-                                    const next = { ...prev, data_inicio_real: val };
-                                    editFormRef.current = next;
-                                    return next;
-                                  });
-                                }}
-                                onKeyDown={e => handleKeyDown(e, row.id)}
-                                onBlur={(e) => atv && handleBlur(e, atv.id)}
-                                className="w-full bg-white border border-indigo-200 rounded px-0.5 py-0.5 text-[9px] font-medium text-center outline-none focus:ring-1 focus:ring-indigo-500"
-                              />
-                            </div>
-                            <div className="w-[100px] flex-shrink-0 px-1">
-                              <input 
-                                type="date"
-                                autoFocus={editingField === 'fim_real'}
-                                value={editForm.data_fim_real || ''}
-                                onChange={e => {
-                                  const val = e.target.value;
-                                  setEditForm(prev => {
-                                    const next = { ...prev, data_fim_real: val };
-                                    editFormRef.current = next;
-                                    return next;
-                                  });
-                                }}
-                                onKeyDown={e => handleKeyDown(e, row.id)}
-                                onBlur={(e) => atv && handleBlur(e, atv.id)}
-                                className="w-full bg-white border border-indigo-200 rounded px-0.5 py-0.5 text-[9px] font-medium text-center outline-none focus:ring-1 focus:ring-indigo-500"
-                              />
-                            </div>
-                                  <div className="w-[140px] flex-shrink-0 px-1">
-                                    <input 
-                                      type="number"
-                                      placeholder="Produtividade"
-                                      autoFocus={editingField === 'recurso'}
-                                      value={editForm.produtividade || ''}
-                                      onChange={e => {
-                                        const val = e.target.value;
-                                        setEditForm(prev => ({ ...prev, produtividade: parseFloat(val) || 0 }));
-                                      }}
-                                      onKeyDown={e => handleKeyDown(e, atv?.id)}
-                                      className="w-full bg-white border border-indigo-200 rounded px-1 py-0.5 text-[10px] font-medium outline-none"
-                                    />
-                                    <input 
-                                      type="number"
-                                      placeholder="Equipe"
-                                      value={editForm.quantidade_equipe || ''}
-                                      onChange={e => {
-                                        const val = e.target.value;
-                                        setEditForm(prev => ({ ...prev, quantidade_equipe: parseFloat(val) || 0 }));
-                                      }}
-                                      onKeyDown={e => handleKeyDown(e, atv?.id)}
-                                      className="w-full bg-white border border-indigo-200 rounded px-1 py-0.5 text-[10px] font-medium outline-none mt-0.5"
-                                    />
-                                  </div>
-                            <div className="w-[40px] flex-shrink-0 px-1 flex items-center justify-center">
-                              <input 
-                                type="checkbox"
-                                checked={editForm.is_marco || false}
-                                onChange={e => handleMarcoChange(e.target.checked)}
-                                disabled={isLocked}
-                                className={`w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 ${isLocked ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                title="Marco?"
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    }
-
-                    return (
+                      
                       <div 
-                        key={`task-${atv.id}-${idx}`} 
-                        className={`absolute flex items-center border-b border-slate-100 hover:bg-slate-50 group transition-colors cursor-pointer min-w-full ${criticalPathAtividades.has(atv.id) ? 'bg-red-50/30' : ''}`}
-                        style={{ top: rowTop, height: '40px', left: 0, right: 0 }}
-                        onClick={() => startEdit(atv, 'nome')}
-                        onMouseEnter={(e) => {
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          const tlLeft = taskListRef.current ? taskListRef.current.getBoundingClientRect().left : rect.left;
-                          setHoveredRowId(atv.id);
-                          setHoveredRowType('activity');
-                          setHoveredRowData(atv);
-                          setBubblePos({ x: tlLeft + 150, y: rect.top + 20 });
+                        onClick={() => {
+                          if (isSummary) return;
+                          if (isStage) {
+                            setEditingId(d.id);
+                            setEditingField('nome');
+                            setEditForm({ ...d });
+                          } else {
+                            startEdit(d, 'nome');
+                          }
                         }}
-                        onMouseLeave={() => setHoveredRowId(null)}
+                        className={`w-[300px] h-full flex-shrink-0 text-left sticky left-[100px] z-40 shadow-[4px_0_4px_-2px_rgba(0,0,0,0.1)] flex items-center px-3 cursor-text ${isStage ? 'bg-slate-50' : 'bg-white'} ${isAddingRow ? 'bg-indigo-50/50' : ''}`}
                       >
-                        <div 
-                          className="w-[100px] flex-shrink-0 text-[10px] font-medium text-slate-500 truncate text-center sticky left-0 z-30 bg-white group-hover:bg-slate-50 transition-colors h-full flex items-center justify-center"
-                          onMouseEnter={(e) => e.stopPropagation()}
-                          onMouseLeave={(e) => e.stopPropagation()}
-                          onClick={(e) => { e.stopPropagation(); startEdit(atv, 'item_numero'); }}
-                        >
-                          {atv.item_numero || '-'}
+                        {(isEditing || isEditingStage) ? (
+                          <input
+                            className="w-full text-[11px] px-2 py-1 border border-indigo-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500 font-normal outline-none bg-white font-sans text-slate-800"
+                            value={editForm.nome || ''}
+                            onChange={(e) => setEditForm(prev => ({ ...prev, nome: e.target.value }))}
+                            onKeyDown={(e) => handleKeyDown(e, d.id)}
+                            onBlur={() => (isEditingStage ? handleUpdateEtapa(d.id) : handleUpdate(d.id, true))}
+                            autoFocus={editingField === 'nome'}
+                            placeholder={isStage ? "Nome da Etapa" : "Nome da Atividade"}
+                          />
+                        ) : (
+                          <span className="truncate">{d.nome || d.atividade}</span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center h-full">
+                        <div className="w-[100px] flex-shrink-0 text-center px-1 h-full flex items-center justify-center cursor-pointer" onClick={() => !isStage && startEdit(d, 'duracao')}>
+                          {isEditing ? (
+                              <input
+                                  type="number"
+                                  className="w-full text-center text-[11px] px-1 py-1 border border-indigo-300 rounded focus:outline-none font-normal"
+                                  value={editForm.duracao_dias !== undefined ? editForm.duracao_dias : ''}
+                                  onChange={(e) => handleDuracaoChange(e.target.value)}
+                                  onKeyDown={(e) => handleKeyDown(e, d.id)}
+                                  onBlur={() => handleUpdate(d.id, true)}
+                                  autoFocus={editingField === 'duracao'}
+                              />
+                          ) : (
+                             <span className="truncate">{d.duracao_dias}</span>
+                          )}
                         </div>
-                        <div 
-                          className="w-[300px] flex-shrink-0 truncate font-bold text-xs text-slate-800 sticky left-[100px] z-30 bg-white group-hover:bg-slate-50 shadow-[8px_0_6px_-3px_rgba(0,0,0,0.1)] transition-colors h-full flex items-center" 
-                          title={atv.nome}
-                          onClick={(e) => { e.stopPropagation(); startEdit(atv, 'nome'); }}
-                        >
-                          <span style={{ paddingLeft: `${(atv.item_numero?.split('.').length - 1 || 0) * 12}px` }}>
-                            {atv.nome}
-                          </span>
+
+                        <div className="w-[100px] flex-shrink-0 text-center px-1 h-full flex items-center justify-center cursor-pointer" onClick={() => !isStage && startEdit(d, 'inicio')}>
+                          {isEditing ? (
+                              <input
+                                  type="date"
+                                  className="w-full text-center text-[10px] px-0.5 py-1 border border-indigo-300 rounded focus:outline-none font-normal"
+                                  value={editForm.data_inicio_prevista || ''}
+                                  onChange={(e) => handleDataInicioChange(e.target.value)}
+                                  onKeyDown={(e) => handleKeyDown(e, d.id)}
+                                  onBlur={() => handleUpdate(d.id, true)}
+                                  autoFocus={editingField === 'inicio'}
+                              />
+                          ) : (
+                             <span className="truncate">{d.data_inicio_prevista ? format(parseDate(d.data_inicio_prevista), 'dd/MM/yyyy') : ''}</span>
+                          )}
+                        </div>
+
+                        <div className="w-[100px] flex-shrink-0 text-center px-1 h-full flex items-center justify-center cursor-pointer" onClick={() => !isStage && startEdit(d, 'fim')}>
+                           {isEditing ? (
+                              <input
+                                  type="date"
+                                  className="w-full text-center text-[10px] px-0.5 py-1 border border-indigo-300 rounded focus:outline-none font-normal disabled:bg-slate-100 disabled:text-slate-500"
+                                  value={editForm.data_fim_prevista || ''}
+                                  onChange={(e) => handleDataFimChange(e.target.value)}
+                                  onKeyDown={(e) => handleKeyDown(e, d.id)}
+                                  onBlur={() => handleUpdate(d.id, true)}
+                                  autoFocus={editingField === 'fim'}
+                                  disabled={(!editForm.is_marco && editForm.duracao_dias !== "" && editForm.duracao_dias !== undefined && editForm.duracao_dias !== 0)}
+                              />
+                          ) : (
+                             <span className="truncate">{d.data_fim_prevista ? format(parseDate(d.data_fim_prevista), 'dd/MM/yyyy') : ''}</span>
+                          )}
+                        </div>
+
+                        <div className="w-[100px] flex-shrink-0 text-center px-1 h-full flex items-center justify-center cursor-pointer" onClick={() => !isStage && startEdit(d, 'pred')}>
+                           {isEditing ? (
+                              <input
+                                  className="w-full text-center text-[11px] px-1 py-1 border border-indigo-300 rounded focus:outline-none font-normal"
+                                  value={editForm.predecessores_texto || ''}
+                                  onChange={(e) => handlePredecessoresTextoChange(e.target.value)}
+                                  onKeyDown={(e) => handleKeyDown(e, d.id)}
+                                  onBlur={() => handleUpdate(d.id, true)}
+                                  autoFocus={editingField === 'pred'}
+                                  placeholder="Ex: 2FS+3"
+                              />
+                           ) : (
+                              <span className="truncate">{d.predecessores_texto || ''}</span>
+                           )}
+                        </div>
+
+                        <div className="w-[60px] flex-shrink-0 text-center px-1 font-bold text-slate-500 h-full flex items-center justify-center cursor-pointer" onClick={() => !isStage && startEdit(d, 'progresso')}>
+                           {isEditing ? (
+                              <input
+                                  type="number"
+                                  className="w-full text-center text-[11px] px-1 py-1 border border-indigo-300 rounded focus:outline-none font-normal"
+                                  value={editForm.progresso !== undefined ? editForm.progresso : ''}
+                                  onChange={(e) => setEditForm(prev => ({...prev, progresso: parseFloat(e.target.value) || 0 }))}
+                                  onKeyDown={(e) => handleKeyDown(e, d.id)}
+                                  onBlur={() => handleUpdate(d.id, true)}
+                                  autoFocus={editingField === 'progresso'}
+                              />
+                           ) : (
+                              <span className="truncate">{(d.progresso != null ? `${d.progresso}%` : '0%')}</span>
+                           )}
                         </div>
                         
-                        <div 
-                          className="flex items-center h-full flex-grow cursor-default"
-                          onMouseEnter={(e) => { setHoveredRowId(null); e.stopPropagation(); }}
-                        >
-                          <div 
-                            className={`w-[100px] h-full flex items-center justify-center flex-shrink-0 text-center text-[10px] font-medium text-slate-500 relative ${atv.data_inicio_base ? 'bg-slate-50/50' : ''}`}
-                            onClick={(e) => { e.stopPropagation(); startEdit(atv, 'duracao'); }}
-                          >
-                            {atv.duracao_dias !== undefined && atv.duracao_dias !== null ? atv.duracao_dias : ''}
-                            {atv.data_inicio_base && (
-                              <div className="absolute right-1" title="Bloqueado por Linha Base">
-                                <Clock size={8} className="text-slate-300" />
-                              </div>
-                            )}
-                          </div>
-                          <div 
-                            className="w-[100px] h-full flex items-center justify-center flex-shrink-0 text-center text-[9px] font-medium text-slate-500"
-                            onClick={(e) => { e.stopPropagation(); startEdit(atv, 'inicio'); }}
-                          >
-                            {atv.data_inicio_prevista ? format(parseDate(atv.data_inicio_prevista), 'dd/MM/yy') : '-'}
-                          </div>
-                          <div 
-                            className="w-[100px] h-full flex items-center justify-center flex-shrink-0 text-center text-[9px] font-medium text-slate-500"
-                            onClick={(e) => { e.stopPropagation(); startEdit(atv, 'fim'); }}
-                          >
-                            {atv.data_fim_prevista ? format(parseDate(atv.data_fim_prevista), 'dd/MM/yy') : '-'}
-                          </div>
-                          <div 
-                            className="w-[100px] h-full flex items-center justify-center flex-shrink-0 text-[10px] font-bold text-indigo-600 truncate text-center"
-                            onClick={(e) => { e.stopPropagation(); startEdit(atv, 'pred'); }}
-                          >
-                            <span className="bg-indigo-50/30 rounded py-0.5 px-2 border border-indigo-100/50 w-full mx-1 truncate">
-                              {atv.predecessores_texto || getPredecessoresTexto(atv.predecessor_ids || []) || '-'}
-                            </span>
-                          </div>
-                          <div 
-                            className="w-[60px] h-full flex items-center justify-center flex-shrink-0 text-center text-[10px] font-medium text-slate-500"
-                            onClick={(e) => { e.stopPropagation(); startEdit(atv, 'progresso'); }}
-                          >
-                            {atv.progresso !== undefined && atv.progresso !== null ? `${atv.progresso}%` : ''}
-                          </div>
-                          <div 
-                            className="w-[100px] h-full flex items-center justify-center flex-shrink-0 text-center text-[9px] font-medium text-slate-500"
-                            onClick={(e) => { e.stopPropagation(); startEdit(atv, 'inicio_real'); }}
-                          >
-                            {atv.data_inicio_real ? format(parseDate(atv.data_inicio_real), 'dd/MM/yy') : '-'}
-                          </div>
-                          <div 
-                            className="w-[100px] h-full flex items-center justify-center flex-shrink-0 text-center text-[9px] font-medium text-slate-500"
-                            onClick={(e) => { e.stopPropagation(); startEdit(atv, 'fim_real'); }}
-                          >
-                            {atv.data_fim_real ? format(parseDate(atv.data_fim_real), 'dd/MM/yy') : '-'}
-                          </div>
-                          <div 
-                            className="w-[140px] h-full flex items-center justify-center flex-shrink-0 text-[10px] font-medium text-slate-500 truncate text-center"
-                            onClick={(e) => { e.stopPropagation(); startEdit(atv, 'recurso'); }}
-                          >
-                            <div className="flex flex-col items-center">
-                                <span>P: {atv.produtividade || 0}</span>
-                                <span>E: {atv.quantidade_equipe || 0}</span>
-                            </div>
-                          </div>
-                          <div className="w-[75px] flex-shrink-0 flex items-center justify-center h-full">
-                            <input 
-                              type="checkbox" 
-                              checked={!!atv.is_marco} 
-                              onChange={() => !atv.data_inicio_base && toggleMarco(atv)}
-                              disabled={!!atv.data_inicio_base}
-                              className={`w-3.5 h-3.5 text-amber-500 border-slate-300 rounded focus:ring-amber-500 ${atv.data_inicio_base ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                              title="Alternar Marco"
-                            />
-                          </div>
+                        <div className="w-[100px] flex-shrink-0 text-center px-1 h-full flex items-center justify-center cursor-pointer" onClick={() => !isStage && startEdit(d, 'inicioreal')}>
+                           {isEditing ? (
+                              <input
+                                  type="date"
+                                  className="w-full text-center text-[10px] px-0.5 py-1 border border-indigo-300 rounded focus:outline-none font-normal"
+                                  value={editForm.data_inicio_real || ''}
+                                  onChange={(e) => setEditForm(prev => ({...prev, data_inicio_real: e.target.value }))}
+                                  onKeyDown={(e) => handleKeyDown(e, d.id)}
+                                  onBlur={() => handleUpdate(d.id, true)}
+                                  autoFocus={editingField === 'inicioreal'}
+                              />
+                           ) : (
+                              <span className="truncate">{d.data_inicio_real ? format(parseDate(d.data_inicio_real), 'dd/MM/yyyy') : ''}</span>
+                           )}
                         </div>
+
+                        <div className="w-[100px] flex-shrink-0 text-center px-1 h-full flex items-center justify-center cursor-pointer" onClick={() => !isStage && startEdit(d, 'fimreal')}>
+                           {isEditing ? (
+                              <input
+                                  type="date"
+                                  className="w-full text-center text-[10px] px-0.5 py-1 border border-indigo-300 rounded focus:outline-none font-normal"
+                                  value={editForm.data_fim_real || ''}
+                                  onChange={(e) => setEditForm(prev => ({...prev, data_fim_real: e.target.value }))}
+                                  onKeyDown={(e) => handleKeyDown(e, d.id)}
+                                  onBlur={() => handleUpdate(d.id, true)}
+                                  autoFocus={editingField === 'fimreal'}
+                              />
+                           ) : (
+                              <span className="truncate">{d.data_fim_real ? format(parseDate(d.data_fim_real), 'dd/MM/yyyy') : ''}</span>
+                           )}
+                        </div>
+
+                        <div className="w-[140px] flex-shrink-0 text-center px-1 text-slate-500 h-full flex items-center justify-center cursor-pointer" onClick={() => !isStage && startEdit(d, 'recurso')}>
+                           {isEditing ? (
+                              <input
+                                  className="w-full text-center text-[11px] px-1 py-1 border border-indigo-300 rounded focus:outline-none font-normal text-slate-800"
+                                  value={editForm.recurso || ''}
+                                  onChange={(e) => setEditForm(prev => ({...prev, recurso: e.target.value }))}
+                                  onKeyDown={(e) => handleKeyDown(e, d.id)}
+                                  onBlur={() => handleUpdate(d.id, true)}
+                                  autoFocus={editingField === 'recurso'}
+                                  placeholder="Recurso principal"
+                              />
+                           ) : (
+                              <span className="truncate">{d.recurso || ''}</span>
+                           )}
+                        </div>
+                        
+                        <div className="w-[75px] flex-shrink-0 text-center px-1 font-bold text-orange-500 h-full flex items-center justify-center cursor-pointer" onClick={() => !isStage && startEdit(d, 'marco')}>
+                           {isEditing ? (
+                              <select
+                                  className="w-full text-center text-[11px] px-1 py-1 border border-indigo-300 rounded focus:outline-none font-normal text-slate-800 bg-white"
+                                  value={editForm.is_marco ? 'true' : 'false'}
+                                  onChange={(e) => handleMarcoChange(e.target.value === 'true')}
+                                  onKeyDown={(e) => handleKeyDown(e, d.id)}
+                                  onBlur={() => handleUpdate(d.id, true)}
+                                  autoFocus={editingField === 'marco'}
+                              >
+                                <option value="false">Não</option>
+                                <option value="true">Sim</option>
+                              </select>
+                           ) : (
+                              <span className="truncate">{d.is_marco ? 'Sim' : ''}</span>
+                           )}
+                        </div>
+
                       </div>
-                    );
-                  }
-                  return null;
-                })
-              )}
-            </div>
-            {/* Spacer to allow scrolling past the last row */}
-            <div style={{ height: '400px' }} />
-          </div>
-        </div>
-
-        {/* Resizable Divider */}
-        <div 
-          className={`w-1 group flex-shrink-0 cursor-col-resize transition-colors relative z-[60] ${isResizing ? 'bg-indigo-500' : 'bg-slate-200 hover:bg-indigo-400'}`}
-          onMouseDown={startResizing}
-        >
-          {/* Interaction area extension */}
-          <div className="absolute inset-y-0 -left-1.5 -right-1.5 cursor-col-resize z-10" />
-          
-          {/* Visual indicator handle */}
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col gap-1 items-center z-20">
-            <div className="w-0.5 h-0.5 rounded-full bg-slate-400 group-hover:bg-white" />
-            <div className="w-0.5 h-0.5 rounded-full bg-slate-400 group-hover:bg-white" />
-            <div className="w-0.5 h-0.5 rounded-full bg-slate-400 group-hover:bg-white" />
-          </div>
-        </div>
-
-        {/* Right Pane: Timeline */}
-        <div 
-          ref={timelineRef}
-          onMouseDown={dragScroll.onMouseDown}
-          onMouseMove={dragScroll.onMouseMove}
-          onMouseUp={dragScroll.onMouseUp}
-          onMouseLeave={dragScroll.onMouseLeave}
-          className="flex-1 relative bg-slate-50 overflow-x-auto overflow-y-visible gantt-scroll-container custom-scrollbar"
-          style={{ height: 'max-content', minHeight: '100%' }}
-        >
-          <div className="min-w-max" style={{ minWidth: viewMode === 'day' ? `${columns.length * 30}px` : '100%' }}>
-            
-            {/* Timeline Headers */}
-            <div className="h-16 border-b border-slate-200 bg-white sticky top-0 z-50 overflow-hidden">
-              {/* Top Header (Months/Years) */}
-              <div className="flex border-b border-slate-200 h-8 relative bg-slate-800">
-                {headers.topHeaders.map((th, i) => (
-                  <div 
-                    key={`th-${i}`} 
-                    className="flex items-center justify-center border-r border-slate-700/30 text-[10px] font-black text-white uppercase tracking-widest capitalize z-20"
-                    style={{ width: `${(th.colSpan / columns.length) * 100}%` }}
-                  >
-                    {th.label}
-                  </div>
-                ))}
-              </div>
-              
-              {/* Bottom Header (Days/Weeks/Months) */}
-              <div className="flex h-8 relative bg-slate-900 border-b border-slate-800">
-                {/* Project Summary Bar in Header (RESTORED) */}
-                {(() => {
-                  const currentInicio = (projectSummaryData as any).data_inicio_atual;
-                  const currentFim = (projectSummaryData as any).data_fim_atual;
-                  const currentStyle = currentInicio && currentFim ? getTaskStyle(currentInicio, currentFim) : { display: 'none' } as any;
-                  const hasBaseline = !!projectSummaryData.data_inicio_base;
-                  
-                  if (currentStyle.display === 'none') return null;
-                  
-                  return (
-                    <div 
-                      className={`absolute rounded-sm z-10 flex items-center shadow-sm overflow-visible h-1 pointer-events-none ${
-                        hasBaseline ? 'bg-amber-900' : 'bg-slate-900'
-                      }`}
-                      style={{ ...currentStyle, bottom: '2px' }}
-                    >
-                      <div className={`absolute -left-px -bottom-0.5 w-0 h-0 border-l-[4px] border-r-[4px] border-t-[5px] border-l-transparent border-r-transparent ${
-                        hasBaseline ? 'border-t-amber-900' : 'border-t-slate-900'
-                      }`}></div>
-                      <div className={`absolute -right-px -bottom-0.5 w-0 h-0 border-l-[4px] border-r-[4px] border-t-[5px] border-l-transparent border-r-transparent ${
-                        hasBaseline ? 'border-t-amber-900' : 'border-t-slate-900'
-                      }`}></div>
-                    </div>
-                  );
-                })()}
-
-                {headers.bottomHeaders.map((col, i) => {
-                  let label = '';
-                  if (viewMode === 'day') label = format(col, 'dd');
-                  else if (viewMode === 'week') label = `S${i + 1}`;
-                  else if (viewMode === 'month') label = format(col, 'MMM', { locale: ptBR });
-
-                  const isToday = i === todayColumnIndex;
-                  return (
-                    <div 
-                      key={`bh-${i}`} 
-                      className={`flex items-center justify-center border-r border-slate-800 text-[10px] font-bold ${
-                        isToday ? 'bg-yellow-500 text-slate-900 shadow-[inset_0_-2px_0_rgba(0,0,0,0.2)]' : 'bg-slate-900 text-white'
-                      }`}
-                      style={{ width: `${(1 / columns.length) * 100}%` }}
-                    >
-                      {label}
                     </div>
                   );
                 })}
               </div>
             </div>
-
-            {/* Timeline Grid & Bars */}
-            <div className="relative" style={{ height: allRows.length * 40 }}>
-              {/* Vertical Grid Lines */}
-              <div className="absolute inset-0 flex pointer-events-none">
-                {columns.map((col, i) => (
-                  <div 
-                    key={`grid-${i}`} 
-                    className={`border-r border-slate-200/50 h-full ${viewMode === 'day' && !isWorkingDay(col) ? 'bg-slate-100/80' : ''}`}
-                    style={{ width: `${(1 / columns.length) * 100}%` }}
-                  />
-                ))}
+          </div>
+          
+          {/* Resizable Divider */}
+          <div 
+            className={`w-1 group flex-shrink-0 cursor-col-resize transition-colors relative z-[60] ${isResizing ? 'bg-indigo-500' : 'bg-slate-200 hover:bg-indigo-400'}`}
+            onMouseDown={startResizing}
+          >
+            {/* Interaction area extension */}
+            <div className="absolute inset-y-0 -left-1.5 -right-1.5 cursor-col-resize z-10" />
+            
+            {/* Visual indicator handle */}
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col gap-1 items-center z-20">
+              <div className="w-0.5 h-0.5 rounded-full bg-slate-400 group-hover:bg-white" />
+              <div className="w-0.5 h-0.5 rounded-full bg-slate-400 group-hover:bg-white" />
+              <div className="w-0.5 h-0.5 rounded-full bg-slate-400 group-hover:bg-white" />
+            </div>
+          </div>
+          
+          {/* Right Pane: Timeline */}
+          <div 
+            ref={timelineRef}
+            onMouseDown={(e) => {
+              setFocusedSection('chart');
+              timelineDragScroll.onMouseDown(e);
+            }}
+            onMouseMove={timelineDragScroll.onMouseMove}
+            onMouseUp={timelineDragScroll.onMouseUp}
+            onMouseLeave={timelineDragScroll.onMouseLeave}
+            onScroll={handleTimelineScroll}
+            className={`flex-1 relative bg-slate-50 overflow-auto gantt-scroll-container custom-scrollbar h-full transition-shadow duration-300 ${
+              focusedSection === 'chart' ? 'shadow-[inset_4px_0_12px_-2px_rgba(79,70,229,0.1)]' : ''
+            }`}
+          >
+            <div className="min-w-full relative" style={{ width: columns.length > 0 ? `max(100%, ${columns.length * (viewMode === 'day' ? 40 : viewMode === 'week' ? 60 : 80)}px)` : '100%' }}>
+              <div className="h-16 border-b border-slate-200 sticky top-0 z-50 bg-slate-50 min-w-full flex flex-col">
+                <div className="h-8 border-b border-slate-700/30 bg-slate-800 flex items-center min-w-full z-[51]">
+                  {headers.topHeaders.map((header, idx) => (
+                    <div 
+                      key={`top-${idx}`} 
+                      className="h-full border-r border-slate-700/50 flex items-center justify-center text-[10px] uppercase font-bold tracking-widest text-[#94a3b8] flex-shrink-0"
+                      style={{ width: `${(header.colSpan / columns.length) * 100}%` }}
+                    >
+                      {header.label}
+                    </div>
+                  ))}
+                </div>
+                <div className="h-8 border-b border-slate-700/30 bg-slate-900 flex items-center min-w-full z-[51]">
+                  {headers.bottomHeaders.map((col, idx) => (
+                    <div 
+                      key={`bottom-${idx}`} 
+                      className="h-full border-r border-slate-700/50 flex flex-col items-center justify-center text-[10px] font-bold text-white relative shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] pt-0.5 flex-shrink-0 overflow-hidden"
+                      style={{ width: `${(1 / columns.length) * 100}%` }}
+                    >
+                      {viewMode === 'day' ? format(col, 'd') : viewMode === 'week' ? `S${format(col, 'w')}` : format(col, 'MMM', { locale: ptBR })}
+                      {viewMode === 'day' && <span className="text-[8px] text-slate-400 font-medium">{format(col, 'eeeee', { locale: ptBR })}</span>}
+                    </div>
+                  ))}
+                </div>
               </div>
+              <div className="relative" style={{ height: allRows.length * 40 }}>
+                {/* Non-working days highlight */}
+                {viewMode === 'day' && columns.map((col, idx) => {
+                  if (!isWorkingDay(col)) {
+                    return (
+                      <div 
+                        key={`non-working-${idx}`}
+                        className="absolute top-0 bottom-0 pointer-events-none bg-slate-200/40 z-[2]"
+                        style={{ 
+                          left: `${(idx / columns.length) * 100}%`, 
+                          width: `${(1 / columns.length) * 100}%`
+                        }}
+                      />
+                    );
+                  }
+                  return null;
+                })}
 
               {/* Today Column Highlight (Solid) */}
               {todayColumnIndex !== -1 && (
@@ -2951,8 +2756,9 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
 
                 const isActivityOrAdding = row.type === 'activity' || row.type === 'adding';
 
-                if (row.type === 'stage') {
+                if (row.type === 'stage' || row.type === 'summary') {
                   const stageData = row.data;
+                  const isProjectSummary = row.type === 'summary';
                   const currentInicio = stageData.data_inicio_atual || stageData.data_inicio_real || stageData.data_inicio_prevista;
                   const currentFim = stageData.data_fim_atual || stageData.data_fim_real || stageData.data_fim_prevista;
                   
@@ -2968,15 +2774,15 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                         <div className="flex h-full w-full pointer-events-none">
                           {columns.map((col, colIdx) => {
                             const monthKey = format(col, 'yyyy-MM');
-                            const medVal = monthlySummary.medicao[row.id]?.[monthKey]?.valor || 0;
-                            const planVal = monthlySummary.planned[row.id]?.[monthKey]?.valor || 0;
+                            const medVal = isProjectSummary ? monthlySummary.projectMedicao[monthKey]?.valor || 0 : monthlySummary.medicao[row.id]?.[monthKey]?.valor || 0;
+                            const planVal = isProjectSummary ? monthlySummary.projectPlanned[monthKey]?.valor || 0 : monthlySummary.planned[row.id]?.[monthKey]?.valor || 0;
                             const monthWidth = (1 / columns.length) * 100;
                             
                             if (medVal === 0 && planVal === 0) return <div key={colIdx} style={{ width: `${monthWidth}%` }} className="border-r border-slate-200/30" />;
                             
-                            const totalStageVal = stageData.valor || monthlySummary.stageTotals[row.id] || 1;
-                            const medPercTotal = medVal > 0 ? (medVal / totalStageVal) * 100 : 0;
-                            const planPercTotal = planVal > 0 ? (planVal / (monthlySummary.stageTotals[row.id] || 1)) * 100 : 0;
+                            const totalStageVal = isProjectSummary ? monthlySummary.projectTotal : (stageData.valor || monthlySummary.stageTotals[row.id] || 1);
+                            const medPercTotal = medVal > 0 ? (medVal / (totalStageVal || 1)) * 100 : 0;
+                            const planPercTotal = planVal > 0 ? (planVal / (totalStageVal || 1)) * 100 : 0;
 
                             return (
                               <div key={colIdx} style={{ width: `${monthWidth}%` }} className="relative h-full flex items-center px-1 border-r border-slate-200/30">
@@ -3007,14 +2813,16 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                           {/* Current Stage Bar: Thin slate bar with pointy ends */}
                           {currentInicio && currentFim && currentStyle.display !== 'none' && (
                             <div 
-                              className={`absolute -translate-y-1/2 rounded-sm z-10 flex items-center shadow-sm overflow-visible h-3 ${
+                              className={`absolute -translate-y-1/2 rounded-sm z-30 flex items-center shadow-md overflow-visible h-4 ${
+                                isProjectSummary ? 'bg-black border border-slate-700' :
                                 stageData.data_inicio_base ? 'bg-amber-800' : 'bg-slate-800'
                               }`}
-                              style={{ ...currentStyle, top: '16px' }}
+                              style={{ ...currentStyle, top: '20px' }}
                             >
                               {/* Progress fill for stage */}
                               <div 
                                 className={`absolute top-0 left-0 h-full opacity-80 rounded-l-sm ${
+                                  isProjectSummary ? 'bg-emerald-500' :
                                   stageData.data_inicio_base ? 'bg-amber-400' : 'bg-indigo-500'
                                 }`}
                                 style={{ width: `${stageData.progresso || 0}%` }}
@@ -3026,13 +2834,17 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                                 </span>
                               </div>
                               
-                              {/* Pointy ends for stage bar */}
-                              <div className={`absolute -left-px -bottom-1 w-0 h-0 border-l-[4px] border-r-[4px] border-t-[5px] border-l-transparent border-r-transparent ${
-                                stageData.data_inicio_base ? 'border-t-amber-800' : 'border-t-slate-800'
-                              } z-20`}></div>
-                              <div className={`absolute -right-px -bottom-1 w-0 h-0 border-l-[4px] border-r-[4px] border-t-[5px] border-l-transparent border-r-transparent ${
-                                stageData.data_inicio_base ? 'border-t-amber-800' : 'border-t-slate-800'
-                              } z-20`}></div>
+                              {/* Pointy ends for stage bar (hidden for summary) */}
+                              {!isProjectSummary && (
+                                <>
+                                  <div className={`absolute -left-px -bottom-1.5 w-0 h-0 border-l-[4px] border-r-[4px] border-t-[5px] border-l-transparent border-r-transparent ${
+                                    stageData.data_inicio_base ? 'border-t-amber-800' : 'border-t-slate-800'
+                                  } z-20`}></div>
+                                  <div className={`absolute -right-px -bottom-1.5 w-0 h-0 border-l-[4px] border-r-[4px] border-t-[5px] border-l-transparent border-r-transparent ${
+                                    stageData.data_inicio_base ? 'border-t-amber-800' : 'border-t-slate-800'
+                                  } z-20`}></div>
+                                </>
+                              )}
                             </div>
                           )}
 
@@ -3201,71 +3013,15 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
           </div>
         </div>
       </div>
-
-      {/* Error Message */}
-      <AnimatePresence>
-        {error && (
-          <motion.div 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            className="fixed bottom-4 right-4 bg-red-600 text-white px-4 py-3 rounded-lg shadow-lg z-50 flex items-center gap-3"
-          >
-            <AlertCircle size={20} />
-            <span className="text-sm font-medium">{error}</span>
-            <button onClick={() => setError(null)} className="hover:bg-red-700 p-1 rounded transition-colors">
-              <X size={16} />
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Delete Confirmation Modal */}
-      <AnimatePresence>
-        {deleteConfirmId && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6"
-            >
-              <div className="flex items-center gap-4 text-red-600 mb-4">
-                <div className="p-3 bg-red-50 rounded-full">
-                  <Trash2 size={24} />
-                </div>
-                <h3 className="text-xl font-bold">Excluir Atividade?</h3>
-              </div>
-              <p className="text-slate-600 mb-6">
-                Tem certeza que deseja excluir esta atividade? Esta ação não pode ser desfeita e pode afetar o cronograma de atividades dependentes.
-              </p>
-              <div className="flex gap-3 justify-end">
-                <button 
-                  onClick={() => setDeleteConfirmId(null)}
-                  className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-100 rounded-lg transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button 
-                  onClick={() => handleDelete(deleteConfirmId)}
-                  className="px-6 py-2 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 shadow-lg shadow-red-200 transition-all"
-                >
-                  Confirmar Exclusão
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Advanced Settings Modal */}
-      <AnimatePresence>
+    </div>
+    
+    <AnimatePresence>
         {isConfigOpen && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4 overflow-y-auto">
             <motion.div 
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
               className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-8 my-8"
             >
               <div className="flex items-center justify-between mb-8">
@@ -3518,6 +3274,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                     setAddingToStage(hoveredRowId);
                     setAddingAfterId(hoveredRowId);
                     setAddingAfterType('stage');
+                    setEditingField('nome');
                     setEditForm({
                       item_numero: nextItem,
                       nome: '',
@@ -3546,6 +3303,13 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                   <Plus size={12} /> NOVA ATV
                 </button>
                 <div className="w-px h-4 bg-slate-200" />
+                <button 
+                  onClick={() => setDeleteConfirmId(hoveredRowId)}
+                  className="text-[10px] font-black text-red-500 hover:text-red-700 bg-red-50 px-2 py-1 rounded transition-colors flex items-center gap-1"
+                  title="Excluir Etapa"
+                >
+                  <Trash2 size={12} /> EXCLUIR
+                </button>
               </>
             )}
 
@@ -3564,6 +3328,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                     setAddingToStage(stageId);
                     setAddingAfterId(hoveredRowId);
                     setAddingAfterType('activity');
+                    setEditingField('nome');
                     setEditForm({
                       item_numero: nextItem,
                       nome: '',
@@ -3592,6 +3357,17 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                   <Plus size={12} /> NOVA ATV
                 </button>
                 <div className="w-px h-4 bg-slate-200" />
+                <button 
+                  onClick={() => !hoveredRowData.data_inicio_base && setDeleteConfirmId(hoveredRowId)}
+                  disabled={!!hoveredRowData.data_inicio_base}
+                  className={`text-[10px] font-black flex items-center gap-1 transition-colors ${
+                    !!hoveredRowData.data_inicio_base ? 'text-slate-300' : 'text-red-500 hover:text-red-700 bg-red-50'
+                  } px-2 py-1 rounded`}
+                  title="Excluir"
+                >
+                  <Trash2 size={12} /> EXCLUIR
+                </button>
+                <div className="w-px h-4 bg-slate-200" />
               </>
             )}
             
@@ -3610,26 +3386,15 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                 >
                   <Settings size={14} /> EDIÇÃO
                 </button>
-                <div className="w-px h-4 bg-slate-200" />
-                <button 
-                  onClick={() => !hoveredRowData.data_inicio_base && setDeleteConfirmId(hoveredRowId)}
-                  disabled={!!hoveredRowData.data_inicio_base}
-                  className={`text-[10px] font-black flex items-center gap-1 transition-colors ${
-                    hoveredRowData.data_inicio_base 
-                      ? 'text-slate-300 cursor-not-allowed' 
-                      : 'text-red-500 hover:text-red-700'
-                  }`}
-                  title={hoveredRowData.data_inicio_base ? "Não é possível excluir atividade com Linha de Base" : "Exclusão"}
-                >
-                  <Trash2 size={14} /> EXCLUSÃO
-                </button>
               </>
             )}
           </motion.div>
         )}
         </AnimatePresence>
-      </div>
+
+
     </div>
-  </div>
+    </div>
+    </div>
 );
 };
