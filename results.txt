@@ -1,0 +1,248 @@
+1:import React, { useState, useEffect, useRef, useCallback, Component, ErrorInfo, ReactNode } from 'react';
+11:  Ruler,
+14:  ChevronRight,
+25:  ArrowRight,
+51:  RefreshCw,
+64:  ResponsiveContainer, 
+83:import { truncateToTwo, formatFinancial, calculateItemTotal, parseBrazilianNumber, BRAZILIAN_STATES } from './utils';
+97:import { ResetPassword } from './pages/ResetPassword';
+100:  BrowserRouter as Router, 
+101:  Routes, 
+102:  Route, 
+109:// Removed local InsumosView, ComposicoesView, and AutocompleteDropdown to resolve TS2440 conflicts
+110:// Removed local InsumosView implementation
+111:// Removed local ComposicoesView implementation
+112:// Removed local AutocompleteDropdown to resolve TS2440 conflict
+224:                  <span className="text-sm font-bold text-slate-900">{new Date(med.data_medicao).toLocaleDateString('pt-BR')}</span>
+228:                    {new Date(med.periodo_inicio).toLocaleDateString('pt-BR')} até {new Date(med.periodo_fim).toLocaleDateString('pt-BR')}
+232:                  <span className="text-sm font-black text-emerald-600">R$ {formatFinancial(med.total_valor || 0)}</span>
+236:                    <ArrowRight size={16} />
+253:              <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">Registrar Nova Medição</h3>
+346:                  R$ {formatFinancial(medicaoItems.reduce((acc, item) => acc + (item.quantidade_medida * (item.custo_unitario_aplicado || 0) * (bdiIncidence === 'unitario' ? (1 + bdiValue / 100) : 1)), 0) * (bdiIncidence === 'final' ? (1 + bdiValue / 100) : 1))}
+387:    dataReferencia: '2026-04'
+398:  const fetchCompositionInsumos = useCallback(async (composicaoId: number, dataReferencia: string, estado: string, desonerado: boolean, bancosAtivos: any[]) => {
+399:    console.log(`Fetching insumos for composition ${composicaoId} with dataReferencia: "${dataReferencia}"`);
+400:    if (!dataReferencia) {
+401:        console.error(`dataReferencia is missing for composition ${composicaoId}`);
+403:    const params = new URLSearchParams({
+404:      data_referencia: dataReferencia,
+422:  const calculateAbcData = useCallback(async (orcamentoItems: OrcamentoItem[], dataReferencia: string, estado: string, desonerado: boolean, bancosAtivos: any[], bdiIncidence: string = 'unitario', bdiValue: number = 0) => {
+424:      console.log('Calculating ABC data. Total items:', orcamentoItems.length, 'Data Referencia:', dataReferencia);
+436:        const results = await Promise.all(compositionItems.map(item => fetchCompositionInsumos(item.item_id!, dataReferencia, estado, desonerado, bancosAtivos)));
+493:      const abcResult = sortedItems.map(item => {
+502:      console.log('ABC data calculated, items:', abcResult.length);
+503:      setAbcData(abcResult);
+512:      calculateAbcData(orcamento, encargos.dataReferencia, encargos.estado, encargos.desonerado, bancosAtivos, bdiIncidence, bdiValue);
+514:  }, [orcamento, calculateAbcData, encargos.dataReferencia, encargos.estado, encargos.desonerado, bancosAtivos, bdiIncidence, bdiValue]);
+529:  const fetchDatabases = async (initialDataReferencia?: string, initialBancosAtivos?: any[]) => {
+542:        const currentDataRef = initialDataReferencia || encargos.dataReferencia;
+550:            data_referencia: (typeof found === 'object' && found.data_referencia) ? found.data_referencia : (currentDataRef || db.data_referencia)
+563:    const params = new URLSearchParams({
+566:      data_referencia: encargos.dataReferencia,
+629:        const obraDataRef = data?.data_referencia || encargos.dataReferencia;
+634:          dataReferencia: obraDataRef
+649:        fetchDatabases(obraDataRef, activeBancosFromObra);
+665:    encargos.dataReferencia, 
+682:          data_referencia: encargos.dataReferencia,
+689:  }, [encargos.desonerado, encargos.estado, encargos.dataReferencia, isInitialLoad, obraId, obra, bancosAtivos]);
+692:    const targetRow = orcamento.find(r => r.id === id);
+693:    if (!targetRow) return;
+697:    const isEtapa = targetRow.tipo === 'etapa';
+700:    const updatedRow = { ...targetRow, item: cleanedNewItem };
+704:      body: JSON.stringify(updatedRow)
+709:      const oldPrefix = targetRow.item.toString().replace(/\.0$/, '');
+741:  const handleRowUpdate = async (id: string, updates: any) => {
+742:    const targetRow = orcamento.find(r => r.id === id);
+743:    if (!targetRow) return;
+746:    if (targetRow.tipo === 'etapa' && updates.descricao) {
+750:    const updatedRow = { ...targetRow, ...updates };
+755:      body: JSON.stringify(updatedRow)
+782:      let finalItemData = { ...itemData, tipo, insert_after_id: addingRowParentId };
+792:        const createItemRes = await fetch('/api/itens', {
+799:            base: itemData.base || 'PRÓPRIO',
+805:        if (!createItemRes.ok) throw new Error('Erro ao criar novo item no banco de dados');
+806:        const newItem = await createItemRes.json();
+831:        setAddingRowType(null);
+832:        setAddingRowParentId(null);
+915:        // Root level
+930:  const [custosReais, setCustosReais] = useState<Record<number, {quantidade: number, preco_unitario: number}>>({});
+940:        setCustosReais(parsed || {});
+942:        setCustosReais({});
+947:  const handleSaveCustosReais = async () => {
+952:        body: JSON.stringify({ custos_reais: JSON.stringify(custosReais) })
+976:  const [addingRowType, setAddingRowType] = useState<'etapa' | 'composicao' | 'insumo' | null>(null);
+977:  const [addingRowParentId, setAddingRowParentId] = useState<string | null>(null);
+978:  const addItemRowRef = React.useRef<HTMLTableRowElement>(null);
+979:  const editingRowRef = React.useRef<HTMLTableRowElement>(null);
+982:    if (addingRowType && addItemRowRef.current) {
+983:      addItemRowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+985:  }, [addingRowType]);
+987:  // New Record States
+1019:  const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
+1020:  const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
+1027:    if (editingCell && editingRowRef.current) {
+1028:      editingRowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+1055:      // Removed redundant full fetches of insumos and composicoes
+1064:    const reader = new FileReader();
+1130:  const handleAddDiario = async (e: React.FormEvent) => {
+1145:  // Removed manual style manipulation to avoid layout issues
+1231:        <p style={{ marginLeft: '0px', marginRight: '0px', marginBottom: '-17px' }} className="text-slate-500 text-sm font-medium flex items-center gap-2">
+1238:      <div style={{ fontSize: '18px', borderWidth: '-3px', paddingLeft: '4px', paddingRight: '14px', marginBottom: '-8px' }} className="flex gap-8 border-b border-slate-200 shrink-0 px-4">
+1246:          { id: 'medicao', label: 'Medições', icon: Ruler }
+1270:            {/* Cards de Resumo conforme o print */}
+1278:                  {obra.data_fim_prevista ? new Date(obra.data_fim_prevista).toLocaleDateString('pt-BR') : '30/11/2026'}
+1334:            {/* Filtros Rápidos no Cabeçalho */}
+1375:                  {/* Bancos Row */}
+1385:                        <React.Fragment key={banco.id}>
+1390:                        </React.Fragment>
+1398:                  {/* BDI Row */}
+1411:                  {/* Encargos Sociais Row */}
+1437:                  {/* Valor Total Row */}
+1444:                        R$ {(orcamento.filter(r => r.tipo !== 'etapa').reduce((acc, r) => acc + (r.total || 0), 0) * (bdiIncidence === 'final' ? (1 + bdiValue / 100) : 1)).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+1693:                          {['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO'].map(uf => (
+1699:                        <label className="block text-sm font-bold text-slate-700">Data de Referência</label>
+1702:                          value={encargos.dataReferencia}
+1705:                            setEncargos(prev => ({ ...prev, dataReferencia: newDate }));
+1809:              onClick={() => setSelectedRowId(null)}
+1811:              <div style={{ paddingLeft: '9px', paddingRight: '16px', paddingBottom: '2px', paddingTop: '2px' }} className="p-4 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center">
+1813:                  <h3 style={{ fontSize: '15.5px', lineHeight: '21.5px', marginRight: '0px', marginBottom: '-26px', marginTop: '-36px' }} className="text-xs font-black text-slate-900 uppercase tracking-widest">Planilha de Orçamento</h3>
+1817:                    onClick={() => { const nextItem = getNextItem('etapa', null); setNewItemData({ item: nextItem, base: '', codigo: '', descricao: '', item_tipo: 'etapa', item_id: null, quantidade: 0, preco_unitario: 0, unidade: '', etapa_id: null, etapa_pai_id: null, isNew: false }); setAddingRowType('etapa'); }} 
+1823:                    onClick={() => { const nextItem = getNextItem('composicao', null); const defaultBase = bancosAtivos.find(b => b.active)?.name.split(' ')[0] || ''; setNewItemData({ item: nextItem, base: defaultBase, codigo: '', descricao: '', item_tipo: 'composicao', item_id: null, quantidade: 0, preco_unitario: 0, unidade: '', etapa_id: null, etapa_pai_id: null, isNew: false }); setAddingRowType('composicao'); }} 
+1829:                    onClick={() => { const nextItem = getNextItem('insumo', null); const defaultBase = bancosAtivos.find(b => b.active)?.name.split(' ')[0] || ''; setNewItemData({ item: nextItem, base: defaultBase, codigo: '', descricao: '', item_tipo: 'insumo', item_id: null, quantidade: 0, preco_unitario: 0, unidade: '', etapa_id: null, etapa_pai_id: null, isNew: false }); setAddingRowType('insumo'); }} 
+1861:                    <React.Fragment key={`${row.id}-${idx}`}>
+1864:                        ref={editingCell?.id === row.id ? editingRowRef : null}
+1866:                          selectedRowId === row.id ? 'ring-2 ring-indigo-500 ring-inset z-10 relative' : ''
+1876:                        onMouseEnter={() => setHoveredRowId(row.id)}
+1877:                        onMouseLeave={() => setHoveredRowId(null)}
+1880:                          setSelectedRowId(row.id);
+1895:                        {hoveredRowId === row.id && (
+1904:                                setAddingRowType('etapa');
+1905:                                setAddingRowParentId(row.id);
+1929:                                  setAddingRowType('etapa');
+1930:                                  setAddingRowParentId(row.id);
+1953:                                setAddingRowType('composicao');
+1954:                                setAddingRowParentId(row.id);
+1976:                                setAddingRowType('insumo');
+1977:                                setAddingRowParentId(row.id);
+2051:                              handleRowUpdate(row.id, { base: e.target.value });
+2089:                                  handleRowUpdate(row.id, { descricao: e.target.value });
+2094:                                    handleRowUpdate(row.id, { descricao: (e.target as HTMLInputElement).value });
+2121:                            onChange={(e) => handleRowUpdate(row.id, { unidade: e.target.value })}
+2166:                                    handleRowUpdate(row.id, { quantidade: val });
+2178:                                    handleRowUpdate(row.id, { quantidade: val });
+2190:                            {row.valor_unitario >= 0 ? `R$ ${formatFinancial(row.valor_unitario)}` : ''}
+2196:                          ? (row.valor_bdi > 0 ? `R$ ${formatFinancial(row.valor_bdi)}` : '')
+2197:                          : (row.tipo !== 'etapa' ? `R$ ${formatFinancial(row.valor_unitario)}` : '')
+2203:                            R$ {formatFinancial(row.total || 0)}
+2208:                    {addingRowType && addingRowParentId === row.id && (
+2209:                      <tr ref={addItemRowRef} className={`${
+2210:                        addingRowType === 'etapa' 
+2212:                          : addingRowType === 'composicao' 
+2221:                          onKeyDown={e => e.key === 'Enter' && handleAddItem(addingRowType, newItemData)}
+2225:                          {addingRowType === 'etapa' ? (
+2232:                              onKeyDown={e => e.key === 'Enter' && handleAddItem(addingRowType, newItemData)}
+2237:                          {addingRowType === 'etapa' ? (
+2246:                                onKeyDown={e => e.key === 'Enter' && handleAddItem(addingRowType, newItemData)}
+2253:                            {addingRowType === 'etapa' ? (
+2260:                                onKeyDown={e => e.key === 'Enter' && handleAddItem(addingRowType, newItemData)}
+2266:                                  placeholder={`Descrição do ${addingRowType === 'insumo' ? 'Insumo' : 'Composição'}`}
+2269:                                  onKeyDown={e => e.key === 'Enter' && handleAddItem(addingRowType, newItemData)}
+2273:                                  type={addingRowType as 'insumo' | 'composicao'} 
+2279:                                  dataReferencia={encargos.dataReferencia}
+2290:                                        base: 'PRÓPRIO'
+2296:                                        item_id: addingRowType === 'insumo' ? item.id_insumo : item.id_composicao,
+2298:                                        codigo: addingRowType === 'insumo' ? item.codigo : item.codigo_composicao,
+2315:                          {addingRowType !== 'etapa' && (
+2331:                                  handleAddItem(addingRowType, { ...newItemData, quantidade: val !== null ? val : newItemData.quantidade });
+2338:                          {addingRowType !== 'etapa' && (
+2345:                          {addingRowType !== 'etapa' 
+2346:                            ? `R$ ${formatFinancial((newItemData.preco_unitario || 0) * (1 + (obra?.bdi || 0)/100))}`
+2352:                            <span className="truncate">R$ {formatFinancial((newItemData.quantidade || 0) * (newItemData.preco_unitario || 0))}</span>
+2355:                                onClick={() => handleAddItem(addingRowType, newItemData)}
+2363:                                  setAddingRowType(null);
+2364:                                  setAddingRowParentId(null);
+2376:                  </React.Fragment>
+2379:                {addingRowType && !addingRowParentId && (
+2380:                    <tr ref={addItemRowRef} className={`${
+2381:                      addingRowType === 'etapa' 
+2383:                        : addingRowType === 'composicao' 
+2397:                        {addingRowType === 'etapa' ? (
+2409:                        {addingRowType === 'etapa' ? (
+2424:                          {addingRowType === 'etapa' ? (
+2431:                              onKeyDown={e => e.key === 'Enter' && handleAddItem(addingRowType, newItemData)}
+2437:                                placeholder={`Descrição do ${addingRowType === 'insumo' ? 'Insumo' : 'Composição'}`}
+2440:                                onKeyDown={e => e.key === 'Enter' && handleAddItem(addingRowType, newItemData)}
+2444:                                  type={addingRowType as 'insumo' | 'composicao'} 
+2450:                                  dataReferencia={encargos.dataReferencia}
+2461:                                        base: 'PRÓPRIO'
+2467:                                        item_id: addingRowType === 'insumo' ? item.id_insumo : item.id_composicao,
+2469:                                        codigo: addingRowType === 'insumo' ? item.codigo : item.codigo_composicao,
+2486:                        {addingRowType !== 'etapa' && (
+2501:                                handleAddItem(addingRowType, { ...newItemData, quantidade: val !== null ? val : newItemData.quantidade });
+2508:                        {addingRowType !== 'etapa' && (
+2515:                        {addingRowType !== 'etapa' 
+2517:                            ? `R$ ${formatFinancial(newItemData.preco_unitario * (1 + bdiValue/100))}` 
+2518:                            : `R$ ${formatFinancial(newItemData.preco_unitario)}`)
+2523:                          <span className={`font-mono text-[13px] ${addingRowType === 'etapa' ? 'font-semibold text-slate-900' : 'text-slate-700'}`}>
+2524:                            R$ {formatFinancial(bdiIncidence === 'unitario' ? (newItemData.quantidade * newItemData.preco_unitario * (1 + bdiValue/100)) : (newItemData.quantidade * newItemData.preco_unitario))}
+2528:                              onClick={() => handleAddItem(addingRowType, newItemData)}
+2535:                              onClick={() => setAddingRowType(null)}
+2600:                <p className="text-xl font-black text-slate-900">R$ {formatFinancial(filteredAbcData.reduce((acc, i) => acc + i.valor_total, 0))}</p>
+2621:                  <ResponsiveContainer width="100%" height="100%">
+2654:                        tickFormatter={(value) => `R$ ${(value / 1000).toFixed(0)}k`} 
+2677:                                  <span className="text-xs font-black text-indigo-600">R$ {formatFinancial(data.valor)}</span>
+2706:                      <Bar yAxisId="left" dataKey="valor" name="Valor Total (R$)" radius={[4, 4, 0, 0]} maxBarSize={50}>
+2728:                  </ResponsiveContainer>
+2735:                  <ResponsiveContainer width="100%" height="100%">
+2745:                        innerRadius={50}
+2746:                        outerRadius={80}
+2755:                        formatter={(value: number) => `R$ ${formatFinancial(value)}`}
+2756:                        contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+2760:                  </ResponsiveContainer>
+2808:                        <td className="px-4 py-3 text-right text-xs font-bold text-slate-700 w-24">{item.quantidade?.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+2809:                        <td className="px-4 py-3 text-right text-xs font-bold text-slate-700 w-32">R$ {formatFinancial(item.preco_unitario || 0)}</td>
+2810:                        <td className="px-4 py-3 text-right font-black text-slate-900 w-32">R$ {formatFinancial(item.valor_total || 0)}</td>
+2841:          const totalRealSuprimentos = filteredAbcData.reduce((acc, item) => {
+2842:            const real = custosReais[item.id] || { quantidade: 0, preco_unitario: 0 };
+2845:          const desvioTotalSuprimentos = totalOrcadoSuprimentos - totalRealSuprimentos;
+2852:                  <h2 className="text-xl font-bold text-slate-800">Suprimentos / Orçado x Real</h2>
+2868:                    onClick={handleSaveCustosReais}
+2881:                  <p className="text-2xl font-black text-slate-800">R$ {formatFinancial(totalOrcadoSuprimentos)}</p>
+2884:                  <p className="text-sm font-medium text-slate-500 mb-1">Total Realizado</p>
+2885:                  <p className="text-2xl font-black text-slate-800">R$ {formatFinancial(totalRealSuprimentos)}</p>
+2888:                  <p className={`text-sm font-medium mb-1 ${isSavingTotal ? 'text-emerald-700' : 'text-red-700'}`}>Desvio (R$)</p>
+2890:                    {isSavingTotal ? '+' : '-'} R$ {formatFinancial(Math.abs(desvioTotalSuprimentos))}
+2897:                      {isSavingTotal ? 'SAVING (ECONOMIA)' : 'ESTOURO DE CUSTO'}
+2915:                        <th className="px-4 py-3 text-xs font-semibold text-emerald-700 uppercase text-right bg-emerald-50/50 w-24">Qtd Real</th>
+2916:                        <th className="px-4 py-3 text-xs font-semibold text-emerald-700 uppercase text-right bg-emerald-50/50 w-32">Preço Real</th>
+2917:                        <th className="px-4 py-3 text-xs font-semibold text-emerald-700 uppercase text-right bg-emerald-50/50 w-32">Total Real</th>
+2924:                        const real = custosReais[itemId] || { quantidade: 0, preco_unitario: 0 };
+2925:                        const totalReal = (real.quantidade || 0) * (real.preco_unitario || 0);
+2926:                        const desvio = item.valor_total - totalReal;
+2934:                            <td className="px-4 py-3 text-xs text-right text-slate-700 w-24">{item.quantidade?.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+2935:                            <td className="px-4 py-3 text-xs text-right text-slate-700 w-32">R$ {formatFinancial(item.preco_unitario)}</td>
+2936:                            <td className="px-4 py-3 text-xs text-right font-bold text-slate-900 w-32">R$ {formatFinancial(item.valor_total)}</td>
+2941:                                onChange={(e) => setCustosReais(prev => ({
+2953:                                onChange={(e) => setCustosReais(prev => ({
+2962:                              R$ {formatFinancial(totalReal)}
+2965:                              {isSaving ? '+' : '-'} R$ {formatFinancial(Math.abs(desvio))}
+2985:class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean, error: Error | null }> {
+2986:  constructor(props: { children: ReactNode }) {
+3022:              Recarregar Aplicação
+3036:      <Router>
+3038:      </Router>
+3059:  const [selectedDataRef, setSelectedDataRef] = useState<string>(() => localStorage.getItem('selectedDataRef') || 'Todos');
+3121:      localStorage.setItem('selectedDataRef', selectedDataRef);
+3125:  }, [selectedComposicaoId, selectedEstado, selectedDataRef]);
+3133:  const handleSelectComposicao = (id: number, estado: string, dataRef: string) => {
+3135:    setSelectedDataRef(dataRef);
+3161:    return <ResetPassword />;
+3195:          dataReferencia={selectedDataRef}
+3222:              title={isSidebarCollapsed ? "Expandir" : "Recolher"}
+3230:                title="Recolher"
+3347:  const handleCreate = async (e: React.FormEvent) => {
+3532:                    {BRAZILIAN_STATES.map(uf => (
+3540:                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Data Referência</label>
+3683:                <span>Início: {obra.data_inicio ? new Date(obra.data_inicio).toLocaleDateString('pt-BR') : 'Não informado'}</span>
+3689:                R$ {formatFinancial(obra.valor_total || 0)}
+3692:                Detalhes <ChevronRight size={13} strokeWidth={3} />

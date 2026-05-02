@@ -28,7 +28,9 @@ export default function MedicaoTab({
   const [saving, setSaving] = useState(false);
   const [edits, setEdits] = useState<Record<string, number>>({});
 
-  const bdiFactor = bdiIncidence === 'final' ? (1 + (bdiValue || 0) / 100) : 1;
+  const itemBdiFactor = 1 + ((bdiValue || 0) / 100);
+  const stageBdiFactor = bdiIncidence === 'final' ? itemBdiFactor : 1;
+  const globalTotalOrcado = orcamento.filter(r => r.tipo === 'etapa' && !(r.item || '').toString().includes('.')).reduce((acc, r) => acc + (r.total || 0), 0) * stageBdiFactor;
 
   const load = async () => {
     setLoading(true);
@@ -133,9 +135,9 @@ export default function MedicaoTab({
     const children = getChildren(itemCode);
     return children.reduce((acc, child) => {
         if (medicaoId) {
-            return acc + (getQtd(child.id, medicaoId) * (child.valor_unitario || 0) * bdiFactor);
+            return acc + (getQtd(child.id, medicaoId) * (child.valor_unitario || 0) * itemBdiFactor);
         }
-        return acc + (getTotalMedido(child.id) * (child.valor_unitario || 0) * bdiFactor);
+        return acc + (getTotalMedido(child.id) * (child.valor_unitario || 0) * itemBdiFactor);
     }, 0);
   };
 
@@ -346,13 +348,13 @@ export default function MedicaoTab({
               <tbody className="divide-y divide-slate-100">
                 {orcamento.map(item => {
                   const totalMedidoQtd = getTotalMedido(item.id);
-                  const totalMedidoValor = totalMedidoQtd * (item.valor_unitario || 0) * bdiFactor;
-                  const valorTotalOrcado = (item.quantidade || 0) * (item.valor_unitario || 0) * bdiFactor;
+                  const totalMedidoValor = totalMedidoQtd * (item.valor_unitario || 0) * itemBdiFactor;
+                  const valorTotalOrcado = (item.quantidade || 0) * (item.valor_unitario || 0) * itemBdiFactor;
                   const saldoValor = valorTotalOrcado - totalMedidoValor;
                   const percentTotal = valorTotalOrcado > 0 ? (totalMedidoValor / valorTotalOrcado) * 100 : 0;
                   
                   if (item.tipo === 'etapa' || item.tipo === 'subetapa') {
-                    const stageItemTotal = (item.total || 0) * bdiFactor;
+                    const stageItemTotal = (item.total || 0) * stageBdiFactor;
                     const stageTotalMedido = getStageTotalMedido(item.item);
                     const stagePercent = stageItemTotal > 0 ? (stageTotalMedido / stageItemTotal) * 100 : 0;
                     const stageSaldo = stageItemTotal - stageTotalMedido;
@@ -403,7 +405,7 @@ export default function MedicaoTab({
                         </td>
                         {medicoes.map(m => {
                            const qtd = getQtd(item.id, m.id);
-                           const valorMedido = qtd * (item.valor_unitario || 0) * bdiFactor;
+                           const valorMedido = qtd * (item.valor_unitario || 0) * itemBdiFactor;
                            const isExceeded = totalMedidoQtd > (item.quantidade || 0) + 0.0001;
                            
                            if (m.status === 'fechada') {
@@ -469,13 +471,13 @@ export default function MedicaoTab({
                 <tr className="border-t-2 border-slate-300 bg-slate-50/95 backdrop-blur-sm">
                     <td colSpan={2} className="px-3 py-3 font-bold text-slate-900 text-right uppercase tracking-[0.1em] text-[10px]">Total Geral da Obra (R$)</td>
                     <td className="px-3 py-2 text-center font-bold text-slate-900 bg-slate-100 min-w-[110px] border-r border-slate-200">
-                        R$ {formatFinancial(orcamento.filter(i => i.tipo !== 'etapa' && i.tipo !== 'subetapa').reduce((acc, i) => acc + ((i.quantidade || 0) * (i.valor_unitario || 0) * bdiFactor), 0))}
+                        R$ {formatFinancial(globalTotalOrcado)}
                     </td>
                     <td className="px-3 py-2 text-center font-bold text-emerald-900 bg-emerald-50 min-w-[110px] border-r border-slate-200">
-                        R$ {formatFinancial(orcamento.filter(i => i.tipo !== 'etapa' && i.tipo !== 'subetapa').reduce((acc, i) => acc + (getTotalMedido(i.id) * (i.valor_unitario || 0) * bdiFactor), 0))}
+                        R$ {formatFinancial(orcamento.filter(i => i.tipo !== 'etapa' && i.tipo !== 'subetapa').reduce((acc, i) => acc + (getTotalMedido(i.id) * (i.valor_unitario || 0) * itemBdiFactor), 0))}
                     </td>
                     {medicoes.map(m => {
-                       const medTotal = orcamento.filter(i => i.tipo !== 'etapa' && i.tipo !== 'subetapa').reduce((acc, i) => acc + (getQtd(i.id, m.id) * (i.valor_unitario || 0) * bdiFactor), 0);
+                       const medTotal = orcamento.filter(i => i.tipo !== 'etapa' && i.tipo !== 'subetapa').reduce((acc, i) => acc + (getQtd(i.id, m.id) * (i.valor_unitario || 0) * itemBdiFactor), 0);
                        return (
                         <td key={m.id} className="px-1 py-1 text-center font-bold text-slate-900 border-l border-slate-200 bg-slate-50/50">
                             R$ {formatFinancial(medTotal)}
@@ -489,9 +491,8 @@ export default function MedicaoTab({
                 <tr className="border-t border-slate-200 bg-white">
                   <td colSpan={4} className="px-3 py-1.5 text-right font-semibold text-slate-500 bg-slate-50/20">Porcentagem Executada</td>
                   {medicoes.map(m => {
-                    const totalOrcado = orcamento.filter(i => i.tipo !== 'etapa' && i.tipo !== 'subetapa').reduce((acc, i) => acc + ((i.quantidade || 0) * (i.valor_unitario || 0) * bdiFactor), 0);
-                    const medTotal = orcamento.filter(i => i.tipo !== 'etapa' && i.tipo !== 'subetapa').reduce((acc, i) => acc + (getQtd(i.id, m.id) * (i.valor_unitario || 0) * bdiFactor), 0);
-                    const percent = totalOrcado > 0 ? (medTotal / totalOrcado) * 100 : 0;
+                    const medTotal = orcamento.filter(i => i.tipo !== 'etapa' && i.tipo !== 'subetapa').reduce((acc, i) => acc + (getQtd(i.id, m.id) * (i.valor_unitario || 0) * itemBdiFactor), 0);
+                    const percent = globalTotalOrcado > 0 ? (medTotal / globalTotalOrcado) * 100 : 0;
                     return (
                       <td key={m.id} className="px-1 py-1 text-center font-medium text-slate-700 border-l border-slate-100">
                         {percent.toFixed(2).replace('.', ',')} %
@@ -505,12 +506,11 @@ export default function MedicaoTab({
                 <tr className="border-t border-slate-200 bg-white/50">
                   <td colSpan={4} className="px-3 py-1.5 text-right font-semibold text-slate-500 bg-slate-50/20">Porcentagem Executada Acumulada</td>
                   {medicoes.map((m, idx) => {
-                    const totalOrcado = orcamento.filter(i => i.tipo !== 'etapa' && i.tipo !== 'subetapa').reduce((acc, i) => acc + ((i.quantidade || 0) * (i.valor_unitario || 0) * bdiFactor), 0);
                     // Cumulative total up to index idx
                     const cumulativeTotal = medicoes.slice(0, idx + 1).reduce((sum, currentM) => {
-                       return sum + orcamento.filter(i => i.tipo !== 'etapa' && i.tipo !== 'subetapa').reduce((acc, i) => acc + (getQtd(i.id, currentM.id) * (i.valor_unitario || 0) * bdiFactor), 0);
+                       return sum + orcamento.filter(i => i.tipo !== 'etapa' && i.tipo !== 'subetapa').reduce((acc, i) => acc + (getQtd(i.id, currentM.id) * (i.valor_unitario || 0) * itemBdiFactor), 0);
                     }, 0);
-                    const percent = totalOrcado > 0 ? (cumulativeTotal / totalOrcado) * 100 : 0;
+                    const percent = globalTotalOrcado > 0 ? (cumulativeTotal / globalTotalOrcado) * 100 : 0;
                     return (
                       <td key={m.id} className="px-1 py-1 text-center font-medium text-slate-700 border-l border-slate-100">
                         {percent.toFixed(2).replace('.', ',')} %
@@ -518,14 +518,14 @@ export default function MedicaoTab({
                     );
                   })}
                   <td className="border-l border-slate-100"></td>
-                </tr>
+                 </tr>
 
                 {/* Valor Executado Acumulado */}
                 <tr className="border-t border-slate-200">
                   <td colSpan={4} className="px-3 py-2 text-right font-semibold text-slate-500 bg-slate-50/50">Valor Executado Acumulado</td>
                   {medicoes.map((m, idx) => {
                     const cumulativeTotal = medicoes.slice(0, idx + 1).reduce((sum, currentM) => {
-                       return sum + orcamento.filter(i => i.tipo !== 'etapa' && i.tipo !== 'subetapa').reduce((acc, i) => acc + (getQtd(i.id, currentM.id) * (i.valor_unitario || 0) * bdiFactor), 0);
+                       return sum + orcamento.filter(i => i.tipo !== 'etapa' && i.tipo !== 'subetapa').reduce((acc, i) => acc + (getQtd(i.id, currentM.id) * (i.valor_unitario || 0) * itemBdiFactor), 0);
                     }, 0);
                     return (
                       <td key={m.id} className="px-1 py-1 text-center font-medium text-slate-700 border-l border-slate-100">
@@ -543,11 +543,7 @@ export default function MedicaoTab({
                     <td key={m.id} className="border-l border-slate-700 bg-slate-800/40"></td>
                   ))}
                   <td className="px-3 py-3 text-center font-bold text-white border-l border-slate-700 bg-slate-700 min-w-[110px]">
-                    R$ {formatFinancial(orcamento.filter(i => i.tipo !== 'etapa' && i.tipo !== 'subetapa').reduce((acc, i) => {
-                        const orcado = (i.quantidade || 0) * (i.valor_unitario || 0) * bdiFactor;
-                        const medido = getTotalMedido(i.id) * (i.valor_unitario || 0) * bdiFactor;
-                        return acc + (orcado - medido);
-                    }, 0))}
+                    R$ {formatFinancial(globalTotalOrcado - orcamento.filter(i => i.tipo !== 'etapa' && i.tipo !== 'subetapa').reduce((acc, i) => acc + (getTotalMedido(i.id) * (i.valor_unitario || 0) * itemBdiFactor), 0))}
                   </td>
                 </tr>
               </tfoot>

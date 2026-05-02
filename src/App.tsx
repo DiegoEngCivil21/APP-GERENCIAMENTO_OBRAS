@@ -321,7 +321,7 @@ const MedicaoView = ({ obraId, orcamento, bdiIncidence, bdiValue }: { obraId: st
                       <td className="py-2 text-right w-28">
                         <input
                           type="number"
-                          value={item.quantidade_medida}
+                          value={isNaN(item.quantidade_medida) ? "" : item.quantidade_medida}
                           onChange={(e) => {
                             const val = parseFloat(e.target.value) || 0;
                             const newItems = [...medicaoItems];
@@ -424,7 +424,8 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
       console.log('Calculating ABC data. Total items:', orcamentoItems.length, 'Data Referencia:', dataReferencia);
       
       let itemsToProcess: any[] = [];
-      const bdiMultiplier = bdiIncidence === 'final' ? (1 + bdiValue / 100) : 1;
+      // ABC/Suprimentos analysis should use direct costs (no BDI)
+      const bdiMultiplier = 1;
 
       // ABC of Insumos: Explode all compositions
       const compositionItems = orcamentoItems.filter(item => item.tipo === 'composicao');
@@ -448,7 +449,7 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
                 categoria: sub.categoria || 'Material' 
               };
               const subQty = (sub.quantidade || 0) * item.quantidade;
-              const subTotal = (sub.valor_total || 0) * item.quantidade * bdiMultiplier;
+              const subTotal = (sub.valor_unitario || 0) * (sub.quantidade || 0) * item.quantidade;
               existing.quantidade += subQty;
               existing.valor_total += subTotal;
               existing.preco_unitario = existing.quantidade > 0 ? existing.valor_total / existing.quantidade : 0;
@@ -469,7 +470,8 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
               categoria: item.categoria || 'Material' 
             };
             existing.quantidade += item.quantidade;
-            existing.valor_total += item.total * bdiMultiplier;
+            console.log("Analyzing item for ABC:", item);
+            existing.valor_total += (item.valor_unitario || 0) * item.quantidade;
             existing.preco_unitario = existing.quantidade > 0 ? existing.valor_total / existing.quantidade : 0;
             insumosMap.set(item.item_id, existing);
           }
@@ -570,7 +572,7 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
       { key: 'orcamento', url: `/api/obras/${obraId}/orcamento?${params.toString()}` },
       { key: 'diarios', url: `/api/obras/${obraId}/diario` },
       { key: 'cronograma', url: `/api/obras/${obraId}/cronograma` },
-      { key: 'medicoes', url: `/api/obras/${obraId}/medicao` }
+      { key: 'medicoes', url: `/api/obras/${obraId}/medicoes` }
     ];
 
     try {
@@ -1273,7 +1275,34 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
                   <Calendar size={14} className="text-slate-300" />
                 </div>
                 <h4 className="text-xl font-black text-slate-900 leading-none">
-                  {obra.data_fim_prevista ? new Date(obra.data_fim_prevista).toLocaleDateString('pt-BR') : '30/11/2026'}
+                  {(() => {
+                    let maxDate = obra.data_fim_prevista;
+                    let foundValidAct = false;
+                    
+                    if (cronograma && cronograma.length > 0) {
+                      let maxTime = -Infinity;
+                      cronograma.forEach(act => {
+                        const ed = act.data_fim_prevista || act.data_inicio_prevista;
+                        if (ed) {
+                          const time = new Date(ed).getTime();
+                          if (!isNaN(time) && time > maxTime) {
+                            maxTime = time;
+                            maxDate = ed;
+                            foundValidAct = true;
+                          }
+                        }
+                      });
+                    }
+
+                    if (!maxDate) return '-';
+                    
+                    // Fix timezone offset for manual parsing
+                    const parts = maxDate.split('-');
+                    if (parts.length === 3) {
+                       return `${parts[2]}/${parts[1]}/${parts[0]}`;
+                    }
+                    return new Date(maxDate).toLocaleDateString('pt-BR');
+                  })()}
                 </h4>
               </div>
               
@@ -1497,7 +1526,7 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
                         type="number" 
                         step="0.01"
                         className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-lg font-bold"
-                        value={bdiValue}
+                        value={isNaN(bdiValue) ? "" : bdiValue}
                         onChange={(e) => setBdiValue(parseFloat(e.target.value))}
                       />
                     </div>

@@ -2285,7 +2285,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                               <input
                                   type="number"
                                   className="w-full text-center text-[11px] px-1 py-1 border border-indigo-300 rounded focus:outline-none font-normal"
-                                  value={editForm.duracao_dias !== undefined ? editForm.duracao_dias : ''}
+                                  value={(typeof editForm.duracao_dias === 'number' && !isNaN(editForm.duracao_dias)) ? editForm.duracao_dias : ''}
                                   onChange={(e) => handleDuracaoChange(e.target.value)}
                                   onKeyDown={(e) => handleKeyDown(e, d.id)}
                                   onBlur={() => handleUpdate(d.id, true)}
@@ -2350,7 +2350,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                               <input
                                   type="number"
                                   className="w-full text-center text-[11px] px-1 py-1 border border-indigo-300 rounded focus:outline-none font-normal"
-                                  value={editForm.progresso !== undefined ? editForm.progresso : ''}
+                                  value={(typeof editForm.progresso === 'number' && !isNaN(editForm.progresso)) ? editForm.progresso : ''}
                                   onChange={(e) => setEditForm(prev => ({...prev, progresso: parseFloat(e.target.value) || 0 }))}
                                   onKeyDown={(e) => handleKeyDown(e, d.id)}
                                   onBlur={() => handleUpdate(d.id, true)}
@@ -2681,7 +2681,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                       
                       if (!isBackward) {
                         plannedLine = (
-                          <g key={`dep-plan-${atv.id}-${predId}-${pIdx}`}>
+                          <g key={`dep-plan-${atv.id}-${predId}-${pIdx}-${isPredStage}`}>
                             <line x1={startX} y1={startY} x2={endX} y2={startY} stroke={plannedArrowColor} strokeWidth="1.2" />
                             <line x1={endX} y1={startY} x2={endX} y2={endY} stroke={plannedArrowColor} strokeWidth="1.2" markerEnd={plannedMarker} />
                           </g>
@@ -2692,7 +2692,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                         const finalTargetY = atvRow > predRow ? atvRow * 40 + 9 : atvRow * 40 + 21;
                         
                         plannedLine = (
-                          <g key={`dep-plan-${atv.id}-${predId}-${pIdx}`}>
+                          <g key={`dep-plan-${atv.id}-${predId}-${pIdx}-${isPredStage}`}>
                             <line x1={startX} y1={startY} x2={startStubX} y2={startY} stroke="#ef4444" strokeWidth="1.2" strokeDasharray="4 2" />
                             <line x1={startStubX} y1={startY} x2={startStubX} y2={midY} stroke="#ef4444" strokeWidth="1.2" strokeDasharray="4 2" />
                             <line x1={startStubX} y1={midY} x2={endX} y2={midY} stroke="#ef4444" strokeWidth="1.2" strokeDasharray="4 2" />
@@ -2731,7 +2731,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                         
                         if (!isBackward) {
                           actualLine = (
-                            <g key={`dep-act-${atv.id}-${predId}-${pIdx}`}>
+                            <g key={`dep-act-forward-${atv.id}-${predId}-${pIdx}-${isPredStage}`}>
                               <line x1={startX} y1={startY} x2={endX} y2={startY} stroke="#d97706" strokeWidth="1.2" />
                               <line x1={endX} y1={startY} x2={endX} y2={endY} stroke="#d97706" strokeWidth="1.2" markerEnd="url(#arrowhead-amber)" />
                             </g>
@@ -2742,7 +2742,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                           const finalTargetY = atvRow > predRow ? atvRow * 40 + 9 : atvRow * 40 + 19;
                           
                           actualLine = (
-                            <g key={`dep-act-${atv.id}-${predId}-${pIdx}`}>
+                            <g key={`dep-act-backward-${atv.id}-${predId}-${pIdx}-${isPredStage}`}>
                               <line x1={startX} y1={startY} x2={startStubX} y2={startY} stroke="#ef4444" strokeWidth="1.2" strokeDasharray="4 2" />
                               <line x1={startStubX} y1={startY} x2={startStubX} y2={midY} stroke="#ef4444" strokeWidth="1.2" strokeDasharray="4 2" />
                               <line x1={startStubX} y1={midY} x2={endX} y2={midY} stroke="#ef4444" strokeWidth="1.2" strokeDasharray="4 2" />
@@ -2754,7 +2754,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                     }
 
                     return (
-                      <React.Fragment key={`dep-group-${atv.id}-${predId}-${pIdx}`}>
+                      <React.Fragment key={`dep-group-${atv.id}-${predId}-${pIdx}-${isPredStage}`}>
                         {plannedLine}
                         {actualLine}
 
