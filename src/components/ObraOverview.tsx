@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useState, useMemo } from "react";
+import { Calendar, X } from "lucide-react";
 import {
   ResponsiveContainer,
   BarChart,
@@ -14,6 +15,7 @@ import {
   Line,
   LineChart,
   ReferenceLine,
+  Cell,
 } from "recharts";
 import { formatFinancial } from "../utils";
 
@@ -42,14 +44,16 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
   bdiIncidence = "unitario",
   bdiValue = 0,
 }) => {
+  const [filterStart, setFilterStart] = useState<string>("");
+  const [filterEnd, setFilterEnd] = useState<string>("");
+
   const bdiMultiplier = bdiIncidence === "final" ? 1 + bdiValue / 100 : 1;
   console.log("SCurve Debug:", { medicoes, orcamento, cronograma });
-  const totalOrcado =
-    orcamento
-      .filter(
-        (r) => r.tipo === "etapa" && !(r.item || "").toString().includes("."),
-      )
-      .reduce((acc, r) => acc + (r.total || 0), 0) * bdiMultiplier;
+  const leafItemsTotal = orcamento
+    .filter((r) => r.tipo !== "etapa")
+    .reduce((acc, r) => acc + (r.total || 0), 0);
+  
+  const totalOrcado = leafItemsTotal * bdiMultiplier;
   const totalMedido = medicoes.reduce(
     (acc, med) => acc + (med.total_valor || 0),
     0,
@@ -123,139 +127,181 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
     });
   }
 
+  const diffDays = (minDate && maxDate) ? Math.ceil(
+    (maxDate.getTime() - minDate.getTime()) / (1000 * 60 * 60 * 24),
+  ) : 0;
+  const useDayInterval = diffDays <= 60 && diffDays > 0;
+  const intervalDays = 5;
+
   const getSCurveData = () => {
-    // 1. Get unique months from schedule
-    const monthsSet = new Set<string>();
+    if (!minDate || !maxDate) return [];
 
-    if (minDate && maxDate) {
+    const intervalsSet = new Set<string>();
+    const projectIntervals: string[] = [];
+
+    if (useDayInterval) {
       let d = new Date(minDate);
-      // Generate months spanning the project
-      while (d <= maxDate) {
-        monthsSet.add(d.toISOString().substring(0, 7));
-        d.setMonth(d.getMonth() + 1);
+      // Ensure we start at 00:00:00
+      d.setHours(0, 0, 0, 0);
+      const endLimit = new Date(maxDate);
+      endLimit.setHours(23, 59, 59, 999);
+
+      while (d <= endLimit) {
+        const dateStr = d.toISOString().split("T")[0];
+        intervalsSet.add(dateStr);
+        projectIntervals.push(dateStr);
+        d.setDate(d.getDate() + intervalDays);
       }
-      // Ensure maxDate month is also fully included
-      monthsSet.add(maxDate.toISOString().substring(0, 7));
-    }
-
-    let maxMedicaoMonth: string | null = null;
-    // Add measurement dates in case they are outside project schedule
-    medicoes.forEach((med) => {
-      const d = parseDate(med.data_medicao);
-      if (d) {
-        const monthStr = d.toISOString().substring(0, 7);
-        monthsSet.add(monthStr);
-        if (!maxMedicaoMonth || monthStr > maxMedicaoMonth) {
-          maxMedicaoMonth = monthStr;
-        }
-      }
-    });
-
-    if (monthsSet.size === 0) {
-      const today = new Date();
-      for(let i=0; i<6; i++) {
-         const d = new Date(today.getFullYear(), today.getMonth() + i, 1);
-         monthsSet.add(d.toISOString().substring(0, 7));
-      }
-    }
-
-    const sortedMonths = Array.from(monthsSet).sort();
-    const relevantMonths = sortedMonths;
-    const projectMonths = sortedMonths.filter(m => {
-       const mStart = minDate ? minDate.toISOString().substring(0,7) : '';
-       const mEnd = maxDate ? maxDate.toISOString().substring(0,7) : '';
-       return m >= mStart && m <= mEnd;
-    });
-
-    const plannedByMonth = new Map<string, number>();
-    
-    // Group budget by ETAPAS
-    // Filter for level-1 or level-2 stages depending on how they are coded
-    const etapas = orcamento.filter(r => r.tipo === "etapa" && (/^\d+$/.test(r.item) || /^\d+\.\d+$/.test(r.item)));
-    
-    if (etapas.length > 0) {
-      let unmappedBudget = 0;
-      
-      etapas.forEach(etapa => {
-        const etapaValue = (etapa.total || 0) * bdiMultiplier;
-        
-        // Find activity that matches this stage's code or id
-        let actForEtapa = cronograma.find(act => 
-            act.orcamento_item_id == etapa.id || 
-            act.item_numero === etapa.item ||
-            (act.item_numero && act.item_numero.toString().split('.')[0] === etapa.item.toString())
-        );
-        
-        if (actForEtapa && actForEtapa.data_inicio_prevista && actForEtapa.data_fim_prevista) {
-           const sDate = parseDate(actForEtapa.data_inicio_prevista);
-           const eDate = parseDate(actForEtapa.data_fim_prevista);
-           
-           if (sDate && eDate) {
-              const months = [];
-              let cur = new Date(sDate.getFullYear(), sDate.getMonth(), 1);
-              const endLimit = new Date(eDate.getFullYear(), eDate.getMonth(), 1);
-              
-              while (cur <= endLimit) {
-                 months.push(cur.toISOString().substring(0, 7));
-                 cur.setMonth(cur.getMonth() + 1);
-              }
-              
-              if (months.length > 0) {
-                 const valuePerMonth = etapaValue / months.length;
-                 months.forEach(m => {
-                    plannedByMonth.set(m, (plannedByMonth.get(m) || 0) + valuePerMonth);
-                 });
-              } else {
-                 unmappedBudget += etapaValue;
-              }
-           } else {
-              unmappedBudget += etapaValue;
-           }
-        } else {
-           unmappedBudget += etapaValue;
-        }
-      });
-      
-      // If there's unmapped budget, spread it over the project months
-      if (unmappedBudget > 0 && projectMonths.length > 0) {
-          const monthlyValue = unmappedBudget / projectMonths.length;
-          projectMonths.forEach(m => {
-             plannedByMonth.set(m, (plannedByMonth.get(m) || 0) + monthlyValue);
-          });
+      // Ensure last date is included if it's significant
+      const finalDateStr = endLimit.toISOString().split("T")[0];
+      if (!intervalsSet.has(finalDateStr)) {
+        intervalsSet.add(finalDateStr);
+        projectIntervals.push(finalDateStr);
       }
     } else {
-      // Fallback: S-Curve
-      const N = projectMonths.length;
-      if (totalOrcado > 0 && N > 0) {
-        for (let i = 0; i < N; i++) {
-          const t1 = i / N;
-          const t2 = (i + 1) / N;
-          const p1 = t1 * t1 * (3 - 2 * t1);
-          const p2 = t2 * t2 * (3 - 2 * t2);
-          const monthlyValue = (p2 - p1) * totalOrcado;
-          plannedByMonth.set(projectMonths[i], (plannedByMonth.get(projectMonths[i]) || 0) + monthlyValue);
-        }
+      let d = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
+      const endLimit = new Date(maxDate.getFullYear(), maxDate.getMonth(), 1);
+      while (d <= endLimit) {
+        const monthStr = d.toISOString().substring(0, 7);
+        intervalsSet.add(monthStr);
+        projectIntervals.push(monthStr);
+        d.setMonth(d.getMonth() + 1);
       }
     }
 
-    const actualByMonth = new Map<string, number>();
+    const plannedByInterval = new Map<string, number>();
+    
+    // leaf items for precise mapping
+    const leafItems = orcamento.filter(r => r.tipo !== 'etapa');
+    const mappedLeafIds = new Set<string>();
+
+    // 1. For each budget item, identify associated activities and distribute its value
+    leafItems.forEach(item => {
+      const itemValue = (item.total || 0) * bdiMultiplier;
+      const itemIdNumeric = item.id.replace('item-', '');
+      
+      // Find activities associated with this item or its stage
+      const associatedActs = cronograma.filter(act => {
+        const sDate = parseDate(act.data_inicio_prevista);
+        const eDate = parseDate(act.data_fim_prevista);
+        if (!sDate || !eDate) return false;
+
+        return (
+          act.orcamento_item_id?.toString() === itemIdNumeric ||
+          (act.item_numero?.toString() === item.item?.toString() && act.item_numero) ||
+          (act.etapa_id?.toString() === item.etapa_id?.toString() && act.etapa_id)
+        );
+      });
+
+      if (associatedActs.length > 0) {
+        mappedLeafIds.add(item.id);
+        
+        // Share total item value among associated activities proportional to their duration
+        const activitiesWithDates = associatedActs.map(act => {
+            const s = parseDate(act.data_inicio_prevista)!;
+            const e = parseDate(act.data_fim_prevista)!;
+            const dur = Math.max(1, Math.ceil((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+            return { act, s, e, dur };
+        });
+
+        const totalDuration = activitiesWithDates.reduce((acc, val) => acc + val.dur, 0);
+        
+        activitiesWithDates.forEach(({ act, s, e, dur }) => {
+          const actShare = totalDuration > 0 ? (dur / totalDuration) * itemValue : itemValue / activitiesWithDates.length;
+          
+          projectIntervals.forEach((intervalKey) => {
+            let iStart: Date;
+            let iEnd: Date;
+            
+            if (useDayInterval) {
+              iStart = new Date(intervalKey + "T00:00:00Z");
+              iEnd = new Date(iStart);
+              iEnd.setUTCDate(iEnd.getUTCDate() + intervalDays - 1);
+              iEnd.setUTCHours(23, 59, 59, 999);
+            } else {
+              const [y, m] = intervalKey.split("-").map(Number);
+              iStart = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0, 0));
+              iEnd = new Date(Date.UTC(y, m, 0, 23, 59, 59, 999));
+            }
+
+            const overlapStart = Math.max(s.getTime(), iStart.getTime());
+            const overlapEnd = Math.min(e.getTime(), iEnd.getTime());
+
+            if (overlapEnd >= overlapStart) {
+              const overlapDays = Math.ceil((overlapEnd - overlapStart) / (1000 * 60 * 60 * 24)) + 1;
+              const valInInterval = (overlapDays / dur) * actShare;
+              plannedByInterval.set(intervalKey, (plannedByInterval.get(intervalKey) || 0) + valInInterval);
+            }
+          });
+        });
+      }
+    });
+
+    // Handle unmapped leaf items (spread over project duration using S-curve)
+    const unmappedLeaves = leafItems.filter(it => !mappedLeafIds.has(it.id));
+    if (unmappedLeaves.length > 0 && projectIntervals.length > 0) {
+      const totalUnmapped = unmappedLeaves.reduce((acc, it) => acc + (it.total || 0), 0) * bdiMultiplier;
+      const N = projectIntervals.length;
+      for (let i = 0; i < N; i++) {
+        const t1 = i / N;
+        const t2 = (i + 1) / N;
+        const p1 = t1 * t1 * (3 - 2 * t1);
+        const p2 = t2 * t2 * (3 - 2 * t2);
+        const val = (p2 - p1) * totalUnmapped;
+        const key = projectIntervals[i];
+        plannedByInterval.set(key, (plannedByInterval.get(key) || 0) + val);
+      }
+    }
+
+    const actualByInterval = new Map<string, number>();
     medicoes.forEach((med) => {
       const d = parseDate(med.data_medicao);
       if (d) {
-        const month = d.toISOString().substring(0, 7);
-        actualByMonth.set(
-          month,
-          (actualByMonth.get(month) || 0) + (med.total_valor || 0),
-        );
+        let key = "";
+        if (useDayInterval) {
+          // Find closest interval start (rounding down to previous 5-day mark)
+          const diffFromProjectStart = Math.floor(
+            (d.getTime() - minDate!.getTime()) / (1000 * 60 * 60 * 24),
+          );
+          const intervalIndex = Math.max(
+            0,
+            Math.floor(diffFromProjectStart / intervalDays),
+          );
+          key =
+            projectIntervals[Math.min(intervalIndex, projectIntervals.length - 1)];
+        } else {
+          key = d.toISOString().substring(0, 7);
+        }
+
+        if (key && intervalsSet.has(key)) {
+          actualByInterval.set(
+            key,
+            (actualByInterval.get(key) || 0) + (med.total_valor || 0),
+          );
+        }
       }
     });
 
     let cumPlanned = 0;
     let cumActual = 0;
-    const todayStr = new Date().toISOString().substring(0, 7);
+    const now = new Date();
+    const todayKey = useDayInterval
+      ? now.toISOString().split("T")[0]
+      : now.toISOString().substring(0, 7);
 
-    return relevantMonths.map((month) => {
-      const currentPlanned = plannedByMonth.get(month) || 0;
+    let maxMedicaoKey: string | null = null;
+    medicoes.forEach((med) => {
+      const d = parseDate(med.data_medicao);
+      if (d) {
+        const k = useDayInterval
+          ? d.toISOString().split("T")[0]
+          : d.toISOString().substring(0, 7);
+        if (!maxMedicaoKey || k > maxMedicaoKey) maxMedicaoKey = k;
+      }
+    });
+
+    return projectIntervals.map((key) => {
+      const currentPlanned = plannedByInterval.get(key) || 0;
       cumPlanned += currentPlanned;
 
       const planejadoPercent =
@@ -268,19 +314,29 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
       let realizedToDate: number | null = null;
       let realizadoMensalPercent: number | null = null;
 
-      if (!maxMedicaoMonth || month <= maxMedicaoMonth || month <= todayStr) {
-        currentActual = actualByMonth.get(month) || 0;
+      if (!maxMedicaoKey || key <= maxMedicaoKey || key <= todayKey) {
+        currentActual = actualByInterval.get(key) || 0;
         cumActual += currentActual;
-        
-        if (medicoes.length > 0 || currentActual > 0 || month <= maxMedicaoMonth) {
-            realizadoPercent = totalOrcado > 0 ? (cumActual / totalOrcado) * 100 : 0;
-            realizadoMensalPercent = totalOrcado > 0 ? (currentActual / totalOrcado) * 100 : 0;
-            realizedToDate = cumActual;
-        } else if (medicoes.length === 0 && month <= todayStr && month >= projectMonths[0]) {
-             // If no measurements yet, but we are within project timeline up to today, EV is 0
-            realizadoPercent = 0;
-            realizadoMensalPercent = 0;
-            realizedToDate = 0;
+
+        if (
+          medicoes.length > 0 ||
+          currentActual > 0 ||
+          (maxMedicaoKey && key <= maxMedicaoKey)
+        ) {
+          realizadoPercent =
+            totalOrcado > 0 ? (cumActual / totalOrcado) * 100 : 0;
+          realizadoMensalPercent =
+            totalOrcado > 0 ? (currentActual / totalOrcado) * 100 : 0;
+          realizedToDate = cumActual;
+        } else if (
+          medicoes.length === 0 &&
+          key <= todayKey &&
+          projectIntervals.length > 0 &&
+          key >= projectIntervals[0]
+        ) {
+          realizadoPercent = 0;
+          realizadoMensalPercent = 0;
+          realizedToDate = 0;
         }
       }
 
@@ -289,16 +345,18 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
         spi = Number((realizedToDate / cumPlanned).toFixed(2));
       }
 
+      const label = useDayInterval
+        ? key.split("-").reverse().slice(0, 2).join("/")
+        : key.split("-").reverse().join("/");
+
       return {
-        month: month.split("-").reverse().join("/"),
-        rawMonth: month,
+        month: label,
+        rawMonth: key,
         planejado: cumPlanned,
         realizado: realizedToDate,
         planejadoPercent: Number(planejadoPercent.toFixed(2)),
         realizadoPercent:
-          realizadoPercent !== null
-            ? Number(realizadoPercent.toFixed(2))
-            : null,
+          realizadoPercent !== null ? Number(realizadoPercent.toFixed(2)) : null,
         spi: spi,
         planejadoMensal: currentPlanned,
         realizadoMensal: currentActual,
@@ -311,7 +369,25 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
     });
   };
 
-  const sCurveData = getSCurveData();
+  const sCurveDataRaw = useMemo(() => getSCurveData(), [
+    medicoes,
+    orcamento,
+    cronograma,
+    minDate,
+    maxDate,
+    totalOrcado,
+    bdiMultiplier,
+  ]);
+
+  const sCurveData = useMemo(() => {
+    if (!filterStart && !filterEnd) return sCurveDataRaw;
+    return sCurveDataRaw.filter((d) => {
+      // Comparison works because keys are YYYY-MM or YYYY-MM-DD
+      if (filterStart && d.rawMonth < filterStart) return false;
+      if (filterEnd && d.rawMonth > filterEnd) return false;
+      return true;
+    });
+  }, [sCurveDataRaw, filterStart, filterEnd]);
 
   // Metrics for Current Month Snapshot
   const latestMedicaoData = [...sCurveData]
@@ -323,6 +399,7 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
   const currentSV = currentEV - currentPV;
   const concluidoPercent =
     totalOrcado > 0 ? (currentEV / totalOrcado) * 100 : 0;
+  const planejadoToDatePercent = totalOrcado > 0 ? (currentPV / totalOrcado) * 100 : 0;
 
   const SCurveTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
@@ -335,31 +412,31 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
           <div className="space-y-3">
             <div className="flex justify-between items-center text-[10px]">
               <span className="font-bold text-slate-500 uppercase flex items-center gap-1.5">
-                <div className="w-2 h-2 rounded-full bg-[#bbf7d0]"></div>
-                Plan. Mensal
+                <div className="w-2 h-2 rounded-full bg-[#93c5fd]"></div>
+                Planejado no Período
               </span>
               <span className="font-black text-slate-700">
-                R$ {formatFinancial(data.planejadoMensal || 0)}
+                R$ {formatFinancial(data.planejadoMensal || 0)} ({data.planejadoMensalPercent}%)
               </span>
             </div>
-            {(data.realizadoMensal || 0) > 0 && (
+            {data.realizadoMensalPercent !== null && data.realizadoMensalPercent > 0 && (
               <div className="flex justify-between items-center text-[10px]">
                 <span className="font-bold text-slate-500 uppercase flex items-center gap-1.5">
-                  <div className="w-2 h-2 rounded-full bg-[#fca5a5]"></div>
-                  Real. Mensal
+                  <div className={`w-2 h-2 rounded-full ${(data.realizadoMensalPercent || 0) >= (data.planejadoMensalPercent || 0) ? "bg-[#10b981]" : "bg-[#ef4444]"}`}></div>
+                  Realizado no Período
                 </span>
-                <span className="font-black text-emerald-700">
-                  R$ {formatFinancial(data.realizadoMensal || 0)}
+                <span className={`font-black ${(data.realizadoMensalPercent || 0) >= (data.planejadoMensalPercent || 0) ? "text-emerald-700" : "text-rose-700"}`}>
+                  R$ {formatFinancial(data.realizadoMensal || 0)} ({data.realizadoMensalPercent}%)
                 </span>
               </div>
             )}
             <div className="flex justify-between items-center text-[10px] pt-2 border-t border-slate-100">
               <span className="font-bold text-slate-500 uppercase flex items-center gap-1.5">
-                <div className="w-3 h-3 rounded-full bg-[#16a34a]"></div>
-                Planned Value (PV)
+                <div className="w-3 h-3 rounded-full bg-[#2563eb]"></div>
+                Planejado Acumulado
               </span>
               <div className="text-right">
-                <div className="font-black text-green-600">
+                <div className="font-black text-blue-600">
                   {data.planejadoPercent}%
                 </div>
                 <div className="font-medium text-slate-400">
@@ -370,11 +447,11 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
             {data.realizado !== null && (
               <div className="flex justify-between items-center text-[10px] pt-1">
                 <span className="font-bold text-slate-500 uppercase flex items-center gap-1.5">
-                  <div className="w-3 h-3 rounded-full bg-[#dc2626]"></div>
-                  Earned Value (EV)
+                  <div className={`w-3 h-3 rounded-full ${data.realizadoPercent >= data.planejadoPercent ? "bg-[#10b981]" : "bg-[#ef4444]"}`}></div>
+                  Realizado Acumulado
                 </span>
                 <div className="text-right">
-                  <div className="font-black text-red-600">
+                  <div className={`font-black ${data.realizadoPercent >= data.planejadoPercent ? "text-emerald-600" : "text-rose-600"}`}>
                     {data.realizadoPercent}%
                   </div>
                   <div className="font-medium text-slate-400">
@@ -495,23 +572,28 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
           <div className="absolute top-0 right-0 w-20 h-20 bg-blue-50 rounded-bl-full -mr-4 -mt-4 transition-all group-hover:scale-110" />
           <h4
             className="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-1 relative z-10"
-            title="Planned Value"
+            title="Soma de tudo o que deve estar pronto até hoje"
           >
-            Valor Planejado (PV)
+            Planejado Acumulado
           </h4>
-          <p className="text-xl font-black text-blue-600 relative z-10 truncate">
-            R$ {formatFinancial(currentPV)}
-          </p>
+          <div className="flex items-baseline gap-2 relative z-10">
+            <p className="text-xl font-black text-blue-600 truncate">
+              R$ {formatFinancial(currentPV)}
+            </p>
+            <span className="text-[10px] font-bold text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded-md">
+              {planejadoToDatePercent.toFixed(1)}%
+            </span>
+          </div>
         </div>
 
-        {/* Valor Agregado (EV) */}
+        {/* Realizado Acumulado */}
         <div className="bg-white p-5 rounded-[24px] border border-slate-100 shadow-sm relative overflow-hidden group">
           <div className="absolute top-0 right-0 w-20 h-20 bg-emerald-50 rounded-bl-full -mr-4 -mt-4 transition-all group-hover:scale-110" />
           <h4
             className="text-[9px] font-black text-emerald-400 uppercase tracking-widest mb-1 relative z-10"
-            title="Earned Value"
+            title="Soma de tudo o que foi de fato medido até hoje"
           >
-            Valor Agregado (EV)
+            Realizado Acumulado
           </h4>
           <div className="flex items-baseline gap-2 relative z-10">
             <p className="text-xl font-black text-emerald-600 truncate">
@@ -523,54 +605,41 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
           </div>
         </div>
 
-        {/* Variação de Prazo (SV) */}
+        {/* Desvio de Cronograma */}
         <div className="bg-white p-5 rounded-[24px] border border-slate-100 shadow-sm relative overflow-hidden group">
-          <div
-            className={`absolute top-0 right-0 w-20 h-20 rounded-bl-full -mr-4 -mt-4 transition-all group-hover:scale-110 ${currentSV >= 0 ? "bg-emerald-50" : "bg-red-50"}`}
-          />
+          <div className="absolute top-0 right-0 w-20 h-20 bg-rose-50 rounded-bl-full -mr-4 -mt-4 transition-all group-hover:scale-110" />
           <h4
-            className={`text-[9px] font-black uppercase tracking-widest mb-1 relative z-10 ${currentSV >= 0 ? "text-emerald-400" : "text-red-400"}`}
-            title="Schedule Variance"
+            className="text-[9px] font-black text-rose-400 uppercase tracking-widest mb-1 relative z-10"
+            title="Diferença entre o Realizado e o Planejado em Reais"
           >
-            Variação de Prazo (SV)
+            Desvio Cronograma (R$)
           </h4>
-          <p
-            className={`text-xl font-black relative z-10 truncate ${currentSV >= 0 ? "text-emerald-600" : "text-red-600"}`}
-          >
-            R$ {formatFinancial(currentSV)}
-          </p>
+          <div className="flex items-baseline gap-2 relative z-10">
+            <p className={`text-xl font-black relative z-10 truncate ${currentSV < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+              R$ {formatFinancial(currentSV)}
+            </p>
+          </div>
         </div>
 
-        {/* Índice de Prazo (SPI) */}
+        {/* Eficiência de Prazo */}
         <div className="bg-white p-5 rounded-[24px] border border-slate-100 shadow-sm relative overflow-hidden group">
-          <div
-            className={`absolute top-0 right-0 w-20 h-20 rounded-bl-full -mr-4 -mt-4 transition-all group-hover:scale-110 ${currentSPI >= 1 ? "bg-emerald-50" : "bg-red-50"}`}
-          />
+          <div className="absolute top-0 right-0 w-20 h-20 bg-amber-50 rounded-bl-full -mr-4 -mt-4 transition-all group-hover:scale-110" />
           <h4
-            className={`text-[9px] font-black uppercase tracking-widest mb-1 relative z-10 ${currentSPI >= 1 ? "text-emerald-400" : "text-red-400"}`}
-            title="Schedule Performance Index"
+            className="text-[9px] font-black text-amber-400 uppercase tracking-widest mb-1 relative z-10"
+            title="Relação entre o Realizado e o Planejado (Meta é >= 1.00)"
           >
-            Índice de Prazo (SPI)
+            Eficiência de Prazo
           </h4>
-          <div className="flex items-center gap-2 relative z-10">
-            <p
-              className={`text-xl font-black truncate ${currentSPI >= 1 ? "text-emerald-600" : "text-red-600"}`}
-            >
-              {currentSPI.toFixed(2)}
-            </p>
-            <span
-              className={`text-[9px] font-bold uppercase px-2 py-1 rounded-lg ${currentSPI >= 1 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}
-            >
-              {currentSPI >= 1 ? "Adiantado" : "Atrasado"}
-            </span>
-          </div>
+          <p className={`text-xl font-black relative z-10 truncate ${currentSPI < 0.9 ? 'text-rose-600' : currentSPI < 1 ? 'text-amber-600' : 'text-emerald-600'}`}>
+            {currentSPI.toFixed(2)}
+          </p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
         {/* Curva S */}
         <div className="bg-white rounded-[40px] border border-slate-100 shadow-sm overflow-hidden p-8 lg:col-span-3">
-          <div className="flex justify-between items-center mb-8">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
             <div>
               <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">
                 Curva S e Histograma (Avanço)
@@ -579,9 +648,38 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
                  {(() => {
                     const s = minDate ? minDate.toLocaleDateString('pt-BR') : '-';
                     const e = maxDate ? maxDate.toLocaleDateString('pt-BR') : '-';
-                    return `Prazo: ${s} até ${e}`;
+                    return `Prazo Total: ${s} até ${e}`;
                 })()}
               </p>
+            </div>
+
+            <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-100">
+              <div className="flex items-center gap-2 px-2 border-r border-slate-200">
+                 <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                 <span className="text-[10px] font-black text-slate-500 uppercase">Filtrar:</span>
+              </div>
+              <input 
+                type={useDayInterval ? "date" : "month"} 
+                className="text-[10px] font-bold bg-transparent border-none focus:ring-0 text-slate-600 w-28"
+                value={filterStart}
+                onChange={(e) => setFilterStart(e.target.value)}
+              />
+              <span className="text-[10px] font-bold text-slate-300">a</span>
+              <input 
+                type={useDayInterval ? "date" : "month"} 
+                className="text-[10px] font-bold bg-transparent border-none focus:ring-0 text-slate-600 w-28"
+                value={filterEnd}
+                onChange={(e) => setFilterEnd(e.target.value)}
+              />
+              {(filterStart || filterEnd) && (
+                <button 
+                  onClick={() => { setFilterStart(""); setFilterEnd(""); }}
+                  className="p-1 hover:bg-white rounded-md text-rose-500 transition-colors"
+                  title="Limpar Filtro"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           </div>
           <div className="h-80">
@@ -637,27 +735,35 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
                 <Bar
                   yAxisId="left"
                   dataKey="planejadoMensalPercent"
-                  name="% Mensal (Plan)"
-                  fill="#bbf7d0"
+                  name="% no Período (Plan)"
+                  fill="#93c5fd"
                   radius={[4, 4, 0, 0]}
-                  barSize={30}
+                  barSize={useDayInterval ? undefined : 32}
+                  maxBarSize={32}
                 />
                 {sCurveData.some((d) => (d.realizadoMensalPercent || 0) > 0) && (
                   <Bar
                     yAxisId="left"
                     dataKey="realizadoMensalPercent"
-                    name="% Mensal (Real)"
-                    fill="#fca5a5"
+                    name="% no Período (Real)"
                     radius={[4, 4, 0, 0]}
-                    barSize={30}
-                  />
+                    barSize={useDayInterval ? undefined : 32}
+                    maxBarSize={32}
+                  >
+                    {sCurveData.map((entry, index) => (
+                      <Cell 
+                        key={`cell-${index}`} 
+                        fill={(entry.realizadoMensalPercent || 0) >= (entry.planejadoMensalPercent || 0) ? "#10b981" : "#ef4444"} 
+                      />
+                    ))}
+                  </Bar>
                 )}
                 <Line
                   yAxisId="right"
                   type="monotone"
                   dataKey="planejadoPercent"
-                  name="% Acumulado (PV)"
-                  stroke="#16a34a"
+                  name="% Planejado Acumulado"
+                  stroke="#2563eb"
                   strokeDasharray="5 5"
                   strokeWidth={3}
                   dot={false}
@@ -666,8 +772,8 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
                   yAxisId="right"
                   type="monotone"
                   dataKey="realizadoPercent"
-                  name="% Acumulado (EV)"
-                  stroke="#dc2626"
+                  name="% Realizado Acumulado"
+                  stroke={currentSPI >= 0.98 ? "#10b981" : "#ef4444"}
                   strokeWidth={3}
                   dot={false}
                   connectNulls={false}
