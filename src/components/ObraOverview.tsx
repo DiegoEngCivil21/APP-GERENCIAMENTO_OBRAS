@@ -77,55 +77,55 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
     })();
 
   // Prepare S-Curve Data (Cumulative Calculated)
+  // Helper to parse date robustly
+  const parseDate = (fecha: string) => {
+    if (!fecha) return null;
+    let date = new Date(fecha);
+    if (!isNaN(date.getTime())) return date;
+    // Try DD/MM/YYYY
+    const parts = fecha.split("/");
+    if (parts.length === 3) {
+      date = new Date(
+        parseInt(parts[2]),
+        parseInt(parts[1]) - 1,
+        parseInt(parts[0]),
+      );
+      if (!isNaN(date.getTime())) return date;
+    }
+    return null;
+  };
+
+  // Find Project start and end to create a continuous range
+  let minDate: Date | null = null;
+  let maxDate: Date | null = null;
+
+  // Search for a 'Resumo Geral' or root-level activity to define absolute bounds
+  const resumoGeralAtv = cronograma.find(act => 
+     (act.nome || '').toLowerCase().includes('resumo geral') || 
+     (act.nome || '').toLowerCase() === 'resumo da obra' ||
+     act.item_numero === '1' || act.item_numero === '01'
+  );
+
+  if (resumoGeralAtv) {
+      minDate = parseDate(resumoGeralAtv.data_inicio_prevista);
+      maxDate = parseDate(resumoGeralAtv.data_fim_prevista || resumoGeralAtv.data_inicio_prevista) || minDate;
+  }
+
+  // Fallback to min/max of all activities
+  if (!minDate || !maxDate) {
+    cronograma.forEach((act) => {
+      const start = parseDate(act.data_inicio_prevista);
+      const end = parseDate(act.data_fim_prevista) || start;
+      if (start && end) {
+        if (!minDate || start < minDate) minDate = new Date(start);
+        if (!maxDate || end > maxDate) maxDate = new Date(end);
+      }
+    });
+  }
+
   const getSCurveData = () => {
     // 1. Get unique months from schedule
     const monthsSet = new Set<string>();
-
-    // Helper to parse date robustly
-    const parseDate = (fecha: string) => {
-      if (!fecha) return null;
-      let date = new Date(fecha);
-      if (!isNaN(date.getTime())) return date;
-      // Try DD/MM/YYYY
-      const parts = fecha.split("/");
-      if (parts.length === 3) {
-        date = new Date(
-          parseInt(parts[2]),
-          parseInt(parts[1]) - 1,
-          parseInt(parts[0]),
-        );
-        if (!isNaN(date.getTime())) return date;
-      }
-      return null;
-    };
-
-    // Find Project start and end to create a continuous range
-    let minDate: Date | null = null;
-    let maxDate: Date | null = null;
-
-    // Search for a 'Resumo Geral' or root-level activity to define absolute bounds
-    const resumoGeralAtv = cronograma.find(act => 
-       (act.nome || '').toLowerCase().includes('resumo geral') || 
-       (act.nome || '').toLowerCase() === 'resumo da obra' ||
-       act.item_numero === '1' || act.item_numero === '01'
-    );
-
-    if (resumoGeralAtv) {
-        minDate = parseDate(resumoGeralAtv.data_inicio_prevista);
-        maxDate = parseDate(resumoGeralAtv.data_fim_prevista || resumoGeralAtv.data_inicio_prevista) || minDate;
-    }
-
-    // Fallback to min/max of all activities
-    if (!minDate || !maxDate) {
-      cronograma.forEach((act) => {
-        const start = parseDate(act.data_inicio_prevista);
-        const end = parseDate(act.data_fim_prevista) || start;
-        if (start && end) {
-          if (!minDate || start < minDate) minDate = new Date(start);
-          if (!maxDate || end > maxDate) maxDate = new Date(end);
-        }
-      });
-    }
 
     if (minDate && maxDate) {
       let d = new Date(minDate);
@@ -162,28 +162,28 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
     const sortedMonths = Array.from(monthsSet).sort();
     const relevantMonths = sortedMonths;
     const projectMonths = sortedMonths.filter(m => {
-       if (minDate && maxDate) {
-           return m >= minDate.toISOString().substring(0,7) && m <= maxDate.toISOString().substring(0,7);
-       }
-       return true;
+       const mStart = minDate ? minDate.toISOString().substring(0,7) : '';
+       const mEnd = maxDate ? maxDate.toISOString().substring(0,7) : '';
+       return m >= mStart && m <= mEnd;
     });
 
     const plannedByMonth = new Map<string, number>();
     
     // Group budget by ETAPAS
-    const etapas = orcamento.filter(r => r.tipo === "etapa" && !(r.item || "").toString().includes("."));
+    // Filter for level-1 or level-2 stages depending on how they are coded
+    const etapas = orcamento.filter(r => r.tipo === "etapa" && (/^\d+$/.test(r.item) || /^\d+\.\d+$/.test(r.item)));
     
     if (etapas.length > 0) {
       let unmappedBudget = 0;
       
       etapas.forEach(etapa => {
-        // Try to find the corresponding activity in cronograma for this Etapa.
-        // It might be mapped by id as string/number in orcamento_item_id, or item_numero
         const etapaValue = (etapa.total || 0) * bdiMultiplier;
         
+        // Find activity that matches this stage's code or id
         let actForEtapa = cronograma.find(act => 
             act.orcamento_item_id == etapa.id || 
-            act.item_numero === etapa.item
+            act.item_numero === etapa.item ||
+            (act.item_numero && act.item_numero.toString().split('.')[0] === etapa.item.toString())
         );
         
         if (actForEtapa && actForEtapa.data_inicio_prevista && actForEtapa.data_fim_prevista) {
@@ -192,15 +192,12 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
            
            if (sDate && eDate) {
               const months = [];
-              let d = new Date(sDate);
-              // reset to first of month
-              d.setDate(1);
-              const endD = new Date(eDate);
-              endD.setDate(1);
+              let cur = new Date(sDate.getFullYear(), sDate.getMonth(), 1);
+              const endLimit = new Date(eDate.getFullYear(), eDate.getMonth(), 1);
               
-              while (d <= endD) {
-                 months.push(d.toISOString().substring(0, 7));
-                 d.setMonth(d.getMonth() + 1);
+              while (cur <= endLimit) {
+                 months.push(cur.toISOString().substring(0, 7));
+                 cur.setMonth(cur.getMonth() + 1);
               }
               
               if (months.length > 0) {
@@ -219,23 +216,15 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
         }
       });
       
-      // If there's unmapped budget, spread it mathematically over the project duration
+      // If there's unmapped budget, spread it over the project months
       if (unmappedBudget > 0 && projectMonths.length > 0) {
-          const N = projectMonths.length;
-          for (let i = 0; i < N; i++) {
-            const t1 = i / N;
-            const t2 = (i + 1) / N;
-            const p1 = t1 * t1 * (3 - 2 * t1);
-            const p2 = t2 * t2 * (3 - 2 * t2);
-            const monthlyValue = (p2 - p1) * unmappedBudget;
-            
-            const month = projectMonths[i];
-            plannedByMonth.set(month, (plannedByMonth.get(month) || 0) + monthlyValue);
-          }
+          const monthlyValue = unmappedBudget / projectMonths.length;
+          projectMonths.forEach(m => {
+             plannedByMonth.set(m, (plannedByMonth.get(m) || 0) + monthlyValue);
+          });
       }
-      
     } else {
-      // Fallback: apply mathematical S-Curve to the ENTIRE budget (totalOrcado) 
+      // Fallback: S-Curve
       const N = projectMonths.length;
       if (totalOrcado > 0 && N > 0) {
         for (let i = 0; i < N; i++) {
@@ -244,9 +233,7 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
           const p1 = t1 * t1 * (3 - 2 * t1);
           const p2 = t2 * t2 * (3 - 2 * t2);
           const monthlyValue = (p2 - p1) * totalOrcado;
-          
-          const month = projectMonths[i];
-          plannedByMonth.set(month, monthlyValue);
+          plannedByMonth.set(projectMonths[i], (plannedByMonth.get(projectMonths[i]) || 0) + monthlyValue);
         }
       }
     }
@@ -586,10 +573,14 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
           <div className="flex justify-between items-center mb-8">
             <div>
               <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">
-                Curva S de Desempenho
+                Curva S e Histograma (Avanço)
               </h3>
               <p className="text-[10px] text-slate-400 font-bold uppercase mt-1">
-                Acumulado Planejado vs Realizado
+                 {(() => {
+                    const s = minDate ? minDate.toLocaleDateString('pt-BR') : '-';
+                    const e = maxDate ? maxDate.toLocaleDateString('pt-BR') : '-';
+                    return `Prazo: ${s} até ${e}`;
+                })()}
               </p>
             </div>
           </div>
@@ -616,7 +607,7 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
                   axisLine={false}
                   tickLine={false}
                   tick={{ fontSize: 10, fontWeight: 700, fill: "#64748b" }}
-                  tickFormatter={(value) => `${value.toFixed(0)}%`}
+                  tickFormatter={(value) => `${value.toFixed(1)}%`}
                   width={40}
                 />
                 <YAxis
@@ -649,7 +640,7 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
                   name="% Mensal (Plan)"
                   fill="#bbf7d0"
                   radius={[4, 4, 0, 0]}
-                  maxBarSize={32}
+                  barSize={30}
                 />
                 {sCurveData.some((d) => (d.realizadoMensalPercent || 0) > 0) && (
                   <Bar
@@ -658,7 +649,7 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
                     name="% Mensal (Real)"
                     fill="#fca5a5"
                     radius={[4, 4, 0, 0]}
-                    maxBarSize={32}
+                    barSize={30}
                   />
                 )}
                 <Line

@@ -1276,32 +1276,37 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
                 </div>
                 <h4 className="text-xl font-black text-slate-900 leading-none">
                   {(() => {
-                    let maxDate = obra.data_fim_prevista;
-                    let foundValidAct = false;
+                    let maxDate: string | null = null;
                     
                     if (cronograma && cronograma.length > 0) {
                       let maxTime = -Infinity;
                       cronograma.forEach(act => {
                         const ed = act.data_fim_prevista || act.data_inicio_prevista;
                         if (ed) {
-                          const time = new Date(ed).getTime();
+                          // Robust parsing to avoid timezone shifts
+                          const [y, m, d] = ed.split('-').map(Number);
+                          const time = new Date(y, m - 1, d).getTime();
                           if (!isNaN(time) && time > maxTime) {
                             maxTime = time;
                             maxDate = ed;
-                            foundValidAct = true;
                           }
                         }
                       });
                     }
 
-                    if (!maxDate) return '-';
+                    // Fallback to obra data or a default if everything else fails
+                    const finalDate = maxDate || obra.data_fim_prevista;
                     
-                    // Fix timezone offset for manual parsing
-                    const parts = maxDate.split('-');
+                    if (!finalDate || finalDate === '30/11/2026') {
+                        // If it's still the placeholder or null, and we have no schedule, it's truly unknown
+                        if (!maxDate) return 'Definir no Cronograma';
+                    }
+                    
+                    const parts = finalDate.split('-');
                     if (parts.length === 3) {
                        return `${parts[2]}/${parts[1]}/${parts[0]}`;
                     }
-                    return new Date(maxDate).toLocaleDateString('pt-BR');
+                    return finalDate;
                   })()}
                 </h4>
               </div>
