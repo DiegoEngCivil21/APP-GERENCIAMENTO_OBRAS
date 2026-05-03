@@ -305,7 +305,7 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
       cumPlanned += currentPlanned;
 
       const planejadoPercent =
-        totalOrcado > 0 ? (cumPlanned / totalOrcado) * 100 : 0;
+        totalOrcado > 0 ? Math.min(100, (cumPlanned / totalOrcado) * 100) : 0;
       const planejadoMensalPercent =
         totalOrcado > 0 ? (currentPlanned / totalOrcado) * 100 : 0;
 
@@ -324,7 +324,7 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
           (maxMedicaoKey && key <= maxMedicaoKey)
         ) {
           realizadoPercent =
-            totalOrcado > 0 ? (cumActual / totalOrcado) * 100 : 0;
+            totalOrcado > 0 ? Math.min(100, (cumActual / totalOrcado) * 100) : 0;
           realizadoMensalPercent =
             totalOrcado > 0 ? (currentActual / totalOrcado) * 100 : 0;
           realizedToDate = cumActual;
@@ -398,8 +398,8 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
   const currentSPI = currentPV > 0 ? currentEV / currentPV : 0;
   const currentSV = currentEV - currentPV;
   const concluidoPercent =
-    totalOrcado > 0 ? (currentEV / totalOrcado) * 100 : 0;
-  const planejadoToDatePercent = totalOrcado > 0 ? (currentPV / totalOrcado) * 100 : 0;
+    totalOrcado > 0 ? Math.min(100, (currentEV / totalOrcado) * 100) : 0;
+  const planejadoToDatePercent = totalOrcado > 0 ? Math.min(100, (currentPV / totalOrcado) * 100) : 0;
 
   const SCurveTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
@@ -467,39 +467,83 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
     return null;
   };
 
-  // Prepare material data: Top items from orcamento by value
-  const materialData = orcamento
-    .filter((item) => item.tipo !== "etapa")
-    .sort((a, b) => (b.total || 0) - (a.total || 0))
-    .slice(0, 10)
-    .map((item) => {
-      const unitPrice =
-        bdiIncidence === "unitario"
-          ? item.valor_bdi || item.valor_unitario || 0
-          : item.valor_unitario || 0;
-      const medido =
-        ((item.progresso || 0) / 100) * (item.total || 0) * bdiMultiplier;
-      return {
-        name:
-          item.descricao.length > 20
-            ? item.descricao.substring(0, 20) + "..."
-            : item.descricao,
-        orcado: (item.total || 0) * bdiMultiplier,
-        medido: medido,
-      };
+  // Prepare activity data with financial values
+  const activityFinancialData = useMemo(() => {
+    const actMap = new Map<string | number, { name: string, orcado: number, medido: number }>();
+    
+    // leaf items for precise mapping
+    const leafItems = orcamento.filter(r => r.tipo !== 'etapa');
+    const bdiMultiplier = 1 + (bdiValue / 100);
+
+    leafItems.forEach(item => {
+      const itemValue = (item.total || 0) * bdiMultiplier;
+      const itemIdNumeric = item.id.replace('item-', '');
+      
+      const associatedActs = cronograma.filter(act => 
+        act.orcamento_item_id?.toString() === itemIdNumeric ||
+        (act.item_numero?.toString() === item.item?.toString() && act.item_numero) ||
+        (act.etapa_id?.toString() === item.etapa_id?.toString() && act.etapa_id)
+      );
+
+      if (associatedActs.length > 0) {
+        // Distribute value among acts by duration
+        const totalDuration = associatedActs.reduce((acc, act) => {
+          const s = parseDate(act.data_inicio_prevista);
+          const e = parseDate(act.data_fim_prevista);
+          if (!s || !e) return acc + 1;
+          return acc + Math.max(1, Math.ceil((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+        }, 0);
+
+        associatedActs.forEach(act => {
+          const s = parseDate(act.data_inicio_prevista);
+          const e = parseDate(act.data_fim_prevista);
+          const dur = (!s || !e) ? 1 : Math.max(1, Math.ceil((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+          const actShare = totalDuration > 0 ? (dur / totalDuration) * itemValue : itemValue / associatedActs.length;
+          
+          const existing = actMap.get(act.id) || { name: act.nome, orcado: 0, medido: 0 };
+          existing.orcado += actShare;
+          existing.medido += actShare * ((act.progresso || 0) / 100);
+          actMap.set(act.id, existing);
+        });
+      }
     });
 
+    return Array.from(actMap.values())
+      .filter(d => {
+        // Filter by date if applicable (finding the activity dates)
+        const act = cronograma.find(a => a.nome === d.name || d.name.startsWith(a.nome.substring(0, 15)));
+        if (!act) return true;
+        const s = act.data_inicio_prevista;
+        const e = act.data_fim_prevista || s;
+        if (filterStart && e && e < filterStart) return false;
+        if (filterEnd && s && s > filterEnd) return false;
+        return true;
+      })
+      .sort((a, b) => b.orcado - a.orcado)
+      .slice(0, 10)
+      .map(d => ({
+        ...d,
+        name: d.name.length > 20 ? d.name.substring(0, 20) + '...' : d.name
+      }));
+  }, [orcamento, cronograma, bdiValue, filterStart, filterEnd]);
+
   // Prepare progress data
-  const progressData = cronograma
-    .sort(
-      (a, b) =>
-        new Date(a.data_inicio_prevista || 0).getTime() -
-        new Date(b.data_inicio_prevista || 0).getTime(),
-    )
-    .map((act) => ({
-      name: act.nome.length > 15 ? act.nome.substring(0, 15) + "..." : act.nome,
-      progresso: act.progresso || 0,
-    }));
+  const progressData = useMemo(() => {
+    return cronograma
+      .filter(act => {
+        const s = act.data_inicio_prevista;
+        const e = act.data_fim_prevista || s;
+        if (filterStart && e && e < filterStart) return false;
+        if (filterEnd && s && s > filterEnd) return false;
+        return true;
+      })
+      .sort((a, b) => new Date(a.data_inicio_prevista || 0).getTime() - new Date(b.data_inicio_prevista || 0).getTime())
+      .slice(0, 10)
+      .map((act) => ({
+        name: act.nome.length > 20 ? act.nome.substring(0, 20) + "..." : act.nome,
+        progresso: act.progresso || 0,
+      }));
+  }, [cronograma, filterStart, filterEnd]);
 
   return (
     <div className="space-y-8 pb-10">
@@ -551,88 +595,87 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
         </div>
       </div>
 
-      {/* Main Totals - EVM Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+      {/* Main Totals - Dash Balloons Style */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {/* Orçamento Total (BAC) */}
-        <div className="bg-white p-5 rounded-[24px] border border-slate-100 shadow-sm relative overflow-hidden group">
-          <div className="absolute top-0 right-0 w-20 h-20 bg-slate-50 rounded-bl-full -mr-4 -mt-4 transition-all group-hover:scale-110" />
-          <h4
-            className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 relative z-10"
-            title="Budget At Completion"
-          >
-            Orçamento Total (BAC)
-          </h4>
-          <p className="text-xl font-black text-slate-900 relative z-10 truncate">
-            R$ {formatFinancial(totalOrcado)}
-          </p>
+        <div className="bg-white p-6 rounded-[28px] border border-slate-100 shadow-sm flex justify-between items-center group hover:shadow-md transition-all">
+          <div className="flex flex-col min-w-0">
+            <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 truncate" title="Budget At Completion">
+              Orçamento Total
+            </h4>
+            <p className="text-xl font-extrabold text-slate-900 truncate">
+              R$ {formatFinancial(totalOrcado)}
+            </p>
+          </div>
+          <div className="w-12 h-12 rounded-2xl bg-[#ff7a00] flex-shrink-0 transition-transform group-hover:scale-105 shadow-lg shadow-orange-100 flex items-center justify-center">
+             <div className="w-6 h-6 rounded-lg bg-white opacity-20"></div>
+          </div>
         </div>
 
         {/* Valor Planejado (PV) */}
-        <div className="bg-white p-5 rounded-[24px] border border-slate-100 shadow-sm relative overflow-hidden group">
-          <div className="absolute top-0 right-0 w-20 h-20 bg-blue-50 rounded-bl-full -mr-4 -mt-4 transition-all group-hover:scale-110" />
-          <h4
-            className="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-1 relative z-10"
-            title="Soma de tudo o que deve estar pronto até hoje"
-          >
-            Planejado Acumulado
-          </h4>
-          <div className="flex items-baseline gap-2 relative z-10">
-            <p className="text-xl font-black text-blue-600 truncate">
+        <div className="bg-white p-6 rounded-[28px] border border-slate-100 shadow-sm flex justify-between items-center group hover:shadow-md transition-all">
+          <div className="flex flex-col min-w-0">
+            <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 truncate" title="Soma de tudo o que deve estar pronto até hoje">
+              Planejado Acum.
+            </h4>
+            <p className="text-xl font-extrabold text-slate-900 truncate">
               R$ {formatFinancial(currentPV)}
             </p>
-            <span className="text-[10px] font-bold text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded-md">
-              {planejadoToDatePercent.toFixed(1)}%
+            <span className="text-[10px] font-bold text-blue-500 mt-0.5">
+              {planejadoToDatePercent.toFixed(1)}% do projeto
             </span>
+          </div>
+          <div className="w-12 h-12 rounded-2xl bg-[#1e6aff] flex-shrink-0 transition-transform group-hover:scale-105 shadow-lg shadow-blue-100 flex items-center justify-center">
+             <div className="w-6 h-6 rounded-lg bg-white opacity-20"></div>
           </div>
         </div>
 
-        {/* Realizado Acumulado */}
-        <div className="bg-white p-5 rounded-[24px] border border-slate-100 shadow-sm relative overflow-hidden group">
-          <div className="absolute top-0 right-0 w-20 h-20 bg-emerald-50 rounded-bl-full -mr-4 -mt-4 transition-all group-hover:scale-110" />
-          <h4
-            className="text-[9px] font-black text-emerald-400 uppercase tracking-widest mb-1 relative z-10"
-            title="Soma de tudo o que foi de fato medido até hoje"
-          >
-            Realizado Acumulado
-          </h4>
-          <div className="flex items-baseline gap-2 relative z-10">
-            <p className="text-xl font-black text-emerald-600 truncate">
+        {/* Realizado Acumulado (EV) */}
+        <div className="bg-white p-6 rounded-[28px] border border-slate-100 shadow-sm flex justify-between items-center group hover:shadow-md transition-all">
+          <div className="flex flex-col min-w-0">
+            <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 truncate" title="Soma de tudo o que foi de fato medido até hoje">
+              Realizado Acum.
+            </h4>
+            <p className="text-xl font-extrabold text-slate-900 truncate">
               R$ {formatFinancial(currentEV)}
             </p>
-            <span className="text-[10px] font-bold text-emerald-500 bg-emerald-50 px-1.5 py-0.5 rounded-md">
-              {concluidoPercent.toFixed(1)}%
+            <span className={`text-[10px] font-bold mt-0.5 ${concluidoPercent >= planejadoToDatePercent ? 'text-emerald-500' : 'text-rose-500'}`}>
+              {concluidoPercent.toFixed(1)}% concluído
             </span>
+          </div>
+          <div className={`w-12 h-12 rounded-2xl flex-shrink-0 transition-transform group-hover:scale-105 shadow-lg flex items-center justify-center ${concluidoPercent >= planejadoToDatePercent ? 'bg-[#00c283] shadow-emerald-100' : 'bg-[#f43f5e] shadow-rose-100'}`}>
+             <div className="w-6 h-6 rounded-lg bg-white opacity-20"></div>
           </div>
         </div>
 
-        {/* Desvio de Cronograma */}
-        <div className="bg-white p-5 rounded-[24px] border border-slate-100 shadow-sm relative overflow-hidden group">
-          <div className="absolute top-0 right-0 w-20 h-20 bg-rose-50 rounded-bl-full -mr-4 -mt-4 transition-all group-hover:scale-110" />
-          <h4
-            className="text-[9px] font-black text-rose-400 uppercase tracking-widest mb-1 relative z-10"
-            title="Diferença entre o Realizado e o Planejado em Reais"
-          >
-            Desvio Cronograma (R$)
-          </h4>
-          <div className="flex items-baseline gap-2 relative z-10">
-            <p className={`text-xl font-black relative z-10 truncate ${currentSV < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+        {/* Desvio Cronograma (SV) */}
+        <div className="bg-white p-6 rounded-[28px] border border-slate-100 shadow-sm flex justify-between items-center group hover:shadow-md transition-all">
+          <div className="flex flex-col min-w-0">
+            <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 truncate" title="Diferença entre Realizado e Planejado">
+              Desvio Cronog.
+            </h4>
+            <p className={`text-xl font-extrabold truncate ${currentSV < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
               R$ {formatFinancial(currentSV)}
             </p>
           </div>
+          <div className={`w-12 h-12 rounded-2xl flex-shrink-0 transition-transform group-hover:scale-105 shadow-lg flex items-center justify-center ${currentSV < 0 ? 'bg-[#f43f5e] shadow-rose-100' : 'bg-[#00c283] shadow-emerald-100'}`}>
+             <div className="w-6 h-6 rounded-lg bg-white opacity-20"></div>
+          </div>
         </div>
 
-        {/* Eficiência de Prazo */}
-        <div className="bg-white p-5 rounded-[24px] border border-slate-100 shadow-sm relative overflow-hidden group">
-          <div className="absolute top-0 right-0 w-20 h-20 bg-amber-50 rounded-bl-full -mr-4 -mt-4 transition-all group-hover:scale-110" />
-          <h4
-            className="text-[9px] font-black text-amber-400 uppercase tracking-widest mb-1 relative z-10"
-            title="Relação entre o Realizado e o Planejado (Meta é >= 1.00)"
-          >
-            Eficiência de Prazo
-          </h4>
-          <p className={`text-xl font-black relative z-10 truncate ${currentSPI < 0.9 ? 'text-rose-600' : currentSPI < 1 ? 'text-amber-600' : 'text-emerald-600'}`}>
-            {currentSPI.toFixed(2)}
-          </p>
+        {/* Eficiência (SPI) */}
+        <div className="bg-white p-6 rounded-[28px] border border-slate-100 shadow-sm flex justify-between items-center group hover:shadow-md transition-all">
+          <div className="flex flex-col min-w-0">
+            <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 truncate" title="Índice de Performance de Prazo">
+              Eficiência
+            </h4>
+            <p className={`text-xl font-extrabold truncate ${currentSPI < 0.9 ? 'text-rose-600' : currentSPI < 1 ? 'text-amber-600' : 'text-emerald-600'}`}>
+              {currentSPI.toFixed(2)}
+            </p>
+          </div>
+          <div className={`w-12 h-12 rounded-2xl flex-shrink-0 transition-transform group-hover:scale-105 shadow-lg flex items-center justify-center ${currentSPI < 0.9 ? 'bg-[#f43f5e] shadow-rose-100' : currentSPI < 1 ? 'bg-[#f59e0b] shadow-amber-100' : 'bg-[#6366f1] shadow-indigo-100'}`}>
+             <div className="w-6 h-6 rounded-lg bg-white opacity-20"></div>
+          </div>
         </div>
       </div>
 
@@ -859,17 +902,17 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
           <div className="flex justify-between items-center mb-8">
             <div>
               <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">
-                Maiores Impactos
+                Impacto Financeiro por Atividade
               </h3>
               <p className="text-[10px] text-slate-400 font-bold uppercase mt-1">
-                Principais itens do orçamento
+                Top 10 atividades mais caras
               </p>
             </div>
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
-                data={materialData}
+                data={activityFinancialData}
                 layout="vertical"
                 margin={{ left: 20 }}
               >

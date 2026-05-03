@@ -113,8 +113,70 @@ function getNextProprioCode(): string {
 const updateObraTimestamp = (obraId: string | number) => {
   try {
     db.prepare("UPDATE v2_obras SET updated_at = ? WHERE id = ?").run(new Date().toISOString(), obraId);
+    updateObraStatusAuto(obraId); // Also update status when timestamp changes
   } catch (e) {
     console.error("Error updating obra timestamp:", e);
+  }
+};
+
+const updateObraStatusAuto = (obraId: string | number) => {
+  try {
+    // 1. Calcular progresso físico médio do orçamento
+    // Usamos o progresso ponderado pelo valor se possível, ou média simples dos itens de orçamento
+    const orcamentoStats = db.prepare(`
+      SELECT 
+        COUNT(*) as total_itens,
+        AVG(COALESCE(oi.progresso, 0)) as progresso_medio,
+        SUM(CASE WHEN COALESCE(oi.progresso, 0) >= 100 THEN 1 ELSE 0 END) as itens_concluidos
+      FROM v2_orcamento_itens oi
+      JOIN v2_etapas e ON oi.etapa_id = e.id
+      WHERE e.obra_id = ?
+    `).get(obraId) as { total_itens: number, progresso_medio: number, itens_concluidos: number } | undefined;
+
+    // 2. Verificar se há medições registradas
+    const hasMedicoes = db.prepare(`SELECT COUNT(*) as count FROM v2_medicoes WHERE obra_id = ?`).get(obraId) as { count: number };
+
+    // 3. Verificar se há diários de obra registrados
+    const hasDiarios = db.prepare(`SELECT COUNT(*) as count FROM v2_diario_obra WHERE obra_id = ?`).get(obraId) as { count: number };
+
+    // 4. Buscar dados da obra (status atual e datas)
+    const obra = db.prepare("SELECT status, data_inicio, data_inicio_real, data_fim_prevista FROM v2_obras WHERE id = ?").get(obraId) as any;
+    
+    if (!obra) return;
+
+    let newStatus = obra.status;
+    const progresso = orcamentoStats?.progresso_medio || 0;
+    const now = new Date();
+    const startDate = obra.data_inicio_real ? new Date(obra.data_inicio_real) : (obra.data_inicio ? new Date(obra.data_inicio) : null);
+    const endDate = obra.data_fim_prevista ? new Date(obra.data_fim_prevista) : null;
+
+    // LÓGICA DE TRANSIÇÃO AUTOMÁTICA
+    if (progresso >= 99.9 || (orcamentoStats?.total_itens > 0 && orcamentoStats?.itens_concluidos === orcamentoStats?.total_itens)) {
+      newStatus = 'Concluída';
+    } else if (progresso > 0 || hasMedicoes.count > 0 || hasDiarios.count > 0) {
+      // Se tem progresso, medição ou diário, está definitivamente em andamento
+      newStatus = 'Em Andamento';
+    } else if (startDate && startDate <= now) {
+      // Se a data de início já passou mas não tem progresso nenhum
+      // Pode ser 'Atrasada' ou 'Em Andamento' (assumindo que começou mas não mediu ainda)
+      // Para ser mais útil, vamos marcar como 'Em Andamento' se a data passou
+      newStatus = 'Em Andamento';
+    } else {
+      // Caso contrário, permanece em planejamento
+      newStatus = 'Em Planejamento';
+    }
+
+    // Se o prazo final já passou e o progresso < 100, é 'Atrasada'
+    if (newStatus === 'Em Andamento' && endDate && endDate < now && progresso < 100) {
+      newStatus = 'Atrasada';
+    }
+
+    if (newStatus !== obra.status) {
+      console.log(`Auto-updating status of obra ${obraId} from "${obra.status}" to "${newStatus}"`);
+      db.prepare("UPDATE v2_obras SET status = ?, updated_at = ? WHERE id = ?").run(newStatus, new Date().toISOString(), obraId);
+    }
+  } catch (e) {
+    console.error("Error auto-updating obra status:", e);
   }
 };
 
@@ -1915,6 +1977,11 @@ async function startServer() {
       
       const totalObras = db.prepare(`SELECT COUNT(*) as count FROM v2_obras WHERE ${tCondition}`).get(...tParam) as { count: number };
       const totalInsumos = db.prepare(`SELECT COUNT(*) as count FROM v2_itens WHERE tipo = 'insumo' AND ${tCondition}`).get(...tParam) as { count: number };
+      
+      // Auto-update status for all works to ensure counts and recent works are accurate
+      const allObrasIds = db.prepare(`SELECT id FROM v2_obras WHERE ${tCondition}`).all(...tParam) as {id: number}[];
+      allObrasIds.forEach(o => updateObraStatusAuto(o.id));
+      
       const obrasRecentes = db.prepare(`SELECT * FROM v2_obras WHERE ${tCondition} ORDER BY created_at DESC LIMIT 5`).all(...tParam);
       
       const totalOrcadoResult = db.prepare(`
@@ -2123,7 +2190,25 @@ async function startServer() {
         WHERE ${tCondition}
         GROUP BY o.id
       `).all(...tParam);
-      res.json(obras.map(o => ({...o, valor_total: o.valor_total_real !== null ? o.valor_total_real : o.valor_total})));
+      
+      // Auto-update status for these obras
+      obras.forEach((o: any) => updateObraStatusAuto(o.id));
+      
+      // Re-fetch to get updated status if needed
+      const updatedObras = db.prepare(`
+        SELECT o.*, 
+          CASE 
+            WHEN o.bdi_incidencia = 'final' THEN SUM(oi.custo_unitario_aplicado * oi.quantidade) * (1 + COALESCE(o.bdi, 0) / 100.0)
+            ELSE SUM(oi.custo_unitario_aplicado * oi.quantidade * (1 + COALESCE(o.bdi, 0) / 100.0))
+          END as valor_total_real
+        FROM v2_obras o
+        LEFT JOIN v2_etapas e ON o.id = e.obra_id
+        LEFT JOIN v2_orcamento_itens oi ON e.id = oi.etapa_id
+        WHERE ${tCondition}
+        GROUP BY o.id
+      `).all(...tParam);
+
+      res.json(updatedObras.map((o: any) => ({...o, valor_total: o.valor_total_real !== null ? o.valor_total_real : o.valor_total})));
     } catch (error: any) {
       console.error("Error fetching obras:", error);
       res.status(500).json({ message: "Erro ao buscar obras.", error: error.message });
@@ -2185,6 +2270,8 @@ async function startServer() {
       const tenantId = req.user.tenant_id;
       const tCondition = tenantId === null ? "o.tenant_id IS NULL" : "o.tenant_id = ?";
       const tParam = tenantId === null ? [req.params.id] : [req.params.id, tenantId];
+
+      updateObraStatusAuto(req.params.id);
 
       const obra = db.prepare(`
         SELECT o.*, SUM(oi.custo_unitario_aplicado * oi.quantidade * (1 + COALESCE(o.bdi, 0) / 100.0)) as valor_total_real
@@ -2296,6 +2383,7 @@ async function startServer() {
                   updateStmt.run(tree.valor_total, item.id);
               }
           }
+          updateObraStatusAuto(req.params.id);
         }
       })();
 
@@ -2562,12 +2650,43 @@ async function startServer() {
         // Use dynamic price if available, fallback to applied cost
         let valor_unitario = it.preco_dinamico ?? it.custo_unitario_aplicado ?? 0;
         
-        // If it's a composition, calculate it dynamically
+        let custo_material = 0;
+        let custo_mao_obra = 0;
+        let custo_equipamento = 0;
+
+        // If it's a composition, calculate breakdown dynamically
         if (it.item_tipo === 'composicao') {
-          const tree = getCompositionTree(it.item_id, estadoFilter, dataRefFilter, tipoDesoneracao, bancosAtivos);
-          valor_unitario = tree.valor_total > 0 ? tree.valor_total : valor_unitario;
-        } else if (valor_unitario === 0 && it.preco_dinamico) {
-          valor_unitario = it.preco_dinamico;
+          const flatItems = getFlatCompositionItems(it.item_id, estadoFilter, dataRefFilter, tipoDesoneracao, bancosAtivos);
+          
+          for (const flat of flatItems) {
+            const cat = (flat.categoria || '').toLowerCase();
+            if (cat.includes('material')) {
+              custo_material += flat.preco_unitario * flat.quantidade;
+            } else if (cat.includes('mão de obra') || cat.includes('mao de obra')) {
+              custo_mao_obra += flat.preco_unitario * flat.quantidade;
+            } else if (cat.includes('equipamento')) {
+              custo_equipamento += flat.preco_unitario * flat.quantidade;
+            } else {
+              custo_material += flat.preco_unitario * flat.quantidade; // Fallback
+            }
+          }
+          
+          const totalComp = custo_material + custo_mao_obra + custo_equipamento;
+          if (totalComp > 0) {
+             valor_unitario = totalComp;
+          }
+        } else {
+          // If it's an insumo, attribute its cost to its category
+          const cat = (it.categoria || '').toLowerCase();
+          if (cat.includes('material')) {
+            custo_material = valor_unitario;
+          } else if (cat.includes('mão de obra') || cat.includes('mao de obra')) {
+            custo_mao_obra = valor_unitario;
+          } else if (cat.includes('equipamento')) {
+            custo_equipamento = valor_unitario;
+          } else {
+            custo_material = valor_unitario;
+          }
         }
 
         // Update the database if the dynamically calculated value differs from the stored value
@@ -2591,7 +2710,10 @@ async function startServer() {
           item: it.item_numero || '',
           etapa_nome: etapa ? etapa.nome : '',
           valor_bdi,
-          total
+          total,
+          custo_material,
+          custo_mao_obra,
+          custo_equipamento
         });
       }
 
@@ -2603,12 +2725,22 @@ async function startServer() {
         if (item.tipo === 'etapa' || item.id.startsWith('etapa-')) {
           const searchPrefix = item.item.toString() + '.';
           let hierarchicalTotal = 0;
+          let hierarchicalMat = 0;
+          let hierarchicalMO = 0;
+          let hierarchicalEquip = 0;
+          
           for (const other of result) {
             if (other.id.startsWith('item-') && other.item.toString().startsWith(searchPrefix)) {
               hierarchicalTotal += other.total || 0;
+              hierarchicalMat += (other.custo_material || 0) * (other.quantidade || 0);
+              hierarchicalMO += (other.custo_mao_obra || 0) * (other.quantidade || 0);
+              hierarchicalEquip += (other.custo_equipamento || 0) * (other.quantidade || 0);
             }
           }
           item.total = hierarchicalTotal;
+          item.custo_material = hierarchicalMat;
+          item.custo_mao_obra = hierarchicalMO;
+          item.custo_equipamento = hierarchicalEquip;
         }
       }
 
@@ -3839,6 +3971,7 @@ async function startServer() {
             WHERE obra_id = ?
           `);
           updateEtapaStmt.run(req.params.id);
+          updateObraStatusAuto(req.params.id);
         }
       })();
       res.json({ message: "Medição registrada com sucesso." });

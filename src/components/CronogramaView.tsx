@@ -88,7 +88,7 @@ const parseDate = (dateString: string | null | undefined) => {
 
 import { useDragScroll } from '../hooks/useDragScroll';
 
-export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number, orcamento?: OrcamentoItem[] }) => {
+export const CronogramaView = ({ obraId, orcamento, onRefresh }: { obraId: string | number, orcamento?: OrcamentoItem[], onRefresh?: () => void }) => {
   const [atividades, setAtividades] = useState<Atividade[]>([]);
   const hasBaseline = atividades.some(a => !!a.data_inicio_base);
   const [orcamentoItens, setOrcamentoItens] = useState<OrcamentoItem[]>(orcamento || []);
@@ -526,6 +526,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
       });
       if (res.ok) {
         fetchAtividades();
+        if (onRefresh) onRefresh();
         setShowBaselineSuccess(true);
         setTimeout(() => setShowBaselineSuccess(false), 3000);
       }
@@ -546,6 +547,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
         setShowClearBaselineConfirm(false);
         setSuccessMessage("Linha de base removida com sucesso!");
         fetchAtividades();
+        if (onRefresh) onRefresh();
       }
     } catch (error) {
       console.error("Error clearing baseline:", error);
@@ -575,6 +577,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
         await fetch(`/api/obras/${obraId}/cronograma/resequence`, { method: 'POST' });
         fetchObra();
         fetchAtividades();
+        if (onRefresh) onRefresh();
         scrollToDate(selectedDate);
       }
     } catch (err) {
@@ -788,6 +791,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
         
         await fetch(`/api/obras/${obraId}/cronograma/resequence`, { method: 'POST' });
         await fetchAtividades();
+        if (onRefresh) onRefresh();
         setEditForm({ 
           nome: '', 
           item_numero: '',
@@ -851,6 +855,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
         await fetch(`/api/obras/${obraId}/cronograma/resequence`, { method: 'POST' });
         
         await fetchAtividades();
+        if (onRefresh) onRefresh();
       } else {
         const errorData = await res.json();
         setError("Erro ao salvar etapa: " + errorData.message);
@@ -948,6 +953,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
         
         await fetch(`/api/obras/${obraId}/cronograma/resequence`, { method: 'POST' });
         await fetchAtividades();
+        if (onRefresh) onRefresh();
       } else {
         const errorData = await res.json();
         setError("Erro ao atualizar atividade: " + errorData.message);
@@ -973,6 +979,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
         await fetch(`/api/obras/${obraId}/cronograma/resequence`, { method: 'POST' });
         
         await fetchAtividades();
+        if (onRefresh) onRefresh();
       } else {
         const errorData = await res.json();
         setError("Erro ao excluir atividade: " + errorData.message);
@@ -995,6 +1002,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
       });
       if (res.ok) {
         fetchAtividades();
+        if (onRefresh) onRefresh();
       }
     } catch (error) {
       console.error("Erro ao alternar marco:", error);
@@ -1358,12 +1366,19 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
 
   const taskListRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
+  const taskListHeaderRef = useRef<HTMLDivElement>(null);
+  const timelineHeaderRef = useRef<HTMLDivElement>(null);
   const taskListDragScroll = useDragScroll(taskListRef);
   const timelineDragScroll = useDragScroll(timelineRef);
 
   const isScrollingRef = useRef<string | null>(null);
 
   const handleTaskListScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const scrollLeft = e.currentTarget.scrollLeft;
+    if (taskListHeaderRef.current) {
+      taskListHeaderRef.current.scrollLeft = scrollLeft;
+    }
+    
     if (isScrollingRef.current === 'timeline') return;
     isScrollingRef.current = 'tasklist';
     const scrollTop = e.currentTarget.scrollTop;
@@ -1376,6 +1391,11 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
   };
 
   const handleTimelineScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const scrollLeft = e.currentTarget.scrollLeft;
+    if (timelineHeaderRef.current) {
+      timelineHeaderRef.current.scrollLeft = scrollLeft;
+    }
+
     if (isScrollingRef.current === 'tasklist') return;
     isScrollingRef.current = 'timeline';
     const scrollTop = e.currentTarget.scrollTop;
@@ -2013,7 +2033,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
   if (loading) return <div className="p-8 text-center text-slate-400 font-bold uppercase tracking-widest">Carregando cronograma...</div>;
 
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col mb-[33vh]">
       <div className={`flex flex-col transition-all duration-300 ${isFullscreen ? 'fixed top-0 bottom-0 right-0 z-[55] bg-white p-0 gap-0 overflow-y-auto' : 'bg-transparent gap-4'}`}
         style={isFullscreen ? { left: 'var(--sidebar-width, 208px)' } : {}}
       >
@@ -2138,9 +2158,93 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
       {/* Gantt Chart Container */}
       <div 
         ref={containerRef}
-        className="bg-white flex flex-col flex-1 rounded-2xl border border-slate-200 shadow-sm mt-4 overflow-hidden relative" 
+        className="bg-white flex flex-col flex-1 rounded-2xl border border-slate-200 shadow-sm mt-4 relative" 
       >
-        <div className="flex flex-row flex-1 overflow-hidden custom-scrollbar">
+        {/* Sticky Headers Wrapper */}
+        <div className="flex flex-row sticky top-0 z-50 bg-slate-800 rounded-t-2xl shadow-sm border-b border-slate-200 w-full overflow-hidden shrink-0 h-16">
+          {/* Left Header */}
+          <div 
+            ref={taskListHeaderRef}
+            className="overflow-hidden flex-shrink-0 border-r border-slate-700/50" 
+            style={{ width: `${leftPaneWidth}px` }}
+          >
+            <div className="w-[1275px] max-w-[1275px] min-w-min relative">
+              <div className="h-16 w-full flex flex-col bg-slate-800">
+                {/* Row 1: Labels */}
+                <div className="h-8 border-b border-slate-700/30 flex w-full text-[10px] font-bold text-white uppercase tracking-wider items-center">
+                  <div className="w-[100px] flex-shrink-0 text-center sticky left-0 bg-slate-800 z-[70] flex items-center justify-center border-r border-slate-700/50 h-full">Item</div>
+                  <div className="w-[300px] flex-shrink-0 text-left sticky left-[100px] bg-slate-800 z-[70] shadow-[4px_0_4px_-2px_rgba(0,0,0,0.3)] flex items-center px-3 border-r border-slate-700/50 h-full">Atividade</div>
+                  <div className="flex items-center h-full">
+                    <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-slate-700/50 h-full flex items-center justify-center">Duração</div>
+                    <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-slate-700/50 h-full flex items-center justify-center">Início</div>
+                    <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-slate-700/50 h-full flex items-center justify-center">Fim</div>
+                    <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-slate-700/50 h-full flex items-center justify-center">Pred.</div>
+                    <div className="w-[60px] flex-shrink-0 text-center px-1 font-bold border-r border-slate-700/50 h-full flex items-center justify-center">%</div>
+                    <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-slate-700/50 h-full flex items-center justify-center">Início Real</div>
+                    <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-slate-700/50 h-full flex items-center justify-center">Término Real</div>
+                    <div className="w-[140px] flex-shrink-0 text-center px-1 border-r border-slate-700/50 h-full flex items-center justify-center">Recurso</div>
+                    <div className="w-[75px] flex-shrink-0 text-center px-1 uppercase tracking-tighter border-r border-slate-700/50 h-full flex items-center justify-center">Marco</div>
+                  </div>
+                </div>
+
+                {/* Row 2: Project Summary Aligned with Sub-Header */}
+                <div className="h-8 flex w-full text-[11px] font-black text-white items-center bg-slate-900/95 backdrop-blur-sm border-b border-white/5">
+                  <div className="w-[100px] flex-shrink-0 text-center sticky left-0 bg-slate-900 z-[70] flex items-center justify-center border-r border-white/10 h-full text-emerald-500">0</div>
+                  <div className="w-[300px] flex-shrink-0 text-left sticky left-[100px] bg-slate-900 z-[70] shadow-[4px_0_4px_-2px_rgba(0,0,0,0.5)] flex items-center px-3 border-r border-white/10 h-full truncate text-emerald-50">
+                    {projectSummaryData.nome}
+                  </div>
+                  <div className="flex items-center h-full">
+                     <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-white/5 h-full flex items-center justify-center text-slate-300">{projectSummaryData.duracao_dias}</div>
+                     <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-white/5 h-full flex items-center justify-center text-slate-300 font-bold">{projectSummaryData.data_inicio_prevista ? format(parseDate(projectSummaryData.data_inicio_prevista), 'dd/MM/yyyy') : '-'}</div>
+                     <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-white/5 h-full flex items-center justify-center text-slate-300 font-bold">{projectSummaryData.data_fim_prevista ? format(parseDate(projectSummaryData.data_fim_prevista), 'dd/MM/yyyy') : '-'}</div>
+                     <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-white/5 h-full flex items-center justify-center text-slate-500 font-normal">-</div>
+                     <div className="w-[60px] flex-shrink-0 text-center px-1 border-r border-white/5 h-full flex items-center justify-center font-black text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.3)]">{projectSummaryData.progresso}%</div>
+                     <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-white/5 h-full flex items-center justify-center text-slate-500 font-normal">-</div>
+                     <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-white/5 h-full flex items-center justify-center text-slate-500 font-normal">-</div>
+                     <div className="w-[140px] flex-shrink-0 text-center px-1 border-r border-white/5 h-full flex items-center justify-center text-slate-500 font-normal">-</div>
+                     <div className="w-[75px] flex-shrink-0 text-center px-1 h-full flex items-center justify-center text-slate-500 font-normal">-</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Right Header */}
+          <div 
+            ref={timelineHeaderRef}
+            className="overflow-hidden flex-1 bg-slate-50"
+          >
+            <div className="relative" style={{ width: columns.length > 0 ? `${columns.length * (viewMode === 'day' ? 40 : viewMode === 'week' ? 60 : 80)}px` : '100%' }}>
+              <div className="h-16 w-full flex flex-col">
+                <div className="h-8 border-b border-slate-700/30 bg-slate-800 flex items-center w-full z-[51]">
+                  {headers.topHeaders.map((header, idx) => (
+                    <div 
+                      key={`top-${idx}`} 
+                      className="h-full border-r border-slate-700/50 flex items-center justify-center text-[10px] uppercase font-bold tracking-widest text-[#94a3b8] flex-shrink-0"
+                      style={{ width: `${(header.colSpan / columns.length) * 100}%` }}
+                    >
+                      {header.label}
+                    </div>
+                  ))}
+                </div>
+                <div className="h-8 border-b border-slate-700/30 bg-slate-900 flex items-center w-full z-[51]">
+                  {headers.bottomHeaders.map((col, idx) => (
+                    <div 
+                      key={`bottom-${idx}`} 
+                      className="h-full border-r border-slate-700/50 flex flex-col items-center justify-center text-[10px] font-bold text-white relative shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] pt-0.5 flex-shrink-0 overflow-hidden"
+                      style={{ width: `${(1 / columns.length) * 100}%` }}
+                    >
+                      {viewMode === 'day' ? format(col, 'd') : viewMode === 'week' ? `S${format(col, 'w')}` : format(col, 'MMM', { locale: ptBR })}
+                      {viewMode === 'day' && <span className="text-[8px] text-slate-400 font-medium">{format(col, 'eeeee', { locale: ptBR })}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-row flex-1 custom-scrollbar w-full">
           {/* Left Pane: Task List */}
           <div 
             ref={taskListRef}
@@ -2152,51 +2256,12 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
             onMouseUp={taskListDragScroll.onMouseUp}
             onMouseLeave={taskListDragScroll.onMouseLeave}
             onScroll={handleTaskListScroll}
-            className={`flex-shrink-0 bg-white overflow-auto gantt-scroll-container custom-scrollbar border-r border-slate-200 transition-shadow duration-300 relative z-20 ${
+            className={`flex-shrink-0 bg-white overflow-x-auto overflow-y-clip gantt-scroll-container custom-scrollbar border-r border-slate-200 transition-shadow duration-300 relative z-20 ${
               focusedSection === 'table' ? 'shadow-[4px_0_12px_-2px_rgba(79,70,229,0.2)]' : 'shadow-[2px_0_8px_-2px_rgba(0,0,0,0.1)]'
             }`} 
-            style={{ width: `${leftPaneWidth}px`, height: '100%' }}
+            style={{ width: `${leftPaneWidth}px` }}
           >
             <div className="w-[1275px] max-w-[1275px] min-w-min relative">
-                {/* Header structure: Row 1 Labels, Row 2 Project Summary */}
-                <div className="h-16 border-b border-slate-200 sticky top-0 z-50 w-full flex flex-col bg-slate-800">
-                  {/* Row 1: Labels */}
-                  <div className="h-8 border-b border-slate-700/30 flex w-full text-[10px] font-bold text-white uppercase tracking-wider items-center">
-                    <div className="w-[100px] flex-shrink-0 text-center sticky left-0 bg-slate-800 z-[70] flex items-center justify-center border-r border-slate-700/50 h-full">Item</div>
-                    <div className="w-[300px] flex-shrink-0 text-left sticky left-[100px] bg-slate-800 z-[70] shadow-[4px_0_4px_-2px_rgba(0,0,0,0.3)] flex items-center px-3 border-r border-slate-700/50 h-full">Atividade</div>
-                    <div className="flex items-center h-full">
-                      <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-slate-700/50 h-full flex items-center justify-center">Duração</div>
-                      <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-slate-700/50 h-full flex items-center justify-center">Início</div>
-                      <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-slate-700/50 h-full flex items-center justify-center">Fim</div>
-                      <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-slate-700/50 h-full flex items-center justify-center">Pred.</div>
-                      <div className="w-[60px] flex-shrink-0 text-center px-1 font-bold border-r border-slate-700/50 h-full flex items-center justify-center">%</div>
-                      <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-slate-700/50 h-full flex items-center justify-center">Início Real</div>
-                      <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-slate-700/50 h-full flex items-center justify-center">Término Real</div>
-                      <div className="w-[140px] flex-shrink-0 text-center px-1 border-r border-slate-700/50 h-full flex items-center justify-center">Recurso</div>
-                      <div className="w-[75px] flex-shrink-0 text-center px-1 uppercase tracking-tighter border-r border-slate-700/50 h-full flex items-center justify-center">Marco</div>
-                    </div>
-                  </div>
-
-                  {/* Row 2: Project Summary Aligned with Sub-Header */}
-                  <div className="h-8 flex w-full text-[11px] font-black text-white items-center bg-slate-900/95 backdrop-blur-sm border-b border-white/5">
-                    <div className="w-[100px] flex-shrink-0 text-center sticky left-0 bg-slate-900 z-[70] flex items-center justify-center border-r border-white/10 h-full text-emerald-500">0</div>
-                    <div className="w-[300px] flex-shrink-0 text-left sticky left-[100px] bg-slate-900 z-[70] shadow-[4px_0_4px_-2px_rgba(0,0,0,0.5)] flex items-center px-3 border-r border-white/10 h-full truncate text-emerald-50">
-                      {projectSummaryData.nome}
-                    </div>
-                    <div className="flex items-center h-full">
-                       <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-white/5 h-full flex items-center justify-center text-slate-300">{projectSummaryData.duracao_dias}</div>
-                       <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-white/5 h-full flex items-center justify-center text-slate-300 font-bold">{projectSummaryData.data_inicio_prevista ? format(parseDate(projectSummaryData.data_inicio_prevista), 'dd/MM/yyyy') : '-'}</div>
-                       <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-white/5 h-full flex items-center justify-center text-slate-300 font-bold">{projectSummaryData.data_fim_prevista ? format(parseDate(projectSummaryData.data_fim_prevista), 'dd/MM/yyyy') : '-'}</div>
-                       <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-white/5 h-full flex items-center justify-center text-slate-500 font-normal">-</div>
-                       <div className="w-[60px] flex-shrink-0 text-center px-1 border-r border-white/5 h-full flex items-center justify-center font-black text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.3)]">{projectSummaryData.progresso}%</div>
-                       <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-white/5 h-full flex items-center justify-center text-slate-500 font-normal">-</div>
-                       <div className="w-[100px] flex-shrink-0 text-center px-1 border-r border-white/5 h-full flex items-center justify-center text-slate-500 font-normal">-</div>
-                       <div className="w-[140px] flex-shrink-0 text-center px-1 border-r border-white/5 h-full flex items-center justify-center text-slate-500 font-normal">-</div>
-                       <div className="w-[75px] flex-shrink-0 text-center px-1 h-full flex items-center justify-center text-slate-500 font-normal">-</div>
-                    </div>
-                  </div>
-                </div>
-              
               <div className="relative" style={{ height: allRows.length * 40 }}>
                 {allRows.map((row, idx) => {
                   const rowTop = idx * 40;
@@ -2285,7 +2350,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                               <input
                                   type="number"
                                   className="w-full text-center text-[11px] px-1 py-1 border border-indigo-300 rounded focus:outline-none font-normal"
-                                  value={(typeof editForm.duracao_dias === 'number' && !isNaN(editForm.duracao_dias)) ? editForm.duracao_dias : ''}
+                                  value={editForm.duracao_dias !== undefined && editForm.duracao_dias !== null ? editForm.duracao_dias : ''}
                                   onChange={(e) => handleDuracaoChange(e.target.value)}
                                   onKeyDown={(e) => handleKeyDown(e, d.id)}
                                   onBlur={() => handleUpdate(d.id, true)}
@@ -2350,7 +2415,7 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                               <input
                                   type="number"
                                   className="w-full text-center text-[11px] px-1 py-1 border border-indigo-300 rounded focus:outline-none font-normal"
-                                  value={(typeof editForm.progresso === 'number' && !isNaN(editForm.progresso)) ? editForm.progresso : ''}
+                                  value={editForm.progresso !== undefined && editForm.progresso !== null ? editForm.progresso : ''}
                                   onChange={(e) => setEditForm(prev => ({...prev, progresso: parseFloat(e.target.value) || 0 }))}
                                   onKeyDown={(e) => handleKeyDown(e, d.id)}
                                   onBlur={() => handleUpdate(d.id, true)}
@@ -2462,36 +2527,11 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
             onMouseUp={timelineDragScroll.onMouseUp}
             onMouseLeave={timelineDragScroll.onMouseLeave}
             onScroll={handleTimelineScroll}
-            className={`flex-1 relative bg-slate-50 overflow-auto gantt-scroll-container custom-scrollbar h-full transition-shadow duration-300 ${
+            className={`flex-1 relative bg-slate-50 overflow-x-auto overflow-y-clip gantt-scroll-container custom-scrollbar transition-shadow duration-300 ${
               focusedSection === 'chart' ? 'shadow-[inset_4px_0_12px_-2px_rgba(79,70,229,0.1)]' : ''
             }`}
           >
             <div className="relative" style={{ width: columns.length > 0 ? `${columns.length * (viewMode === 'day' ? 40 : viewMode === 'week' ? 60 : 80)}px` : '100%' }}>
-              <div className="h-16 border-b border-slate-200 sticky top-0 z-50 bg-slate-50 w-full flex flex-col">
-                <div className="h-8 border-b border-slate-700/30 bg-slate-800 flex items-center w-full z-[51]">
-                  {headers.topHeaders.map((header, idx) => (
-                    <div 
-                      key={`top-${idx}`} 
-                      className="h-full border-r border-slate-700/50 flex items-center justify-center text-[10px] uppercase font-bold tracking-widest text-[#94a3b8] flex-shrink-0"
-                      style={{ width: `${(header.colSpan / columns.length) * 100}%` }}
-                    >
-                      {header.label}
-                    </div>
-                  ))}
-                </div>
-                <div className="h-8 border-b border-slate-700/30 bg-slate-900 flex items-center w-full z-[51]">
-                  {headers.bottomHeaders.map((col, idx) => (
-                    <div 
-                      key={`bottom-${idx}`} 
-                      className="h-full border-r border-slate-700/50 flex flex-col items-center justify-center text-[10px] font-bold text-white relative shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] pt-0.5 flex-shrink-0 overflow-hidden"
-                      style={{ width: `${(1 / columns.length) * 100}%` }}
-                    >
-                      {viewMode === 'day' ? format(col, 'd') : viewMode === 'week' ? `S${format(col, 'w')}` : format(col, 'MMM', { locale: ptBR })}
-                      {viewMode === 'day' && <span className="text-[8px] text-slate-400 font-medium">{format(col, 'eeeee', { locale: ptBR })}</span>}
-                    </div>
-                  ))}
-                </div>
-              </div>
               <div className="relative" style={{ height: allRows.length * 40 }}>
                 {/* Non-working days highlight */}
                 {viewMode === 'day' && columns.map((col, idx) => (
@@ -2833,12 +2873,16 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                             
                             if (medVal === 0 && planVal === 0) return <div key={colIdx} style={{ width: `${monthWidth}%` }} className="border-r border-slate-200/30" />;
                             
-                            // Denominator logic: use the specific value from budget if available, otherwise sum of activities
-                            const budgetValue = isProjectSummary ? projectSummaryData.valor : (stageData.valor || monthlySummary.stageTotals[row.id]);
+                            // Denominator logic: use stageTotals which exactly mirrors the planned accumulation
+                            const budgetValue = isProjectSummary ? monthlySummary.projectTotal : monthlySummary.stageTotals[row.id];
                             const totalStageVal = budgetValue || 1;
                             
                             const medPercTotal = medVal > 0 ? (medVal / totalStageVal) * 100 : 0;
                             const planPercTotal = planVal > 0 ? (planVal / totalStageVal) * 100 : 0;
+
+                            const financialBudgetValue = isProjectSummary ? projectSummaryData.valor : (stageData?.valor || 0);
+                            const displayPlanVal = (planPercTotal / 100) * financialBudgetValue;
+                            const displayMedVal = (medPercTotal / 100) * financialBudgetValue;
 
                             return (
                               <div key={colIdx} style={{ width: `${monthWidth}%` }} className="relative h-full flex items-center px-1 border-r border-slate-200/30">
@@ -2856,12 +2900,12 @@ export const CronogramaView = ({ obraId, orcamento }: { obraId: string | number,
                                   />
 
                                   <div className="relative z-10 flex flex-col items-center">
-                                    <span className={`text-[9px] font-black whitespace-nowrap leading-none ${medPercTotal > 0 ? 'text-emerald-900' : 'text-slate-800'}`}>
+                                    <span className={`text-[11px] font-black whitespace-nowrap leading-none tracking-tight ${medPercTotal > 0 ? 'text-emerald-950' : 'text-slate-900'}`}>
                                       {planPercTotal > 0 && medPercTotal === 0 ? planPercTotal.toFixed(1) : (medPercTotal > 0 ? medPercTotal.toFixed(1) : '0.0')}%
                                     </span>
-                                    {medVal > 0 || planVal > 0 ? (
-                                      <span className={`text-[7px] font-bold whitespace-nowrap mt-0.5 leading-none opacity-80 ${medPercTotal > 0 ? 'text-emerald-950' : 'text-slate-500'}`}>
-                                        {medVal > 0 ? formatFinancial(medVal) : formatFinancial(planVal)}
+                                    {displayMedVal > 0 || displayPlanVal > 0 ? (
+                                      <span className={`text-[9px] font-bold whitespace-nowrap mt-0.5 leading-none ${medPercTotal > 0 ? 'text-emerald-950' : 'text-slate-600'}`}>
+                                        R$ {medPercTotal > 0 ? formatFinancial(displayMedVal) : formatFinancial(displayPlanVal)}
                                       </span>
                                     ) : null}
                                   </div>

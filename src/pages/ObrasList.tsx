@@ -124,6 +124,12 @@ export const ObrasList = ({ onSelectObra }: { onSelectObra: (id: string | number
                 <p className="text-xs font-black text-slate-400 uppercase tracking-widest mt-1">{obra.cliente}</p>
               </div>
               
+              {obra.descricao && (
+                <p className="text-sm text-slate-500 line-clamp-2 mt-2 leading-relaxed" title={obra.descricao}>
+                  {obra.descricao}
+                </p>
+              )}
+              
               <div className="pt-4 border-t border-slate-50 space-y-3">
                 <div className="flex items-center gap-3 text-slate-500">
                   <MapPin size={16} className="text-slate-300" />
@@ -189,6 +195,17 @@ export const ObrasList = ({ onSelectObra }: { onSelectObra: (id: string | number
                       className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#003366]/10 focus:border-[#003366] font-bold text-slate-700"
                       value={newObra.cliente}
                       onChange={(e) => setNewObra({...newObra, cliente: e.target.value})}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Descrição</label>
+                    <textarea 
+                      rows={3}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#003366]/10 focus:border-[#003366] font-bold text-slate-700 resize-none"
+                      value={newObra.descricao || ''}
+                      onChange={(e) => setNewObra({...newObra, descricao: e.target.value})}
+                      placeholder="Descreva a obra detalhadamente..."
                     />
                   </div>
 

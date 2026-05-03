@@ -34,7 +34,7 @@ const EMPTY = {
   fotos_urls: [] as any[],
 };
 
-export default function DiarioObraTab({ obraId }: { obraId: string | number }) {
+export default function DiarioObraTab({ obraId, onRefresh }: { obraId: string | number, onRefresh?: () => void }) {
   const [registros, setRegistros] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -87,12 +87,14 @@ export default function DiarioObraTab({ obraId }: { obraId: string | number }) {
     }
     setModalOpen(false);
     load();
+    if (onRefresh) onRefresh();
   };
 
   const handleDelete = async (id: number) => {
     if (!confirm("Excluir este registro?")) return;
     await api.deleteDiario(obraId, id);
     load();
+    if (onRefresh) onRefresh();
   };
 
   const set = (k: string, v: any) => setForm((f: any) => ({ ...f, [k]: v }));

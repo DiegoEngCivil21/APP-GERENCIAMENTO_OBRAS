@@ -14,12 +14,14 @@ export default function MedicaoTab({
   obraId, 
   orcamento, 
   bdiIncidence = 'unitario', 
-  bdiValue = 0 
+  bdiValue = 0,
+  onRefresh
 }: { 
   obraId: string | number, 
   orcamento: any[],
   bdiIncidence?: 'unitario' | 'final',
-  bdiValue?: number
+  bdiValue?: number,
+  onRefresh?: () => void
 }) {
   const dragScroll = useDragScroll();
   const [medicoes, setMedicoes] = useState<any[]>([]);
@@ -102,6 +104,7 @@ export default function MedicaoTab({
         setSaveError(null);
         setTimeout(() => setSaveStatus('idle'), 2000);
         await load();
+        if (onRefresh) onRefresh();
     } catch (e: any) {
         console.error(e);
         setSaveStatus('error');
@@ -176,6 +179,7 @@ export default function MedicaoTab({
       if (res.ok) {
         setShowNewMedicaoModal(false);
         await load();
+        if (onRefresh) onRefresh();
       } else {
         const err = await res.json().catch(() => ({}));
         alert("Erro ao criar medição: " + (err.error || err.message || "Erro desconhecido"));
@@ -197,6 +201,7 @@ export default function MedicaoTab({
         });
         if(res.ok) {
             await load();
+            if (onRefresh) onRefresh();
         } else {
             const err = await res.json().catch(() => ({}));
             alert("Erro ao finalizar medição: " + (err.message || "Erro desconhecido"));

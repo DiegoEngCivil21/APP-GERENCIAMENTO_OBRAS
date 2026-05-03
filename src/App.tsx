@@ -2587,19 +2587,19 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
         )}
 
         {activeSubTab === 'cronograma' && (
-          <div className="h-[calc(100vh-140px)] flex flex-col overflow-hidden bg-[#f8fafc]">
-            <CronogramaView obraId={obraId} orcamento={orcamento} />
+          <div className="flex-1 flex flex-col bg-[#f8fafc] pb-20">
+            <CronogramaView obraId={obraId} orcamento={orcamento} onRefresh={fetchData} />
           </div>
         )}
 
         {activeSubTab === 'medicao' && (
           <div className="flex-1 flex flex-col bg-[#f8fafc] pb-20">
-            <MedicaoTab obraId={obraId} orcamento={orcamento} bdiIncidence={bdiIncidence} bdiValue={bdiValue} />
+            <MedicaoTab obraId={obraId} orcamento={orcamento} bdiIncidence={bdiIncidence} bdiValue={bdiValue} onRefresh={fetchData} />
           </div>
         )}
 
         {activeSubTab === 'diario' && (
-          <DiarioObraTab obraId={obraId} />
+          <DiarioObraTab obraId={obraId} onRefresh={fetchData} />
         )}
 
         {activeSubTab === 'curva_abc' && (
@@ -3298,7 +3298,7 @@ function AppContent() {
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
         {/* Fixed Header Area */}
         <div id="top-toolbar-wrapper" className="px-4 pt-6 pb-2 z-50">
-          <TopToolbar onNavigate={handleNavigate} user={user} />
+          <TopToolbar onNavigate={handleNavigate} user={user} activeObraId={selectedObraId} />
         </div>
 
         {/* Scrollable Content Area */}
@@ -3332,6 +3332,7 @@ const ObrasView = ({ onSelectObra }: { onSelectObra: (id: string | number) => vo
   const [newObra, setNewObra] = useState<Partial<Obra>>({ 
     nome: '', 
     cliente: '', 
+    descricao: '',
     status: 'Em Planejamento', 
     data_inicio: '', 
     uf: 'DF',
@@ -3391,6 +3392,7 @@ const ObrasView = ({ onSelectObra }: { onSelectObra: (id: string | number) => vo
         setNewObra({ 
           nome: '', 
           cliente: '', 
+          descricao: '',
           status: 'Em Planejamento', 
           data_inicio: '', 
           uf: 'DF',
@@ -3412,6 +3414,7 @@ const ObrasView = ({ onSelectObra }: { onSelectObra: (id: string | number) => vo
         setNewObra({ 
           nome: '', 
           cliente: '', 
+          descricao: '',
           status: 'Em Planejamento', 
           data_inicio: '', 
           uf: 'DF',
@@ -3540,6 +3543,16 @@ const ObrasView = ({ onSelectObra }: { onSelectObra: (id: string | number) => vo
                   className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
                   value={newObra.cliente}
                   onChange={e => setNewObra({...newObra, cliente: e.target.value})}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Descrição</label>
+                <textarea 
+                  rows={3}
+                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none resize-none"
+                  value={newObra.descricao || ''}
+                  onChange={e => setNewObra({...newObra, descricao: e.target.value})}
+                  placeholder="Descreva a obra detalhadamente..."
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -3699,8 +3712,8 @@ const ObrasList = ({
             <h3 className="text-lg font-black text-slate-900 uppercase tracking-tight mt-4 leading-tight group-hover:text-orange-500 transition-colors">
               {obra.nome}
             </h3>
-            <p className="text-[14px] text-slate-500 mt-2 leading-relaxed">
-              Construção de edifício residencial de alto padrão para {obra.cliente}.
+            <p className="text-[14px] text-slate-500 mt-2 leading-relaxed line-clamp-2" title={obra.descricao || ''}>
+              {obra.descricao ? obra.descricao : <span className="italic text-slate-400">Nenhuma descrição informada.</span>}
             </p>
             
             <div className="my-6 border-t border-slate-100" />
