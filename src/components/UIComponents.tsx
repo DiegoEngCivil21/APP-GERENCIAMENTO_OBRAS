@@ -115,102 +115,113 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
       if (!orcamentoRes.ok) throw new Error("Erro ao buscar orçamento");
       const orcamentoData = await orcamentoRes.json();
 
-      // 3. Define report structure based on name
+      // 3. Define report structure based on name (Refined for professional layout)
       let columns: any[] = [
-        { header: 'ITEM', key: 'item', width: 10 },
-        { header: 'DESCRIÇÃO', key: 'descricao', width: 55 },
-        { header: 'UND', key: 'unidade', width: 8 },
-        { header: 'QTD', key: 'quantidade', width: 12, type: 'number' },
+        { header: 'Item', key: 'item', width: 6 },
+        { header: 'Código', key: 'codigo', width: 12 },
+        { header: 'Banco', key: 'banco', width: 10 },
+        { header: 'Descrição', key: 'descricao', width: 55 },
+        { header: 'Tipo', key: 'tipo_servico', width: 15 },
+        { header: 'Und', key: 'unidade', width: 6 },
+        { header: 'Quant.', key: 'quantidade', width: 10, type: 'number' },
       ];
 
       const bdiValue = obraData.bdi || 0;
       const bdiIncidence = obraData.bdi_incidencia || 'unitario';
 
-      // Customizing columns for specific report types
-      if (reportName.includes('Mão de Obra') && reportName.includes('Material') && reportName.includes('Equipamento')) {
+      if (reportName.includes('Mão de Obra')) {
         columns.push(
-          { header: 'MAT (UNIT)', key: 'mat_unit', width: 15, type: 'currency' },
-          { header: 'MO (UNIT)', key: 'mo_unit', width: 15, type: 'currency' },
-          { header: 'EQUIP (UNIT)', key: 'equip_unit', width: 15, type: 'currency' },
-          { header: 'TOTAL UNIT.', key: 'total_unit', width: 16, type: 'currency' },
-          { header: 'TOTAL GERAL', key: 'total_geral', width: 20, type: 'currency' }
-        );
-      } else if (reportName.includes('Mão de Obra') && reportName.includes('Material')) {
-        columns.push(
-          { header: 'MAT (UNIT)', key: 'mat_unit', width: 15, type: 'currency' },
-          { header: 'MO (UNIT)', key: 'mo_unit', width: 15, type: 'currency' },
-          { header: 'TOTAL UNIT.', key: 'total_unit', width: 16, type: 'currency' },
-          { header: 'TOTAL GERAL', key: 'total_geral', width: 20, type: 'currency' }
-        );
-      } else if (reportName.includes('Mão de Obra')) {
-        columns.push(
-          { header: 'CUSTO MO', key: 'mo_unit', width: 15, type: 'currency' },
-          { header: 'PREÇO UNIT.', key: 'total_unit', width: 16, type: 'currency' },
-          { header: 'TOTAL', key: 'total_geral', width: 20, type: 'currency' }
+          { header: 'Valor Unit', key: 'valor_unit_sem_bdi', width: 12, type: 'currency' },
+          { header: 'Valor Unit com BDI', key: 'valor_unit_com_bdi', width: 12, type: 'currency' },
+          { header: 'Mão de Obra Valor', key: 'mo_total', width: 12, type: 'currency' },
+          { header: '%', key: 'mo_percent', width: 8, type: 'percentage' },
+          { header: 'Total', key: 'total_geral', width: 15, type: 'currency' },
+          { header: 'Peso (%)', key: 'peso', width: 8, type: 'percentage' }
         );
       } else {
         columns.push(
-          { header: 'PREÇO UNIT.', key: 'total_unit', width: 16, type: 'currency' },
-          { header: 'TOTAL', key: 'total_geral', width: 20, type: 'currency' }
+          { header: 'Valor Unit', key: 'valor_unit_sem_bdi', width: 12, type: 'currency' },
+          { header: 'Valor Unit com BDI', key: 'valor_unit_com_bdi', width: 12, type: 'currency' },
+          { header: 'Total', key: 'total_geral', width: 15, type: 'currency' },
+          { header: 'Peso (%)', key: 'peso', width: 8, type: 'percentage' }
         );
       }
 
-      // Map rows with cost breakdown
+      // Calculate Budget Totals accurately (BDI is already in it.total coming from server)
+      const totalBudget = orcamentoData.reduce((sum: number, it: any) => it.tipo === 'etapa' ? sum : sum + (it.total || 0), 0);
+      const totalSemBdi = totalBudget / (1 + bdiValue / 100);
+      const totalBdi = totalBudget - totalSemBdi;
+
+      // Map rows
       const rows = orcamentoData.map((it: any) => {
         const isEtapa = it.tipo === 'etapa';
         const qty = it.quantidade || 0;
         
-        let unitPrice = it.valor_unitario || 0;
-        let matVal = it.custo_material || 0;
-        let moVal = it.custo_mao_obra || 0;
-        let equipVal = it.custo_equipamento || 0;
+        const rawUnitCost = it.valor_unitario || 0;
+        const bdiMultiplier = (1 + bdiValue / 100);
+        
+        const unitWithBDI = bdiIncidence === 'unitario' ? rawUnitCost * bdiMultiplier : rawUnitCost;
+        const total = isEtapa ? (it.total || 0) : (qty * unitWithBDI);
+        
+        const moUnit = it.custo_mao_obra || 0;
+        const moTotal = isEtapa ? (it.custo_mao_obra_total || 0) : (moUnit * qty * bdiMultiplier);
+        
+        const moPercent = total > 0 ? (moTotal / total) * 100 : 0;
+        const peso = totalBudget > 0 ? (total / totalBudget) * 100 : 0;
 
-        // Apply BDI if needed
-        const applyBDI = (val: number) => bdiIncidence === 'unitario' ? val * (1 + bdiValue / 100) : val;
-
+        // Mapeamento de cores baseado no TIPO do item (igual ao sistema)
+        // Etapa = Azul, Composição = Verde, Insumo = Amarelo
+        let rowColor = 'FFFFFFFF'; 
         if (isEtapa) {
-          // For stages, the server already sends them summed up (total, mat, mo, equip)
-          return {
-            item: it.item || '',
-            descricao: it.descricao?.toUpperCase(),
-            unidade: it.unidade || '',
-            quantidade: null,
-            mat_unit: applyBDI(matVal),
-            mo_unit: applyBDI(moVal),
-            equip_unit: applyBDI(equipVal),
-            total_unit: null,
-            total_geral: it.total || 0,
-            isEtapa: true
-          };
+          rowColor = 'FFD9E9FF'; // Azul suave para Etapas
+        } else {
+          const tipoItem = (it.item_tipo || '').toLowerCase();
+          if (tipoItem === 'composicao' || tipoItem === 'composição') {
+            rowColor = 'FFE2EFDA'; // Verde para Composições
+          } else {
+            rowColor = 'FFFFF2CC'; // Amarelo para Insumos
+          }
         }
 
         return {
           item: it.item || '',
-          descricao: it.descricao,
+          codigo: isEtapa ? '' : it.codigo,
+          banco: isEtapa ? '' : it.base,
+          descricao: isEtapa ? it.descricao?.toUpperCase() : it.descricao,
+          tipo_servico: it.categoria || '',
           unidade: it.unidade || '',
-          quantidade: qty,
-          mat_unit: applyBDI(matVal),
-          mo_unit: applyBDI(moVal),
-          equip_unit: applyBDI(equipVal),
-          total_unit: applyBDI(unitPrice),
-          total_geral: it.total || 0,
-          isEtapa: false
+          quantidade: isEtapa ? null : qty,
+          valor_unit_sem_bdi: isEtapa ? null : rawUnitCost,
+          valor_unit_com_bdi: isEtapa ? null : unitWithBDI,
+          mo_total: isEtapa ? null : moTotal,
+          mo_percent: isEtapa ? null : moPercent,
+          total_geral: total,
+          peso: peso,
+          isEtapa: isEtapa,
+          rowColor: rowColor
         };
       });
 
-      // Calculate Summary
-      const totalGeral = rows.filter((r: any) => r.isEtapa && r.item.split('.').length === 1)
-        .reduce((sum: number, r: any) => sum + (r.total_geral || 0), 0);
+      // Identify unique bases (banks) used in the budget
+      const uniqueBases = Array.from(new Set(orcamentoData.map((it: any) => it.base).filter(Boolean)));
+      const bancosInfo = uniqueBases.length > 0 
+        ? uniqueBases.map(b => `${b} - ${obraData.data_referencia} - ${obraData.uf}`).join('\n')
+        : `SINAPI - ${obraData.data_referencia} - ${obraData.uf}`;
 
       await generateExcelReport({
-        title: reportName,
+        title: `Planilha Orçamentária ${reportName}`,
         obraName: obraData.nome.toUpperCase(),
         cliente: obraData.cliente?.toUpperCase() || "N/A",
+        bancos: bancosInfo,
+        bdi: bdiValue,
+        encargos: obraData.desonerado === 1 ? "Desonerado: 85.00%" : "Não Desonerado: 112.00%",
         columns,
         rows,
-        summaryValues: [
-          { label: 'VALOR TOTAL DO ORÇAMENTO', value: totalGeral }
-        ]
+        summary: {
+          totalSemBdi: totalSemBdi,
+          totalBdi: totalBdi,
+          totalGeral: totalBudget
+        }
       });
     } catch (error) {
       console.error("Erro ao gerar excel:", error);
