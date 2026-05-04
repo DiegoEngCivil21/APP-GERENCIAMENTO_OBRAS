@@ -33,6 +33,7 @@ const AutocompleteDropdown = React.forwardRef<HTMLInputElement, AutocompleteDrop
   const [results, setResults] = useState<any[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
+  const [justSelected, setJustSelected] = useState(false);
   const [dropdownWidth, setDropdownWidth] = useState<number | string>(dropdownStyle?.width || '1150px');
   const [dropdownLeft, setDropdownLeft] = useState<number | string>(dropdownStyle?.left || 0);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -77,6 +78,7 @@ const AutocompleteDropdown = React.forwardRef<HTMLInputElement, AutocompleteDrop
   }, [dropdownStyle?.width, dropdownStyle?.left]);
 
   const handleQueryChange = (newQuery: string) => {
+    setJustSelected(false);
     if (onChange) {
       onChange(newQuery);
     } else {
@@ -90,12 +92,13 @@ const AutocompleteDropdown = React.forwardRef<HTMLInputElement, AutocompleteDrop
     // Only open if showInput is true and we have query, 
     // or if the search actually returned something and we are focused.
     // Removed the force-open when showInput is false to prevent "white screen" issues on click.
-    if (showInput && (codigo || descricao)) {
-      if (containerRef.current?.contains(document.activeElement)) {
+    if (showInput && (codigo || descricao) && !justSelected) {
+      const isMyInputFocused = containerRef.current?.querySelector('input') === document.activeElement;
+      if (isMyInputFocused) {
         setIsOpen(true);
       }
     }
-  }, [codigo, descricao, showInput]);
+  }, [codigo, descricao, showInput, justSelected]);
 
   useEffect(() => {
     const checkIsTriggerInput = (target: Node | null) => {
@@ -193,14 +196,21 @@ const AutocompleteDropdown = React.forwardRef<HTMLInputElement, AutocompleteDrop
             return next;
           });
           
-            // Don't auto-open if it's the exact same as current query and we just selected something
-          if (ignoreNextOpen.current) {
+          // Don't auto-open if it's the exact same as current query and we just selected something
+          const isMyInputFocused = containerRef.current?.querySelector('input') === document.activeElement;
+
+          if (ignoreNextOpen.current || justSelected) {
             setIsOpen(false);
             setSelectedIndex(-1);
             ignoreNextOpen.current = false;
-          } else if (!showInput || containerRef.current?.contains(document.activeElement)) {
-            // Only open if query is not exactly one of the results (meaning it might be already selected)
-            const exactMatch = newResults.find(r => (type === 'insumo' ? r.codigo : r.codigo_composicao) === query || r.descricao === query);
+          } else if (!showInput || isMyInputFocused) {
+            // Only open if the input is actually focused to prevent it from popping up while editing other fields (like quantity)
+            const cleanQuery = query.toLowerCase().trim();
+            const exactMatch = newResults.find(r => {
+                const rCodigo = (type === 'insumo' ? r.codigo : r.codigo_composicao)?.toString().toLowerCase();
+                const rDesc = r.descricao?.replace(/^[\d\.]+\s*/, '').toLowerCase().trim();
+                return rCodigo === cleanQuery || rDesc === cleanQuery || r.descricao?.toLowerCase().trim() === cleanQuery;
+            });
             if (!exactMatch) {
                 setIsOpen(true);
                 setSelectedIndex(-1);
@@ -233,6 +243,7 @@ const AutocompleteDropdown = React.forwardRef<HTMLInputElement, AutocompleteDrop
             : (item.valor_nao_desonerado !== null && item.valor_nao_desonerado !== undefined ? Number(item.valor_nao_desonerado) : (Number(item.preco_unitario) || 0));
           
           ignoreNextOpen.current = true;
+          setJustSelected(true);
           onSelect({
             ...item,
             preco_unitario: price
@@ -247,6 +258,7 @@ const AutocompleteDropdown = React.forwardRef<HTMLInputElement, AutocompleteDrop
             e.preventDefault();
             e.stopPropagation();
             ignoreNextOpen.current = true;
+            setJustSelected(true);
             onSelect({ 
               isNew: true, 
               descricao: query,
@@ -335,6 +347,7 @@ const AutocompleteDropdown = React.forwardRef<HTMLInputElement, AutocompleteDrop
                   className={`autocomplete-item w-full text-left py-2 px-2 transition-colors grid grid-cols-[70px_100px_1fr_50px_80px_100px] items-center group border-b border-slate-100 ${idx === selectedIndex ? 'bg-indigo-50 border-l-4 border-l-indigo-500' : 'hover:bg-slate-50'}`}
                   onClick={() => {
                     ignoreNextOpen.current = true;
+                    setJustSelected(true);
                     onSelect({
                       ...item,
                       preco_unitario: price
@@ -361,6 +374,7 @@ const AutocompleteDropdown = React.forwardRef<HTMLInputElement, AutocompleteDrop
               className={`autocomplete-item w-full text-left px-4 py-3 text-[11px] font-bold flex items-center justify-center gap-2 transition-colors ${selectedIndex === results.length ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-50 hover:bg-indigo-50 text-indigo-600'}`}
               onClick={() => {
                 ignoreNextOpen.current = true;
+                setJustSelected(true);
                 onSelect({ 
                   isNew: true, 
                   descricao: query,
