@@ -74,7 +74,7 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
     try {
       const saved = localStorage.getItem('engineering_pro_report_config');
       if (saved) return {
-        corFundoEtapa: '#e2f0d9',
+        corFundoEtapa: '#d9e9ff',
         corLetraEtapa: '#000000',
         negritoEtapa: true,
         corFundoComposicao: '#e2efda',
@@ -87,6 +87,7 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
         retirarInfoBDI: false,
         bloquearEdicao: true,
         relatoriosComFormulas: false,
+        logoImagem: '',
         ...JSON.parse(saved)
       };
     } catch (e) {
@@ -101,7 +102,7 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
       rodapeDireito: '',
       assinatura1: 'Marcus Vinicius\nSócio/CEO/Proprietário',
       assinatura2: '',
-      corFundoEtapa: '#e2f0d9',
+      corFundoEtapa: '#d9e9ff',
       corLetraEtapa: '#000000',
       negritoEtapa: true,
       corFundoComposicao: '#e2efda',
@@ -113,7 +114,8 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
       retirarColunaPeso: false,
       retirarInfoBDI: false,
       bloquearEdicao: true,
-      relatoriosComFormulas: false
+      relatoriosComFormulas: false,
+      logoImagem: ''
     };
   });
   
@@ -219,9 +221,11 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
       }
 
       // Calculate Budget Totals accurately (BDI is already in it.total coming from server)
-      const totalBudget = orcamentoData.reduce((sum: number, it: any) => it.tipo === 'etapa' ? sum : sum + (it.total || 0), 0);
-      const totalSemBdi = totalBudget / (1 + bdiValue / 100);
-      const totalBdi = totalBudget - totalSemBdi;
+      const subTotalBudget = orcamentoData.reduce((sum: number, it: any) => it.tipo === 'etapa' ? sum : sum + (it.total || 0), 0);
+      const totalBudget = subTotalBudget * (1 - (obraData.desconto || 0) / 100);
+      const totalSemBdi = subTotalBudget / (1 + bdiValue / 100);
+      const totalBdi = subTotalBudget - totalSemBdi;
+      const totalDesconto = subTotalBudget * ((obraData.desconto || 0) / 100);
 
       // Map rows
       const rows = orcamentoData.map((it: any) => {
@@ -270,7 +274,13 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
       });
 
       // Identify unique bases (banks) used in the budget
-      const uniqueBases = Array.from(new Set(orcamentoData.map((it: any) => it.base).filter(Boolean)));
+      const rawBases = orcamentoData.map((it: any) => it.base).filter(Boolean);
+      const normalizedBases = rawBases.map((b: string) => {
+        const u = b.toUpperCase();
+        if (u === 'PRÓPRIO' || u === 'PROPRIO' || u === 'PRÓPRIA' || u === 'PROPRIA') return 'PRÓPRIA';
+        return u;
+      });
+      const uniqueBases = Array.from(new Set(normalizedBases));
       const bancosInfo = uniqueBases.length > 0 
         ? uniqueBases.map(b => `${b} - ${obraData.data_referencia} - ${obraData.uf}`).join('\n')
         : `SINAPI - ${obraData.data_referencia} - ${obraData.uf}`;
@@ -281,12 +291,14 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
         cliente: obraData.cliente?.toUpperCase() || "N/A",
         bancos: bancosInfo,
         bdi: bdiValue,
-        encargos: obraData.desonerado === 1 ? "Desonerado: 85.00%" : "Não Desonerado: 112.00%",
+        desconto: obraData.desconto || 0,
+        encargos: `${obraData.desonerado === 1 ? "Desonerado" : "Não Desonerado"}\nHorista: ${obraData.encargos_horista?.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0.00'}%\nMensalista: ${obraData.encargos_mensalista?.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0.00'}%`,
         columns,
         rows,
         summary: {
           totalSemBdi: totalSemBdi,
           totalBdi: totalBdi,
+          totalDesconto: totalDesconto,
           totalGeral: totalBudget
         },
         config: reportConfig
@@ -511,20 +523,59 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
                     <div className="flex items-start gap-8">
                       <div className="flex flex-col gap-3">
                         <label className="flex items-center gap-2 cursor-pointer">
-                          <input type="checkbox" className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500" defaultChecked />
+                          <input 
+                            type="checkbox" 
+                            className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500" 
+                            checked={!!localConfig.logoImagem}
+                            onChange={(e) => {
+                              if (!e.target.checked) setLocalConfig({...localConfig, logoImagem: ''});
+                            }}
+                          />
                           <span className="text-[12px] text-slate-700">Exibir Logo</span>
                         </label>
-                        <div className="w-24 h-24 bg-slate-200 rounded-full flex items-center justify-center text-white font-bold tracking-widest text-sm">
-                          LOGO
+                        <div className="w-24 h-24 bg-slate-200 rounded-full flex items-center justify-center text-white font-bold tracking-widest text-sm overflow-hidden relative group">
+                          {localConfig.logoImagem ? (
+                            <>
+                              <img src={localConfig.logoImagem} alt="Logo" className="w-full h-full object-cover" />
+                              <button 
+                                onClick={() => setLocalConfig({...localConfig, logoImagem: ''})}
+                                className="absolute inset-0 bg-black/50 hidden group-hover:flex items-center justify-center text-white text-[10px] font-bold"
+                              >
+                                Remover
+                              </button>
+                            </>
+                          ) : (
+                            <span>LOGO</span>
+                          )}
                         </div>
                       </div>
                       <div className="pt-8">
                         <div className="flex items-center gap-2">
                           <label className="px-3 py-1 bg-slate-100 border border-slate-300 rounded text-[11px] cursor-pointer hover:bg-slate-200 transition-colors">
                             Escolher arquivo
-                            <input type="file" className="hidden" accept="image/*" />
+                            <input 
+                              type="file" 
+                              className="hidden" 
+                              accept="image/png, image/jpeg, image/jpg, .png, .jpg, .jpeg" 
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  if (file.size > 2 * 1024 * 1024) {
+                                    alert("A imagem não deve exceder 2MB.");
+                                    return;
+                                  }
+                                  const reader = new FileReader();
+                                  reader.onloadend = () => {
+                                    setLocalConfig({...localConfig, logoImagem: reader.result as string});
+                                  };
+                                  reader.readAsDataURL(file);
+                                }
+                              }}
+                            />
                           </label>
-                          <span className="text-[11px] text-slate-500">Nenhum arquivo escolhido</span>
+                          <span className="text-[11px] text-slate-500">
+                            {localConfig.logoImagem ? 'Imagem selecionada' : 'Nenhum arquivo escolhido'}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -745,7 +796,7 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
                               onClick={() => {
                                 setLocalConfig({
                                   ...localConfig,
-                                  corFundoEtapa: '#e2f0d9',
+                                  corFundoEtapa: '#d9e9ff',
                                   corLetraEtapa: '#000000',
                                   negritoEtapa: true,
                                   corFundoComposicao: '#e2efda',

@@ -365,6 +365,10 @@ function initDatabase() {
         localizacao TEXT,
         bdi REAL DEFAULT 0,
         desonerado INTEGER DEFAULT 1,
+        desconto REAL DEFAULT 0,
+        encargos_horista REAL DEFAULT 0,
+        encargos_mensalista REAL DEFAULT 0,
+        encargos_incidir INTEGER DEFAULT 1,
         data_referencia TEXT DEFAULT '2025-10',
         bancos_ativos TEXT DEFAULT '["sinapi"]',
         custos_reais TEXT,
@@ -698,6 +702,22 @@ function initDatabase() {
     } catch (e) {
       // Column likely already exists
     }
+    try {
+      db.prepare("ALTER TABLE v2_obras ADD COLUMN desconto REAL DEFAULT 0").run();
+      console.log("✅ Coluna 'desconto' adicionada à tabela 'v2_obras'.");
+    } catch (e) {}
+    try {
+      db.prepare("ALTER TABLE v2_obras ADD COLUMN encargos_horista REAL DEFAULT 0").run();
+      console.log("✅ Coluna 'encargos_horista' adicionada à tabela 'v2_obras'.");
+    } catch (e) {}
+    try {
+      db.prepare("ALTER TABLE v2_obras ADD COLUMN encargos_mensalista REAL DEFAULT 0").run();
+      console.log("✅ Coluna 'encargos_mensalista' adicionada à tabela 'v2_obras'.");
+    } catch (e) {}
+    try {
+      db.prepare("ALTER TABLE v2_obras ADD COLUMN encargos_incidir INTEGER DEFAULT 1").run();
+      console.log("✅ Coluna 'encargos_incidir' adicionada à tabela 'v2_obras'.");
+    } catch (e) {}
     try {
       db.prepare("ALTER TABLE v2_obras ADD COLUMN descricao TEXT").run();
       console.log("✅ Coluna 'descricao' adicionada à tabela 'v2_obras'.");
@@ -2312,7 +2332,7 @@ async function startServer() {
       const params: any[] = [];
 
       // Explicitly handle fields
-      const fieldsToUpdate = ['nome', 'cliente', 'descricao', 'status', 'endereco', 'data_inicio', 'data_inicio_real', 'data_fim_prevista', 'uf', 'localizacao', 'bdi', 'bdi_incidencia', 'bdi_tipo', 'desonerado', 'data_referencia', 'bancos_ativos', 'custos_reais'];
+      const fieldsToUpdate = ['nome', 'cliente', 'descricao', 'status', 'endereco', 'data_inicio', 'data_inicio_real', 'data_fim_prevista', 'uf', 'localizacao', 'bdi', 'bdi_incidencia', 'bdi_tipo', 'desonerado', 'desconto', 'encargos_horista', 'encargos_mensalista', 'encargos_incidir', 'data_referencia', 'bancos_ativos', 'custos_reais'];
       
       for (const col of fieldsToUpdate) {
         if (body[col] !== undefined) {

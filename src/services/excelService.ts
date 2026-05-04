@@ -7,12 +7,14 @@ export interface ExcelReportData {
   cliente: string;
   bancos: string;
   bdi: number;
+  desconto: number;
   encargos: string;
   columns: { header: string; key: string; width: number; type?: 'currency' | 'number' | 'percentage' | 'text' }[];
   rows: any[];
-  summary?: {
+  summary: {
     totalSemBdi: number;
     totalBdi: number;
+    totalDesconto: number;
     totalGeral: number;
   };
   config?: {
@@ -37,6 +39,7 @@ export interface ExcelReportData {
     retirarInfoBDI?: boolean;
     bloquearEdicao?: boolean;
     relatoriosComFormulas?: boolean;
+    logoImagem?: string;
   };
 }
 
@@ -92,10 +95,38 @@ export const generateExcelReport = async (data: ExcelReportData) => {
   // 1. CABEÇALHO DETALHADO (Conforme Print)
   // Espaço para Logo
   worksheet.mergeCells('A1:B4');
-  const logoCell = worksheet.getCell('A1');
-  logoCell.value = 'LOGO';
-  logoCell.alignment = { vertical: 'middle', horizontal: 'center' };
-  logoCell.font = { bold: true, size: 12, color: { argb: 'FF94a3b8' } };
+  
+  if (data.config?.logoImagem) {
+    try {
+      const base64Data = data.config.logoImagem;
+      const isJpeg = base64Data.includes('image/jpeg') || base64Data.includes('image/jpg');
+      const extensionToUse = isJpeg ? 'jpeg' : 'png';
+      const base64Content = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
+      
+      const imageId = workbook.addImage({
+        base64: base64Content,
+        extension: extensionToUse,
+      });
+      
+      // We assign it to the merged cells range, adding a bit of margin
+      worksheet.addImage(imageId, {
+        tl: { col: 0, row: 0 } as any,
+        br: { col: 2, row: 4 } as any,
+        editAs: 'oneCell'
+      });
+    } catch (e) {
+      console.warn("Failed to add image to excel", e);
+      const logoCell = worksheet.getCell('A1');
+      logoCell.value = 'LOGO';
+      logoCell.alignment = { vertical: 'middle', horizontal: 'center' };
+      logoCell.font = { bold: true, size: 12, color: { argb: 'FF94a3b8' } };
+    }
+  } else {
+    const logoCell = worksheet.getCell('A1');
+    logoCell.value = 'LOGO';
+    logoCell.alignment = { vertical: 'middle', horizontal: 'center' };
+    logoCell.font = { bold: true, size: 12, color: { argb: 'FF94a3b8' } };
+  }
   // Sem bordas no logo conforme solicitado
 
   // Estilo padrão para células do cabeçalho
@@ -103,45 +134,135 @@ export const generateExcelReport = async (data: ExcelReportData) => {
     alignment: { wrapText: true, vertical: 'top', horizontal: 'left' }
   };
 
+  const numCols = data.columns.length;
+  const lastColLetter = worksheet.getColumn(numCols).letter;
+
+  // Distribute columns starting from column 3 (since A and B are for Logo)
+  let currentStart = 3;
+  
+  // Obra: ~25%
+  let obraSpan = Math.max(1, Math.floor(numCols * 0.25));
+  let colObraEnd = Math.min(numCols, currentStart + obraSpan - 1);
+  currentStart = colObraEnd + 1;
+  
+  // Bancos: ~25%
+  let bancoSpan = Math.max(1, Math.floor(numCols * 0.25));
+  let colBancosEnd = Math.min(numCols, currentStart + bancoSpan - 1);
+  currentStart = colBancosEnd + 1;
+  
+  // BDI: 1 column
+  let colBdiEnd = Math.min(numCols, currentStart);
+  currentStart = colBdiEnd + 1;
+  
+  // Desconto: 1 column
+  let colDescontoEnd = Math.min(numCols, currentStart);
+  currentStart = colDescontoEnd + 1;
+  
+  let colEncargosEnd = numCols;
+
+  // Helper function to create separated headers
+  const createSplitHeader = (
+    title: string, 
+    value: string, 
+    startIdx: number, 
+    endIdx: number, 
+    isDark: boolean = false
+  ) => {
+    // Avoid invalid column ranges
+    if (startIdx > numCols) return;
+    
+    const sCol = worksheet.getColumn(Math.min(numCols, Math.max(1, startIdx))).letter;
+    const eCol = worksheet.getColumn(Math.min(numCols, Math.max(1, endIdx))).letter;
+    
+    // Configurações de cores baseadas no padrão da UI da API
+    const bgColorTitle = isDark ? 'FF003366' : 'FFF1F5F9'; // dark blue or slate-100
+    const fgColorTitle = isDark ? 'FFFFFFFF' : 'FF64748B'; // white or slate-500
+    const bgColorValue = isDark ? 'FF003366' : 'FFFFFFFF'; // dark blue or white
+    const fgColorValue = isDark ? 'FFFFFFFF' : title === 'B.D.I.' ? 'FF003366' : 'FF0F172A'; // specific colors
+    const borderColor = 'FFCBD5E1'; // slate-300
+
+    // Row 1: Title
+    if (sCol !== eCol) worksheet.mergeCells(`${sCol}1:${eCol}1`);
+    const titleCell = worksheet.getCell(`${sCol}1`);
+    titleCell.value = title.toUpperCase();
+    titleCell.font = { bold: true, size: 9, color: { argb: fgColorTitle } };
+    titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColorTitle } };
+    titleCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+    
+    // Add Borders
+    for (let i = Math.max(1, startIdx); i <= Math.min(numCols, endIdx); i++) {
+        const cell = worksheet.getCell(`${worksheet.getColumn(i).letter}1`);
+        cell.border = {
+          top: { style: 'thin', color: { argb: borderColor } },
+          left: { style: 'thin', color: { argb: borderColor } },
+          bottom: { style: 'thin', color: { argb: borderColor } },
+          right: { style: 'thin', color: { argb: borderColor } }
+        };
+    }
+
+    // Row 2-4: Value
+    worksheet.mergeCells(`${sCol}2:${eCol}4`);
+    const valCell = worksheet.getCell(`${sCol}2`);
+    valCell.value = value;
+    valCell.font = { bold: isDark || title === 'B.D.I.', size: 10, color: { argb: fgColorValue } };
+    valCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColorValue } };
+    valCell.alignment = { wrapText: true, vertical: 'top', horizontal: 'left', indent: 1 };
+    
+    // Add Borders
+    for (let r = 2; r <= 4; r++) {
+      for (let i = Math.max(1, startIdx); i <= Math.min(numCols, endIdx); i++) {
+          const cell = worksheet.getCell(`${worksheet.getColumn(i).letter}${r}`);
+          cell.border = {
+            top: { style: 'thin', color: { argb: borderColor } },
+            left: { style: 'thin', color: { argb: borderColor } },
+            bottom: { style: 'thin', color: { argb: borderColor } },
+            right: { style: 'thin', color: { argb: borderColor } }
+          };
+      }
+    }
+  };
+
   // Informações da Obra
-  worksheet.mergeCells('C1:F2');
-  const c1 = worksheet.getCell('C1');
-  c1.value = { richText: [{ font: { bold: true, size: 10 }, text: 'Obra\n' }, { font: { size: 10 }, text: data.obraName }] };
-  c1.style = headerInfoStyle;
+  createSplitHeader('Obra', data.obraName, 3, colObraEnd);
 
   // Bancos
-  worksheet.mergeCells('G1:I2');
-  const g1 = worksheet.getCell('G1');
-  g1.value = { richText: [{ font: { bold: true, size: 10 }, text: 'Bancos\n' }, { font: { size: 9 }, text: data.bancos }] };
-  g1.style = headerInfoStyle;
+  createSplitHeader('Bancos', data.bancos, colObraEnd + 1, colBancosEnd);
 
   // BDI
-  worksheet.mergeCells('J1:J2');
-  const j1 = worksheet.getCell('J1');
-  j1.value = { richText: [{ font: { bold: true, size: 10 }, text: 'B.D.I.\n' }, { font: { size: 10 }, text: `${data.bdi.toLocaleString('pt-BR')}%` }] };
-  j1.alignment = { wrapText: true, vertical: 'top', horizontal: 'center' };
+  createSplitHeader('B.D.I.', `${data.bdi.toLocaleString('pt-BR')}%`, colBancosEnd + 1, colBdiEnd);
+
+  // Desconto
+  createSplitHeader('Desconto', `${data.desconto.toLocaleString('pt-BR')}%`, colBdiEnd + 1, colDescontoEnd);
 
   // Encargos
-  worksheet.mergeCells('K1:M2');
-  const k1 = worksheet.getCell('K1');
-  k1.value = { richText: [{ font: { bold: true, size: 10 }, text: 'Encargos Sociais\n' }, { font: { size: 9 }, text: data.encargos }] };
-  k1.style = headerInfoStyle;
+  createSplitHeader('Encargos Sociais', data.encargos, colDescontoEnd + 1, colEncargosEnd);
+  
+  const formattedTotal = `R$ ${data.summary.totalGeral.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  // Adjust Row 2, 3, 4 height based on the number of non-empty lines in banks
+  const numBankLines = Math.max(data.bancos.split('\n').filter(l => l.trim()).length || 1, data.encargos.split('\n').filter(l => l.trim()).length || 1);
+  const rowHeight = Math.max(15, (12 * numBankLines) / 3);
+  worksheet.getRow(2).height = rowHeight;
+  worksheet.getRow(3).height = rowHeight;
+  worksheet.getRow(4).height = rowHeight;
+  worksheet.getRow(1).height = 20;
 
   // Título Centralizado
-  worksheet.mergeCells('A5:M5');
+  worksheet.mergeCells(`A5:${lastColLetter}5`);
   const mainTitle = worksheet.getCell('A5');
   mainTitle.value = data.title;
   mainTitle.font = { bold: true, size: 12 };
   mainTitle.alignment = { horizontal: 'center', vertical: 'middle' };
 
   // 2. TABELA DE DADOS (CABEÇALHO DUPLO)
-  const headerRow1 = worksheet.getRow(7);
-  const headerRow2 = worksheet.getRow(8);
+  const headerRow1 = worksheet.getRow(6);
+  const headerRow2 = worksheet.getRow(7);
   headerRow1.height = 25;
   headerRow2.height = 25;
 
-  const standardStyle = {
-    font: { bold: true, size: 9 },
+  const headerStyle = {
+    font: { bold: true, size: 9, color: { argb: 'FFFFFFFF' } },
+    fill: { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FF003366' } },
     alignment: { vertical: 'middle' as const, horizontal: 'center' as const, wrapText: true },
     border: {
       top: { style: 'thin' as const },
@@ -161,24 +282,24 @@ export const generateExcelReport = async (data: ExcelReportData) => {
     if (col.key === 'mo_total') {
       // Início da seção Mão de Obra
       cell1.value = 'Mão de Obra';
-      cell1.style = standardStyle;
+      cell1.style = headerStyle;
       // Mescla horizontal (esta e a próxima)
-      worksheet.mergeCells(`${colLetter}7:${worksheet.getColumn(idx + 2).letter}7`);
+      worksheet.mergeCells(`${colLetter}6:${worksheet.getColumn(idx + 2).letter}6`);
       
-      // Sub-headers na linha 8
+      // Sub-headers na linha 7
       cell2.value = 'Valor';
-      cell2.style = standardStyle;
+      cell2.style = headerStyle;
     } else if (col.key === 'mo_percent') {
       // Segunda parte da Mão de Obra
       cell2.value = '%';
-      cell2.style = standardStyle;
+      cell2.style = headerStyle;
       // O cell1 aqui já está mesclado
     } else {
       // Colunas normais: Mescla vertical
       cell1.value = col.header;
-      cell1.style = standardStyle;
-      cell2.style = standardStyle;
-      worksheet.mergeCells(`${colLetter}7:${colLetter}8`);
+      cell1.style = headerStyle;
+      cell2.style = headerStyle;
+      worksheet.mergeCells(`${colLetter}6:${colLetter}7`);
     }
   });
 
@@ -262,9 +383,18 @@ export const generateExcelReport = async (data: ExcelReportData) => {
     if (data.summary) {
       worksheet.addRow([]);
       
-      // Tenta encontrar a coluna 'total_geral' para alinhar os valores
+      // Encontra a coluna para alinhar os valores (prioriza 'peso' ou a última coluna)
+      const pesoIdx = data.columns.findIndex(c => c.key === 'peso');
       const totalGeralIdx = data.columns.findIndex(c => c.key === 'total_geral');
-      const valCol = totalGeralIdx !== -1 ? totalGeralIdx + 1 : data.columns.length;
+      
+      // Se 'peso' existir, usa ela. Senão tenta 'total_geral'. Por fim, garante que a última coluna seja usada.
+      let valCol = data.columns.length; 
+      if (pesoIdx !== -1) {
+        valCol = pesoIdx + 1;
+      } else if (totalGeralIdx !== -1) {
+        valCol = totalGeralIdx + 1;
+      }
+      
       const labelCol = valCol - 1;
       
       const addSummaryRow = (label: string, value: number) => {
@@ -278,7 +408,7 @@ export const generateExcelReport = async (data: ExcelReportData) => {
         valCell.value = value;
         valCell.font = { bold: true, size: 10 };
         valCell.numFmt = '#,##0.00';
-        valCell.alignment = { horizontal: 'right' };
+        valCell.alignment = { horizontal: 'right', vertical: 'middle' };
         
         // Garante que a coluna do valor tenha largura suficiente para o total
         if (worksheet.getColumn(valCol).width < 20) {
@@ -290,6 +420,12 @@ export const generateExcelReport = async (data: ExcelReportData) => {
         addSummaryRow('Total sem BDI', data.summary.totalSemBdi);
         addSummaryRow('Total do BDI', data.summary.totalBdi);
       }
+
+      if (data.summary.totalDesconto > 0) {
+        addSummaryRow('Subtotal', data.summary.totalSemBdi + data.summary.totalBdi);
+        addSummaryRow(`Desconto (${(data.desconto || 0).toFixed(2)}%)`, -data.summary.totalDesconto);
+      }
+      
       addSummaryRow('Total Geral', data.summary.totalGeral);
     }
 
@@ -324,8 +460,6 @@ export const generateExcelReport = async (data: ExcelReportData) => {
   
   const assinatura1 = data.config?.assinatura1 || 'Assinatura do Responsável';
   const assinatura2 = data.config?.assinatura2 || '';
-  
-  const numCols = data.columns.length;
 
   if (assinatura2.trim() !== '') {
     // Duas assinaturas (Lado a Lado)

@@ -392,6 +392,7 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
   ]);
 
   const [bdiValue, setBdiValue] = useState(0);
+  const [descontoValue, setDescontoValue] = useState(0);
   const [bdiIncidence, setBdiIncidence] = useState<'unitario' | 'final'>('unitario');
   const [bdiType, setBdiType] = useState<'unico' | 'detalhado'>('unico');
 
@@ -622,6 +623,7 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
         setObra(data);
         console.log("DEBUG: Obra data loaded:", data);
         if (data?.bdi !== undefined) setBdiValue(data.bdi);
+        if (data?.desconto !== undefined) setDescontoValue(data.desconto);
         if (data?.bdi_incidencia) setBdiIncidence(data.bdi_incidencia);
         if (data?.bdi_tipo) setBdiType(data.bdi_tipo);
         
@@ -630,6 +632,9 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
         setEncargos(prev => ({
           ...prev,
           desonerado: (data?.desonerado !== undefined && data?.desonerado !== null) ? data?.desonerado === 1 : prev.desonerado,
+          horista: data?.encargos_horista || prev.horista,
+          mensalista: data?.encargos_mensalista || prev.mensalista,
+          incidir: (data?.encargos_incidir !== undefined && data?.encargos_incidir !== null) ? data?.encargos_incidir === 1 : prev.incidir,
           estado: data?.uf || prev.estado,
           dataReferencia: obraDataRef
         }));
@@ -679,6 +684,10 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
           ...obra,
           uf: encargos.estado,
           desonerado: encargos.desonerado ? 1 : 0,
+          desconto: descontoValue,
+          encargos_horista: encargos.horista,
+          encargos_mensalista: encargos.mensalista,
+          encargos_incidir: encargos.incidir ? 1 : 0,
           data_referencia: encargos.dataReferencia,
           bancos_ativos: JSON.stringify(bancosAtivos.filter(b => b.active))
         })
@@ -686,7 +695,7 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, [encargos.desonerado, encargos.estado, encargos.dataReferencia, isInitialLoad, obraId, obra, bancosAtivos]);
+  }, [encargos.desonerado, encargos.horista, encargos.mensalista, encargos.incidir, encargos.estado, encargos.dataReferencia, bdiValue, bdiIncidence, bdiType, descontoValue, isInitialLoad, obraId, obra, bancosAtivos]);
 
   const handleItemChange = async (id: string, newItem: string) => {
     const targetRow = orcamento.find(r => r.id === id);
@@ -1435,8 +1444,15 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
                     <div className="w-40 bg-slate-100 p-2 border-r border-slate-200 flex items-center">
                       <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">BDI</span>
                     </div>
-                    <div className="flex-1 p-2 flex items-center">
-                      <span className="text-[13px] font-bold text-[#003366] group-hover:text-indigo-600 transition-colors">{bdiValue.toFixed(2)}%</span>
+                    <div className="flex-1 p-2 flex items-center gap-12">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-slate-400 font-bold uppercase">BDI:</span>
+                        <span className="text-[13px] font-bold text-[#003366] group-hover:text-indigo-600 transition-colors">{bdiValue.toFixed(2)}%</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-slate-400 font-bold uppercase">Desconto:</span>
+                        <span className="text-[13px] font-bold text-red-600 group-hover:text-red-700 transition-colors">{descontoValue.toFixed(2)}%</span>
+                      </div>
                     </div>
                   </div>
 
@@ -1473,7 +1489,11 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
                     </div>
                     <div className="flex-1 p-2 flex items-center bg-[#003366]">
                       <span className="text-[13px] font-bold text-white">
-                        R$ {(orcamento.filter(r => r.tipo !== 'etapa').reduce((acc, r) => acc + (r.total || 0), 0) * (bdiIncidence === 'final' ? (1 + bdiValue / 100) : 1)).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        R$ {(
+                          orcamento.filter(r => r.tipo !== 'etapa').reduce((acc, r) => acc + (r.total || 0), 0) * 
+                          (bdiIncidence === 'final' ? (1 + bdiValue / 100) : 1) * 
+                          (1 - (descontoValue || 0) / 100)
+                        ).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </span>
                     </div>
                   </div>
@@ -1525,15 +1545,27 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
                       </div>
                     </div>
 
-                    <div className="space-y-2">
-                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider">Porcentagem de BDI Padrão</label>
-                      <input 
-                        type="number" 
-                        step="0.01"
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-lg font-bold"
-                        value={isNaN(bdiValue) ? "" : bdiValue}
-                        onChange={(e) => setBdiValue(parseFloat(e.target.value))}
-                      />
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider">Porcentagem de BDI Padrão</label>
+                        <input 
+                          type="number" 
+                          step="0.01"
+                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-lg font-bold"
+                          value={isNaN(bdiValue) ? "" : bdiValue}
+                          onChange={(e) => setBdiValue(parseFloat(e.target.value))}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider text-red-600">Porcentagem de Desconto</label>
+                        <input 
+                          type="number" 
+                          step="0.01"
+                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-lg font-bold text-red-600"
+                          value={isNaN(descontoValue) ? "" : descontoValue}
+                          onChange={(e) => setDescontoValue(parseFloat(e.target.value))}
+                        />
+                      </div>
                     </div>
 
                     <div className="space-y-4">
