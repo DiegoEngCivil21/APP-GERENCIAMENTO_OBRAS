@@ -9,7 +9,14 @@ export interface ExcelReportData {
   bdi: number;
   desconto: number;
   encargos: string;
-  columns: { header: string; key: string; width: number; type?: 'currency' | 'number' | 'percentage' | 'text' }[];
+  columns: { 
+    header: string; 
+    key?: string; 
+    width: number; 
+    type?: 'currency' | 'number' | 'percentage' | 'text';
+    subgroup?: string[];
+    keys?: string[];
+  }[];
   rows: any[];
   summary: {
     totalSemBdi: number;
@@ -134,8 +141,9 @@ export const generateExcelReport = async (data: ExcelReportData) => {
     alignment: { wrapText: true, vertical: 'top', horizontal: 'left' }
   };
 
-  const numCols = data.columns.length;
-  const lastColLetter = worksheet.getColumn(numCols).letter;
+  const totalPhysicalCols = data.columns.reduce((acc, col) => acc + (col.subgroup ? col.subgroup.length : 1), 0);
+  const lastColLetter = worksheet.getColumn(totalPhysicalCols).letter;
+  const numCols = totalPhysicalCols;
 
   // Distribute columns starting from column 3 (since A and B are for Logo)
   let currentStart = 3;
@@ -279,42 +287,70 @@ export const generateExcelReport = async (data: ExcelReportData) => {
   };
 
   // Mapeamento das colunas para mesclagem
-  // Usamos as chaves das colunas para identificar onde mesclar
-  data.columns.forEach((col, idx) => {
-    const colLetter = worksheet.getColumn(idx + 1).letter;
-    const cell1 = headerRow1.getCell(idx + 1);
-    const cell2 = headerRow2.getCell(idx + 1);
+  let currentHeaderCol = 1;
 
-    if (col.key === 'mo_total') {
-      // Início da seção Mão de Obra
-      cell1.value = 'Mão de Obra';
-      cell1.style = headerStyle;
-      // Mescla horizontal (esta e a próxima)
-      worksheet.mergeCells(`${colLetter}6:${worksheet.getColumn(idx + 2).letter}6`);
-      
-      // Sub-headers na linha 7
-      cell2.value = 'Valor';
-      cell2.style = headerStyle;
-    } else if (col.key === 'mo_percent') {
-      // Segunda parte da Mão de Obra
-      cell2.value = '%';
-      cell2.style = headerStyle;
-      // O cell1 aqui já está mesclado
-    } else {
-      // Colunas normais: Mescla vertical
+  data.columns.forEach((col) => {
+    const startColLetter = worksheet.getColumn(currentHeaderCol).letter;
+    const cell1 = headerRow1.getCell(currentHeaderCol);
+    
+    if (col.subgroup && col.keys) {
+      // Grupo de colunas
       cell1.value = col.header;
       cell1.style = headerStyle;
+      
+      const endHeaderCol = currentHeaderCol + col.subgroup.length - 1;
+      const endColLetter = worksheet.getColumn(endHeaderCol).letter;
+      
+      if (startColLetter !== endColLetter) {
+        worksheet.mergeCells(`${startColLetter}6:${endColLetter}6`);
+      }
+      
+      col.subgroup.forEach((subHeader, sIdx) => {
+        const subCell = headerRow2.getCell(currentHeaderCol + sIdx);
+        subCell.value = subHeader;
+        subCell.style = headerStyle;
+      });
+      
+      currentHeaderCol += col.subgroup.length;
+    } else {
+      // Coluna normal: Mescla vertical
+      cell1.value = col.header;
+      cell1.style = headerStyle;
+      const cell2 = headerRow2.getCell(currentHeaderCol);
       cell2.style = headerStyle;
-      worksheet.mergeCells(`${colLetter}6:${colLetter}7`);
+      
+      worksheet.mergeCells(`${startColLetter}6:${startColLetter}7`);
+      currentHeaderCol += 1;
     }
   });
 
   // Renderização das Linhas
   data.rows.forEach((rowData) => {
-    const rowValues = data.columns.map(col => rowData[col.key]);
+    const rowValues: any[] = [];
+    data.columns.forEach(col => {
+      if (col.keys) {
+        col.keys.forEach(k => rowValues.push(rowData[k]));
+      } else if (col.key) {
+        rowValues.push(rowData[col.key]);
+      } else {
+        rowValues.push(null);
+      }
+    });
+
     const row = worksheet.addRow(rowValues);
     
     const isEtapa = rowData.tipo_item === 'etapa' || rowData.isEtapa;
+
+    // Expand formatting to all physical cells
+    let physicalColIdx = 0;
+    const physicalColDefs: any[] = [];
+    data.columns.forEach(col => {
+      if (col.subgroup) {
+        col.subgroup.forEach(() => physicalColDefs.push(col));
+      } else {
+        physicalColDefs.push(col);
+      }
+    });
 
     // Colors and Formatting based on config
     const itemCategory = rowData.itemCategory || (isEtapa ? 'etapa' : 'insumo');
@@ -347,8 +383,8 @@ export const generateExcelReport = async (data: ExcelReportData) => {
     }
 
     row.eachCell((cell, colNumber) => {
-        const colDef = data.columns[colNumber - 1];
-        
+        const colDef = physicalColDefs[colNumber - 1];
+        if (!colDef) return;
         cell.font = { size: 9, bold: isBold, color: { argb: fontColor } };
         cell.border = {
           top: { style: 'thin' },
@@ -390,15 +426,29 @@ export const generateExcelReport = async (data: ExcelReportData) => {
       worksheet.addRow([]);
       
       // Encontra a coluna para alinhar os valores (prioriza 'peso' ou a última coluna)
-      const pesoIdx = data.columns.findIndex(c => c.key === 'peso');
-      const totalGeralIdx = data.columns.findIndex(c => c.key === 'total_geral');
+      let pesoPhysicalIdx = -1;
+      let totalGeralPhysicalIdx = -1;
+      let pIdx = 1;
+      
+      data.columns.forEach(col => {
+        if (col.subgroup && col.keys) {
+          col.keys.forEach(k => {
+            if (k === 'total_total' || k === 'total_geral') totalGeralPhysicalIdx = pIdx;
+            pIdx++;
+          });
+        } else {
+          if (col.key === 'peso') pesoPhysicalIdx = pIdx;
+          if (col.key === 'total_geral') totalGeralPhysicalIdx = pIdx;
+          pIdx++;
+        }
+      });
       
       // Se 'peso' existir, usa ela. Senão tenta 'total_geral'. Por fim, garante que a última coluna seja usada.
-      let valCol = data.columns.length; 
-      if (pesoIdx !== -1) {
-        valCol = pesoIdx + 1;
-      } else if (totalGeralIdx !== -1) {
-        valCol = totalGeralIdx + 1;
+      let valCol = numCols; 
+      if (pesoPhysicalIdx !== -1) {
+        valCol = pesoPhysicalIdx;
+      } else if (totalGeralPhysicalIdx !== -1) {
+        valCol = totalGeralPhysicalIdx;
       }
       
       const labelCol = valCol - 1;
@@ -498,13 +548,25 @@ export const generateExcelReport = async (data: ExcelReportData) => {
     'peso': 15
   };
 
-  data.columns.forEach((col, idx) => {
-    let width = widthMap[col.key] || col.width || 12;
-    // Garante largura mínima para colunas financeiras ou de total para evitar #########
-    if (col.type === 'currency' || col.key === 'total_geral' || col.key === 'valor_unit_com_bdi') {
-      width = Math.max(width, 18);
+  let currentWidthCol = 1;
+  data.columns.forEach((col) => {
+    if (col.subgroup && col.keys) {
+      col.subgroup.forEach((sub, sIdx) => {
+        let width = widthMap[col.keys![sIdx]] || col.width || 12;
+        if (col.type === 'currency' || col.keys![sIdx].includes('total') || col.keys![sIdx].includes('valor')) {
+          width = Math.max(width, 14);
+        }
+        worksheet.getColumn(currentWidthCol).width = width;
+        currentWidthCol++;
+      });
+    } else {
+      let width = widthMap[col.key!] || col.width || 12;
+      if (col.type === 'currency' || col.key === 'total_geral' || col.key === 'valor_unit_com_bdi') {
+        width = Math.max(width, 18);
+      }
+      worksheet.getColumn(currentWidthCol).width = width;
+      currentWidthCol++;
     }
-    worksheet.getColumn(idx + 1).width = width;
   });
 
   // Bloqueando o Excel (travado) - Senha padrao

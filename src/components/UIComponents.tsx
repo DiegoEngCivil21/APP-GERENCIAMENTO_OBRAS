@@ -189,7 +189,21 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
       const bdiValue = obraData.bdi || 0;
       const bdiIncidence = obraData.bdi_incidencia || 'unitario';
 
-      if (reportName.includes('Mão de Obra')) {
+      if (reportName.includes('Mão de Obra, Equipamento e Material')) {
+        columns.push(
+          { header: 'Valor Unit', key: 'valor_unit_sem_bdi', width: 12, type: 'currency' },
+          { header: 'Valor Unit com BDI', subgroup: ['M. O.', 'MAT.', 'EQUIP.', 'Total'], keys: ['v_unit_bdi_mo', 'v_unit_bdi_mat', 'v_unit_bdi_equip', 'v_unit_bdi_total'], width: 12, type: 'currency' },
+          { header: 'Total', subgroup: ['M. O.', 'MAT.', 'EQUIP.', 'Total'], keys: ['total_mo', 'total_mat', 'total_equip', 'total_total'], width: 12, type: 'currency' },
+          { header: 'Peso (%)', key: 'peso', width: 8, type: 'percentage' }
+        );
+      } else if (reportName.includes('Mão de Obra e Material')) {
+        columns.push(
+          { header: 'Valor Unit', key: 'valor_unit_sem_bdi', width: 12, type: 'currency' },
+          { header: 'Valor Unit com BDI', subgroup: ['M. O.', 'MAT.', 'Total'], keys: ['v_unit_bdi_mo', 'v_unit_bdi_mat', 'v_unit_bdi_total'], width: 12, type: 'currency' },
+          { header: 'Total', subgroup: ['M. O.', 'MAT.', 'Total'], keys: ['total_mo', 'total_mat', 'total_total'], width: 12, type: 'currency' },
+          { header: 'Peso (%)', key: 'peso', width: 8, type: 'percentage' }
+        );
+      } else if (reportName.includes('Mão de Obra')) {
         columns.push(
           { header: 'Valor Unit', key: 'valor_unit_sem_bdi', width: 12, type: 'currency' },
           { header: 'Valor Unit com BDI', key: 'valor_unit_com_bdi', width: 12, type: 'currency' },
@@ -220,13 +234,16 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
         }
       }
 
-      // Calculate Budget Totals accurately (BDI is already in it.total coming from server)
-      const subTotalBudget = orcamentoData.reduce((sum: number, it: any) => it.tipo === 'etapa' ? sum : sum + (it.total || 0), 0);
-      const totalBudget = subTotalBudget * (1 - (obraData.desconto || 0) / 100);
-      const totalSemBdi = subTotalBudget / (1 + bdiValue / 100);
-      const totalBdi = subTotalBudget - totalSemBdi;
-      const totalDesconto = subTotalBudget * ((obraData.desconto || 0) / 100);
-
+      // Calculate Budget Totals accurately
+      // subTotalRaw is the sum of (unit price * qty) for all items without BDI yet
+      const subTotalRaw = orcamentoData.reduce((sum: number, it: any) => it.tipo === 'etapa' ? sum : sum + ((it.quantidade || 0) * (it.valor_unitario || 0)), 0);
+      
+      const totalSemBdi = subTotalRaw;
+      const totalBdi = subTotalRaw * (bdiValue / 100);
+      const totalComBdi = subTotalRaw + totalBdi;
+      const totalDesconto = totalComBdi * ((obraData.desconto || 0) / 100);
+      const totalBudget = totalComBdi - totalDesconto;
+      
       // Map rows
       const rows = orcamentoData.map((it: any) => {
         const isEtapa = it.tipo === 'etapa';
@@ -234,12 +251,39 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
         
         const rawUnitCost = it.valor_unitario || 0;
         const bdiMultiplier = (1 + bdiValue / 100);
-        
         const unitWithBDI = bdiIncidence === 'unitario' ? rawUnitCost * bdiMultiplier : rawUnitCost;
-        const total = isEtapa ? (it.total || 0) : (qty * unitWithBDI);
         
-        const moUnit = it.custo_mao_obra || 0;
-        const moTotal = isEtapa ? (it.custo_mao_obra_total || 0) : (moUnit * qty * bdiMultiplier);
+        let moUnit = it.custo_mao_obra || 0;
+        let matUnit = it.custo_material || 0;
+        let equipUnit = it.custo_equipamento || 0;
+
+        // SE for um insumo simples (não composição) e os custos específicos estiverem zerados ou não somarem o total,
+        // então distribuímos o valor unitário total baseado na categoria do item.
+        if (!isEtapa && (moUnit + matUnit + equipUnit) === 0 && rawUnitCost > 0) {
+          const cat = (it.categoria || "").toLowerCase();
+          const desc = (it.descricao || "").toLowerCase();
+          const tipoItem = (it.tipo_item || "").toLowerCase();
+          
+          if (cat.includes("mão de obra") || cat.includes("mao de obra") || tipoItem === "mao_de_obra" || desc.includes("mão de obra")) {
+            moUnit = rawUnitCost;
+          } else if (cat.includes("equipamento") || tipoItem === "equipamento" || desc.includes("equipamento")) {
+            equipUnit = rawUnitCost;
+          } else {
+            // Default para Material
+            matUnit = rawUnitCost;
+          }
+        }
+
+        const moUnitWithBDI = moUnit * bdiMultiplier;
+        const matUnitWithBDI = matUnit * bdiMultiplier;
+        const equipUnitWithBDI = equipUnit * bdiMultiplier;
+        const unitTotalWithBDI = moUnitWithBDI + matUnitWithBDI + equipUnitWithBDI;
+
+        const moTotal = isEtapa ? (it.custo_mao_obra_total || 0) * bdiMultiplier : (moUnitWithBDI * qty);
+        const matTotal = isEtapa ? (it.custo_material_total || 0) * bdiMultiplier : (matUnitWithBDI * qty);
+        const equipTotal = isEtapa ? (it.custo_equipamento_total || 0) * bdiMultiplier : (equipUnitWithBDI * qty);
+        
+        const total = isEtapa ? (it.total || 0) : (moTotal + matTotal + equipTotal);
         
         const moPercent = total > 0 ? (moTotal / total) * 100 : 0;
         const peso = totalBudget > 0 ? (total / totalBudget) * 100 : 0;
@@ -263,9 +307,17 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
           unidade: it.unidade || '',
           quantidade: isEtapa ? null : qty,
           valor_unit_sem_bdi: isEtapa ? null : rawUnitCost,
-          valor_unit_com_bdi: isEtapa ? null : unitWithBDI,
-          mo_total: isEtapa ? null : moTotal,
-          mo_percent: isEtapa ? null : moPercent,
+          valor_unit_com_bdi: isEtapa ? null : unitTotalWithBDI,
+          v_unit_bdi_mo: isEtapa ? null : moUnitWithBDI,
+          v_unit_bdi_mat: isEtapa ? null : matUnitWithBDI,
+          v_unit_bdi_equip: isEtapa ? null : equipUnitWithBDI,
+          v_unit_bdi_total: isEtapa ? null : unitTotalWithBDI,
+          total_mo: moTotal,
+          total_mat: matTotal,
+          total_equip: equipTotal,
+          total_total: total,
+          mo_total: moTotal,
+          mo_percent: moPercent,
           total_geral: total,
           peso: peso,
           isEtapa: isEtapa,
