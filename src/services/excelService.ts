@@ -20,6 +20,7 @@ export interface ExcelReportData {
 export const generateExcelReport = async (data: ExcelReportData) => {
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet('Orçamento');
+  worksheet.properties.defaultRowHeight = 20;
   
   // --- CONFIGURAÇÃO DE IMPRESSÃO E VISUALIZAÇÃO ---
   worksheet.views = [{ 
@@ -189,20 +190,29 @@ export const generateExcelReport = async (data: ExcelReportData) => {
   // 3. RESUMO FINAL (Total sem BDI, Total BDI, Total Geral)
   if (data.summary) {
     worksheet.addRow([]);
-    const startCol = data.columns.length - 1; // Ajustado para a penúltima/última coluna
+    
+    // Tenta encontrar a coluna 'total_geral' para alinhar os valores
+    const totalGeralIdx = data.columns.findIndex(c => c.key === 'total_geral');
+    const valCol = totalGeralIdx !== -1 ? totalGeralIdx + 1 : data.columns.length;
+    const labelCol = valCol - 1;
     
     const addSummaryRow = (label: string, value: number) => {
       const row = worksheet.addRow([]);
-      const labelCell = row.getCell(startCol);
+      const labelCell = row.getCell(labelCol);
       labelCell.value = label;
-      labelCell.font = { bold: true };
+      labelCell.font = { bold: true, size: 10 };
       labelCell.alignment = { horizontal: 'right' };
       
-      const valCell = row.getCell(startCol + 1);
+      const valCell = row.getCell(valCol);
       valCell.value = value;
-      valCell.font = { bold: true };
+      valCell.font = { bold: true, size: 10 };
       valCell.numFmt = '#,##0.00';
       valCell.alignment = { horizontal: 'right' };
+      
+      // Garante que a coluna do valor tenha largura suficiente para o total
+      if (worksheet.getColumn(valCol).width < 20) {
+        worksheet.getColumn(valCol).width = 20;
+      }
     };
 
     addSummaryRow('Total sem BDI', data.summary.totalSemBdi);
@@ -212,23 +222,28 @@ export const generateExcelReport = async (data: ExcelReportData) => {
 
   // Ajuste de largura das colunas (Valores refinados com base na necessidade operacional)
   const widthMap: { [key: string]: number } = {
-    'item': 6,
-    'codigo': 12,
-    'banco': 10,
-    'descricao': 55,
-    'tipo_servico': 18,
-    'unidade': 6,
-    'quantidade': 10,
-    'valor_unit_sem_bdi': 12,
-    'valor_unit_com_bdi': 13,
-    'mo_total': 13,
-    'mo_percent': 8,
-    'total_geral': 16,
-    'peso': 8
+    'item': 8,
+    'codigo': 14,
+    'banco': 12,
+    'descricao': 60,
+    'tipo_servico': 20,
+    'unidade': 8,
+    'quantidade': 12,
+    'valor_unit_sem_bdi': 16,
+    'valor_unit_com_bdi': 16,
+    'mo_total': 16,
+    'mo_percent': 10,
+    'total_geral': 20,
+    'peso': 15
   };
 
   data.columns.forEach((col, idx) => {
-    worksheet.getColumn(idx + 1).width = widthMap[col.key] || col.width || 12;
+    let width = widthMap[col.key] || col.width || 12;
+    // Garante largura mínima para colunas financeiras ou de total para evitar #########
+    if (col.type === 'currency' || col.key === 'total_geral' || col.key === 'valor_unit_com_bdi') {
+      width = Math.max(width, 18);
+    }
+    worksheet.getColumn(idx + 1).width = width;
   });
 
   // 4. ASSINATURA

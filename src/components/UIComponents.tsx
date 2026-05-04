@@ -67,6 +67,7 @@ export const Button = ({
 
 export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (tab: string) => void, user?: any, activeObraId?: string | number | null }) => {
   const [isRelatoriosOpen, setIsRelatoriosOpen] = useState(false);
+  const [isCustomizerOpen, setIsCustomizerOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -324,7 +325,14 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
                             {group.options.map((opt, oIdx) => (
                               <button 
                                 key={oIdx}
-                                onClick={() => handleExport(opt.label)}
+                                onClick={() => {
+                                  if (opt.label === "Personalizar Relatório") {
+                                    setIsCustomizerOpen(true);
+                                    setIsRelatoriosOpen(false);
+                                  } else {
+                                    handleExport(opt.label);
+                                  }
+                                }}
                                 className="w-full text-left px-4 py-2 text-[11px] font-bold text-slate-600 hover:bg-emerald-50 hover:text-emerald-800 rounded-lg transition-colors flex items-center justify-between group/row"
                               >
                                 <span className="flex items-center gap-3">
@@ -398,9 +406,183 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
           <User size={15} />
         </div>
       </button>
+      </div>
+      
+      {/* Report Customization Modal */}
+      <AnimatePresence>
+        {isCustomizerOpen && (
+          <div className="fixed inset-0 z-[100] flex items-start justify-center p-4 pt-20 bg-slate-900/40 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden border border-slate-200"
+            >
+              <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-600">
+                    <Settings2 size={20} />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-black text-slate-900 uppercase tracking-tight">Personalizar Relatório</h2>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Configurações de Exportação e Documento</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setIsCustomizerOpen(false)}
+                  className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400"
+                >
+                  <Plus className="rotate-45" size={24} />
+                </button>
+              </div>
+
+              <div className="p-8 max-h-[70vh] overflow-y-auto">
+                <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8">
+                  <div className="space-y-8">
+                    <div>
+                      <label className="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">Cabeçalho e Identificação</label>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                         <label className="flex items-center gap-3 p-3 border border-slate-100 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors">
+                           <input type="checkbox" className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500" defaultChecked />
+                           <span className="text-[11px] font-bold text-slate-600 uppercase">Mostrar Logotipo</span>
+                         </label>
+                         <label className="flex items-center gap-3 p-3 border border-slate-100 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors">
+                           <input type="checkbox" className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500" defaultChecked />
+                           <span className="text-[11px] font-bold text-slate-600 uppercase">Dados da Obra</span>
+                         </label>
+                         <label className="flex items-center gap-3 p-3 border border-slate-100 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors">
+                           <input type="checkbox" className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500" defaultChecked />
+                           <span className="text-[11px] font-bold text-slate-600 uppercase">Incluir BDI Un.</span>
+                         </label>
+                         <label className="flex items-center gap-3 p-3 border border-slate-100 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors">
+                           <input type="checkbox" className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500" />
+                           <span className="text-[11px] font-bold text-slate-600 uppercase">Resumo Financeiro</span>
+                         </label>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">Configuração de Rodapé</label>
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5 ml-1">Rodapé Esquerdo</label>
+                            <textarea 
+                              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                              placeholder="Endereço, etc..."
+                              rows={3}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5 ml-1">Rodapé Direito</label>
+                            <textarea 
+                              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                              placeholder="Outras infos..."
+                              rows={3}
+                            />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <label className="flex items-center gap-3 p-3 border border-slate-100 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors">
+                             <input type="checkbox" className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500" defaultChecked />
+                             <span className="text-[11px] font-bold text-slate-600 uppercase">Numerar Páginas</span>
+                          </label>
+                          <label className="flex items-center gap-3 p-3 border border-slate-100 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors">
+                             <input type="checkbox" className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500" defaultChecked />
+                             <span className="text-[11px] font-bold text-slate-600 uppercase">Data/Hora no Rodapé</span>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">Opções de Layout</label>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5 ml-1">Orientação</label>
+                          <select className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-bold text-slate-700 outline-none">
+                            <option>Retrato (Portrait)</option>
+                            <option>Paisagem (Landscape)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5 ml-1">Tam. da Fonte</label>
+                          <select defaultValue="Média (10pt)" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-bold text-slate-700 outline-none">
+                            <option>Pequena (8pt)</option>
+                            <option>Média (10pt)</option>
+                            <option>Grande (12pt)</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Visual Preview */}
+                  <div className="space-y-4">
+                    <label className="block text-[11px] font-black text-slate-400 uppercase tracking-widest leading-none">Pré-visualização</label>
+                    <div className="aspect-[3/4] bg-slate-100 rounded-2xl border border-slate-200 p-4 relative shadow-inner overflow-hidden flex flex-col">
+                      {/* Paper Look */}
+                      <div className="flex-1 bg-white shadow-sm rounded-lg p-3 flex flex-col ring-1 ring-black/5">
+                        <div className="h-4 w-12 bg-indigo-100 rounded mb-2" />
+                        <div className="space-y-1 mb-4">
+                          <div className="h-2 w-full bg-slate-100 rounded" />
+                          <div className="h-2 w-2/3 bg-slate-100 rounded" />
+                        </div>
+                        <div className="flex-1 space-y-2">
+                          <div className="h-4 w-full bg-slate-50 rounded border border-slate-100" />
+                          {[1,2,3,4,5,6,7].map(i => (
+                            <div key={i} className="h-3 w-full border-b border-slate-100 flex items-center justify-between px-1">
+                              <div className="h-1.5 w-1/3 bg-slate-50 rounded" />
+                              <div className="h-1.5 w-8 bg-slate-50 rounded" />
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-4 pt-2 border-t border-slate-100 flex justify-between text-[6px] font-bold text-slate-400">
+                          <div className="w-1/3 truncate">Texto do rodapé esquerdo configurado</div>
+                          <div>Pág. 1 de 12</div>
+                        </div>
+                      </div>
+                      <div className="absolute inset-0 bg-gradient-to-t from-slate-100/50 to-transparent pointer-events-none" />
+                    </div>
+                    <p className="text-[10px] text-center font-bold text-slate-400 leading-relaxed px-4">
+                      A visualização é uma representação esquemática do layout final do documento.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-8 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-4">
+                <button 
+                  onClick={() => setIsCustomizerOpen(false)}
+                  className="px-6 py-3 text-xs font-black text-slate-500 uppercase tracking-widest hover:bg-slate-100 rounded-xl transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  onClick={() => {
+                    // Aqui salvaria as configurações
+                    setIsCustomizerOpen(false);
+                    // Feedback de sucesso
+                    const toast = document.createElement('div');
+                    toast.className = 'fixed bottom-6 right-6 bg-emerald-600 text-white px-6 py-4 rounded-2xl shadow-2xl z-[9999] animate-in slide-in-from-bottom-5 duration-300';
+                    toast.innerHTML = '<p class="text-xs font-black uppercase tracking-widest">Configurações Salvas com Sucesso!</p>';
+                    document.body.appendChild(toast);
+                    setTimeout(() => {
+                      toast.style.opacity = '0';
+                      setTimeout(() => toast.remove(), 300);
+                    }, 2000);
+                  }}
+                  className="px-8 py-3 bg-slate-900 text-white text-xs font-black uppercase tracking-widest hover:bg-slate-800 rounded-xl shadow-lg transition-all"
+                >
+                  Salvar Configurações
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
-  </div>
-);
+  );
 };
 
 interface MetricCardProps {
