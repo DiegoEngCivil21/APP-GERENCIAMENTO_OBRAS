@@ -411,7 +411,7 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
       {/* Report Customization Modal */}
       <AnimatePresence>
         {isCustomizerOpen && (
-          <div className="fixed inset-0 z-[100] flex items-start justify-center p-4 pt-20 bg-slate-900/40 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[100] flex items-start justify-center p-4 pt-10 bg-slate-900/40 backdrop-blur-sm">
             <motion.div 
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
