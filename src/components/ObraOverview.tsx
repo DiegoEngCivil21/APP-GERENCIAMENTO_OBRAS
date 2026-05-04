@@ -130,33 +130,35 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
   const diffDays = (minDate && maxDate) ? Math.ceil(
     (maxDate.getTime() - minDate.getTime()) / (1000 * 60 * 60 * 24),
   ) : 0;
-  const useDayInterval = diffDays <= 60 && diffDays > 0;
-  const intervalDays = 5;
+  
+  const diffMonths = diffDays / 30;
+  const useDayInterval = diffMonths <= 12 && diffDays > 0;
+  
+  let intervalDays = 5;
+  if (diffMonths > 2 && diffMonths <= 12) {
+    intervalDays = 15;
+  }
 
   const getSCurveData = () => {
     if (!minDate || !maxDate) return [];
 
     const intervalsSet = new Set<string>();
+    const MS_PER_DAY = 1000 * 60 * 60 * 24;
     const projectIntervals: string[] = [];
 
     if (useDayInterval) {
       let d = new Date(minDate);
-      // Ensure we start at 00:00:00
       d.setHours(0, 0, 0, 0);
       const endLimit = new Date(maxDate);
       endLimit.setHours(23, 59, 59, 999);
 
       while (d <= endLimit) {
         const dateStr = d.toISOString().split("T")[0];
-        intervalsSet.add(dateStr);
-        projectIntervals.push(dateStr);
+        if (!intervalsSet.has(dateStr)) {
+          intervalsSet.add(dateStr);
+          projectIntervals.push(dateStr);
+        }
         d.setDate(d.getDate() + intervalDays);
-      }
-      // Ensure last date is included if it's significant
-      const finalDateStr = endLimit.toISOString().split("T")[0];
-      if (!intervalsSet.has(finalDateStr)) {
-        intervalsSet.add(finalDateStr);
-        projectIntervals.push(finalDateStr);
       }
     } else {
       let d = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
@@ -180,7 +182,6 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
       const itemValue = (item.total || 0) * bdiMultiplier;
       const itemIdNumeric = item.id.replace('item-', '');
       
-      // Find activities associated with this item or its stage
       const associatedActs = cronograma.filter(act => {
         const sDate = parseDate(act.data_inicio_prevista);
         const eDate = parseDate(act.data_fim_prevista);
@@ -196,18 +197,19 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
       if (associatedActs.length > 0) {
         mappedLeafIds.add(item.id);
         
-        // Share total item value among associated activities proportional to their duration
         const activitiesWithDates = associatedActs.map(act => {
             const s = parseDate(act.data_inicio_prevista)!;
             const e = parseDate(act.data_fim_prevista)!;
-            const dur = Math.max(1, Math.ceil((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24)) + 1);
-            return { act, s, e, dur };
+            s.setHours(0,0,0,0);
+            e.setHours(23,59,59,999);
+            const durMs = Math.max(1, e.getTime() - s.getTime()); 
+            return { act, s, e, durMs };
         });
 
-        const totalDuration = activitiesWithDates.reduce((acc, val) => acc + val.dur, 0);
+        const totalDurationMs = activitiesWithDates.reduce((acc, val) => acc + val.durMs, 0);
         
-        activitiesWithDates.forEach(({ act, s, e, dur }) => {
-          const actShare = totalDuration > 0 ? (dur / totalDuration) * itemValue : itemValue / activitiesWithDates.length;
+        activitiesWithDates.forEach(({ act, s, e, durMs }) => {
+          const actShare = totalDurationMs > 0 ? (durMs / totalDurationMs) * itemValue : itemValue / activitiesWithDates.length;
           
           projectIntervals.forEach((intervalKey) => {
             let iStart: Date;
@@ -227,9 +229,9 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
             const overlapStart = Math.max(s.getTime(), iStart.getTime());
             const overlapEnd = Math.min(e.getTime(), iEnd.getTime());
 
-            if (overlapEnd >= overlapStart) {
-              const overlapDays = Math.ceil((overlapEnd - overlapStart) / (1000 * 60 * 60 * 24)) + 1;
-              const valInInterval = (overlapDays / dur) * actShare;
+            if (overlapEnd > overlapStart) {
+              const overlapDuration = overlapEnd - overlapStart;
+              const valInInterval = (overlapDuration / durMs) * actShare;
               plannedByInterval.set(intervalKey, (plannedByInterval.get(intervalKey) || 0) + valInInterval);
             }
           });
@@ -416,7 +418,7 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
                 Planejado no Período
               </span>
               <span className="font-black text-slate-700">
-                R$ {formatFinancial(data.planejadoMensal || 0)} ({data.planejadoMensalPercent}%)
+                R$ {formatFinancial(data.planejadoMensal || 0)} ({data.planejadoMensalPercent.toFixed(2)}%)
               </span>
             </div>
             {data.realizadoMensalPercent !== null && data.realizadoMensalPercent > 0 && (
@@ -426,7 +428,7 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
                   Realizado no Período
                 </span>
                 <span className={`font-black ${(data.realizadoMensalPercent || 0) >= (data.planejadoMensalPercent || 0) ? "text-emerald-700" : "text-rose-700"}`}>
-                  R$ {formatFinancial(data.realizadoMensal || 0)} ({data.realizadoMensalPercent}%)
+                  R$ {formatFinancial(data.realizadoMensal || 0)} ({(data.realizadoMensalPercent || 0).toFixed(2)}%)
                 </span>
               </div>
             )}
@@ -437,7 +439,7 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
               </span>
               <div className="text-right">
                 <div className="font-black text-blue-600">
-                  {data.planejadoPercent}%
+                  {data.planejadoPercent.toFixed(2)}%
                 </div>
                 <div className="font-medium text-slate-400">
                   R$ {formatFinancial(data.planejado)}
@@ -452,7 +454,7 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
                 </span>
                 <div className="text-right">
                   <div className={`font-black ${data.realizadoPercent >= data.planejadoPercent ? "text-emerald-600" : "text-rose-600"}`}>
-                    {data.realizadoPercent}%
+                    {data.realizadoPercent.toFixed(2)}%
                   </div>
                   <div className="font-medium text-slate-400">
                     R$ {formatFinancial(data.realizado)}
@@ -622,7 +624,7 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
               R$ {formatFinancial(currentPV)}
             </p>
             <span className="text-[10px] font-bold text-blue-500 mt-0.5">
-              {planejadoToDatePercent.toFixed(1)}% do projeto
+              {planejadoToDatePercent.toFixed(2)}% do projeto
             </span>
           </div>
           <div className="w-12 h-12 rounded-2xl bg-[#1e6aff] flex-shrink-0 transition-transform group-hover:scale-105 shadow-lg shadow-blue-100 flex items-center justify-center">
@@ -640,7 +642,7 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
               R$ {formatFinancial(currentEV)}
             </p>
             <span className={`text-[10px] font-bold mt-0.5 ${concluidoPercent >= planejadoToDatePercent ? 'text-emerald-500' : 'text-rose-500'}`}>
-              {concluidoPercent.toFixed(1)}% concluído
+              {concluidoPercent.toFixed(2)}% concluído
             </span>
           </div>
           <div className={`w-12 h-12 rounded-2xl flex-shrink-0 transition-transform group-hover:scale-105 shadow-lg flex items-center justify-center ${concluidoPercent >= planejadoToDatePercent ? 'bg-[#00c283] shadow-emerald-100' : 'bg-[#f43f5e] shadow-rose-100'}`}>
@@ -748,8 +750,10 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
                   axisLine={false}
                   tickLine={false}
                   tick={{ fontSize: 10, fontWeight: 700, fill: "#64748b" }}
-                  tickFormatter={(value) => `${value.toFixed(1)}%`}
+                  tickFormatter={(value) => `${value.toFixed(2)}%`}
                   width={40}
+                  domain={[0, 100]}
+                  ticks={[0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]}
                 />
                 <YAxis
                   yAxisId="right"
@@ -757,9 +761,10 @@ export const ObraOverview: React.FC<ObraOverviewProps> = ({
                   axisLine={false}
                   tickLine={false}
                   tick={{ fontSize: 10, fontWeight: 700, fill: "#64748b" }}
-                  tickFormatter={(value) => `${value.toFixed(0)}%`}
+                  tickFormatter={(value) => `${value.toFixed(2)}%`}
                   width={40}
                   domain={[0, 100]}
+                  ticks={[0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]}
                 />
                 <Tooltip
                   content={<SCurveTooltip />}
