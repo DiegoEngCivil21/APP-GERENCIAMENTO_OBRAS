@@ -62,7 +62,7 @@ export const generateExcelReport = async (data: ExcelReportData) => {
     fitToWidth: 1, // Garante que caiba todas as colunas em 1 página de largura
     scale: 85, // Reduz a escala para caber melhor e não estourar a página
     margins: {
-      left: 0.2, right: 0.2,
+      left: 0.5, right: 0.5,
       top: 0.5, bottom: 0.5,
       header: 0.2, footer: 0.2
     },
@@ -189,7 +189,8 @@ export const generateExcelReport = async (data: ExcelReportData) => {
     titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColorTitle } };
     titleCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
     
-    // Add Borders
+    // Removed Borders as requested
+    /*
     for (let i = Math.max(1, startIdx); i <= Math.min(numCols, endIdx); i++) {
         const cell = worksheet.getCell(`${worksheet.getColumn(i).letter}1`);
         cell.border = {
@@ -199,6 +200,7 @@ export const generateExcelReport = async (data: ExcelReportData) => {
           right: { style: 'thin', color: { argb: borderColor } }
         };
     }
+    */
 
     // Row 2-4: Value
     worksheet.mergeCells(`${sCol}2:${eCol}4`);
@@ -208,7 +210,8 @@ export const generateExcelReport = async (data: ExcelReportData) => {
     valCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColorValue } };
     valCell.alignment = { wrapText: true, vertical: 'top', horizontal: 'left', indent: 1 };
     
-    // Add Borders
+    // Removed Borders as requested
+    /*
     for (let r = 2; r <= 4; r++) {
       for (let i = Math.max(1, startIdx); i <= Math.min(numCols, endIdx); i++) {
           const cell = worksheet.getCell(`${worksheet.getColumn(i).letter}${r}`);
@@ -220,6 +223,7 @@ export const generateExcelReport = async (data: ExcelReportData) => {
           };
       }
     }
+    */
   };
 
   // Informações da Obra
@@ -253,6 +257,8 @@ export const generateExcelReport = async (data: ExcelReportData) => {
   mainTitle.value = data.title;
   mainTitle.font = { bold: true, size: 12 };
   mainTitle.alignment = { horizontal: 'center', vertical: 'middle' };
+  // Bordas externas aplicadas globalmente no final
+
 
   // 2. TABELA DE DADOS (CABEÇALHO DUPLO)
   const headerRow1 = worksheet.getRow(6);
@@ -429,6 +435,52 @@ export const generateExcelReport = async (data: ExcelReportData) => {
       addSummaryRow('Total Geral', data.summary.totalGeral);
     }
 
+  // 4. ASSINATURA
+  const signRow = worksheet.rowCount + 4;
+  
+  const assinatura1 = data.config?.assinatura1 || 'Assinatura do Responsável';
+  const assinatura2 = data.config?.assinatura2 || '';
+
+  if (assinatura2.trim() !== '') {
+    // Duas assinaturas (Lado a Lado)
+    // Assinatura 1
+    const startCol1 = worksheet.getColumn(Math.max(2, Math.floor(numCols * 0.2))).letter;
+    const endCol1 = worksheet.getColumn(Math.max(4, Math.floor(numCols * 0.4))).letter;
+    worksheet.mergeCells(`${startCol1}${signRow}:${endCol1}${signRow}`);
+    const borderCell1 = worksheet.getCell(`${startCol1}${signRow}`);
+    borderCell1.border = { top: { style: 'medium' } };
+    worksheet.mergeCells(`${startCol1}${signRow + 1}:${endCol1}${signRow + 1}`);
+    const cellSign1 = worksheet.getCell(`${startCol1}${signRow + 1}`);
+    cellSign1.value = assinatura1;
+    cellSign1.alignment = { horizontal: 'center', wrapText: true, vertical: 'top' };
+    worksheet.getRow(signRow + 1).height = 40;
+
+    // Assinatura 2
+    const startCol2 = worksheet.getColumn(Math.max(5, Math.floor(numCols * 0.6))).letter;
+    const endCol2 = worksheet.getColumn(Math.max(8, Math.floor(numCols * 0.8))).letter;
+    worksheet.mergeCells(`${startCol2}${signRow}:${endCol2}${signRow}`);
+    const borderCell2 = worksheet.getCell(`${startCol2}${signRow}`);
+    borderCell2.border = { top: { style: 'medium' } };
+    worksheet.mergeCells(`${startCol2}${signRow + 1}:${endCol2}${signRow + 1}`);
+    const cellSign2 = worksheet.getCell(`${startCol2}${signRow + 1}`);
+    cellSign2.value = assinatura2;
+    cellSign2.alignment = { horizontal: 'center', wrapText: true, vertical: 'top' };
+  } else {
+    // Uma assinatura apenas (Centralizada)
+    const midCol = Math.floor(numCols / 2);
+    const startCol = worksheet.getColumn(Math.max(2, midCol - 1)).letter;
+    const endCol = worksheet.getColumn(Math.min(numCols - 1, midCol + 2)).letter;
+    
+    worksheet.mergeCells(`${startCol}${signRow}:${endCol}${signRow}`);
+    const borderCell = worksheet.getCell(`${startCol}${signRow}`);
+    borderCell.border = { top: { style: 'medium' } };
+    worksheet.mergeCells(`${startCol}${signRow + 1}:${endCol}${signRow + 1}`);
+    const cellSign = worksheet.getCell(`${startCol}${signRow + 1}`);
+    cellSign.value = assinatura1;
+    cellSign.alignment = { horizontal: 'center', wrapText: true, vertical: 'top' };
+    worksheet.getRow(signRow + 1).height = 40;
+  }
+
   // Ajuste de largura das colunas (Valores refinados com base na necessidade operacional)
   const widthMap: { [key: string]: number } = {
     'item': 8,
@@ -454,52 +506,6 @@ export const generateExcelReport = async (data: ExcelReportData) => {
     }
     worksheet.getColumn(idx + 1).width = width;
   });
-
-  // 4. ASSINATURA
-  const signRow = worksheet.rowCount + 4;
-  
-  const assinatura1 = data.config?.assinatura1 || 'Assinatura do Responsável';
-  const assinatura2 = data.config?.assinatura2 || '';
-
-  if (assinatura2.trim() !== '') {
-    // Duas assinaturas (Lado a Lado)
-    // Assinatura 1
-    const startCol1 = worksheet.getColumn(Math.max(2, Math.floor(numCols * 0.2))).letter;
-    const endCol1 = worksheet.getColumn(Math.max(4, Math.floor(numCols * 0.4))).letter;
-    worksheet.mergeCells(`${startCol1}${signRow}:${endCol1}${signRow}`);
-    const borderCell1 = worksheet.getCell(`${startCol1}${signRow}`);
-    borderCell1.border = { top: { style: 'thin' } };
-    worksheet.mergeCells(`${startCol1}${signRow + 1}:${endCol1}${signRow + 1}`);
-    const cellSign1 = worksheet.getCell(`${startCol1}${signRow + 1}`);
-    cellSign1.value = assinatura1;
-    cellSign1.alignment = { horizontal: 'center', wrapText: true, vertical: 'top' };
-    worksheet.getRow(signRow + 1).height = 40;
-
-    // Assinatura 2
-    const startCol2 = worksheet.getColumn(Math.max(5, Math.floor(numCols * 0.6))).letter;
-    const endCol2 = worksheet.getColumn(Math.max(8, Math.floor(numCols * 0.8))).letter;
-    worksheet.mergeCells(`${startCol2}${signRow}:${endCol2}${signRow}`);
-    const borderCell2 = worksheet.getCell(`${startCol2}${signRow}`);
-    borderCell2.border = { top: { style: 'thin' } };
-    worksheet.mergeCells(`${startCol2}${signRow + 1}:${endCol2}${signRow + 1}`);
-    const cellSign2 = worksheet.getCell(`${startCol2}${signRow + 1}`);
-    cellSign2.value = assinatura2;
-    cellSign2.alignment = { horizontal: 'center', wrapText: true, vertical: 'top' };
-  } else {
-    // Uma assinatura apenas (Centralizada)
-    const midCol = Math.floor(numCols / 2);
-    const startCol = worksheet.getColumn(Math.max(2, midCol - 1)).letter;
-    const endCol = worksheet.getColumn(Math.min(numCols - 1, midCol + 2)).letter;
-    
-    worksheet.mergeCells(`${startCol}${signRow}:${endCol}${signRow}`);
-    const borderCell = worksheet.getCell(`${startCol}${signRow}`);
-    borderCell.border = { top: { style: 'thin' } };
-    worksheet.mergeCells(`${startCol}${signRow + 1}:${endCol}${signRow + 1}`);
-    const cellSign = worksheet.getCell(`${startCol}${signRow + 1}`);
-    cellSign.value = assinatura1;
-    cellSign.alignment = { horizontal: 'center', wrapText: true, vertical: 'top' };
-    worksheet.getRow(signRow + 1).height = 40;
-  }
 
   // Bloqueando o Excel (travado) - Senha padrao
   if (data.config?.bloquearEdicao !== false) {
