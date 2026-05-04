@@ -15,6 +15,29 @@ export interface ExcelReportData {
     totalBdi: number;
     totalGeral: number;
   };
+  config?: {
+    cabecalhoCentral?: string;
+    cabecalhoEsquerdo?: string;
+    cabecalhoDireito?: string;
+    rodapeCentral?: string;
+    rodapeEsquerdo?: string;
+    rodapeDireito?: string;
+    assinatura1?: string;
+    assinatura2?: string;
+    corFundoEtapa?: string;
+    corLetraEtapa?: string;
+    negritoEtapa?: boolean;
+    corFundoComposicao?: string;
+    corLetraComposicao?: string;
+    negritoComposicao?: boolean;
+    corFundoInsumo?: string;
+    corLetraInsumo?: string;
+    negritoInsumo?: boolean;
+    retirarColunaPeso?: boolean;
+    retirarInfoBDI?: boolean;
+    bloquearEdicao?: boolean;
+    relatoriosComFormulas?: boolean;
+  };
 }
 
 export const generateExcelReport = async (data: ExcelReportData) => {
@@ -26,7 +49,7 @@ export const generateExcelReport = async (data: ExcelReportData) => {
   worksheet.views = [{ 
     showGridLines: false,
     view: 'pageBreakPreview', // Abre com visão de quebra de página
-    zoomScale: 100
+    zoomScale: 85
   } as any];
 
   worksheet.pageSetup = {
@@ -34,17 +57,27 @@ export const generateExcelReport = async (data: ExcelReportData) => {
     orientation: 'landscape', // Página deitada
     fitToPage: true,
     fitToWidth: 1, // Garante que caiba todas as colunas em 1 página de largura
-    fitToHeight: 0, // Altura livre (serão quantas páginas forem necessárias)
+    scale: 85, // Reduz a escala para caber melhor e não estourar a página
     margins: {
-      left: 0.5, right: 0.5,
-      top: 0.5, bottom: 0.7,
-      header: 0.3, footer: 0.3
+      left: 0.2, right: 0.2,
+      top: 0.5, bottom: 0.5,
+      header: 0.2, footer: 0.2
     },
     printTitlesRow: '7:8' // Repete o cabeçalho da tabela em todas as páginas
   };
 
-  // Rodapé de Impressão (Página X de Y)
-  worksheet.headerFooter.oddFooter = '&C&"Arial,Italic"&8Engineering Pro - &P de &N';
+  const leftHeader = data.config?.cabecalhoEsquerdo ? `&L&10${data.config.cabecalhoEsquerdo}` : '';
+  const centerHeader = data.config?.cabecalhoCentral ? `&C&10${data.config.cabecalhoCentral}` : '';
+  const rightHeader = data.config?.cabecalhoDireito ? `&R&10${data.config.cabecalhoDireito}` : '';
+  
+  const leftFooter = data.config?.rodapeEsquerdo ? `&L&10${data.config.rodapeEsquerdo}` : '';
+  const centerFooter = data.config?.rodapeCentral ? `&C&10${data.config.rodapeCentral}` : '&C&"Arial,Italic"&8Engineering Pro - &P de &N';
+  const rightFooter = data.config?.rodapeDireito ? `&R&10${data.config.rodapeDireito}` : '';
+
+  worksheet.headerFooter = {
+    oddHeader: `${leftHeader}${centerHeader}${rightHeader}`,
+    oddFooter: `${leftFooter}${centerFooter}${rightFooter}`
+  };
 
   // --- CONFIGURAÇÃO DE ESTILOS ---
   const colors = {
@@ -156,69 +189,109 @@ export const generateExcelReport = async (data: ExcelReportData) => {
     
     const isEtapa = rowData.tipo_item === 'etapa' || rowData.isEtapa;
 
-    row.eachCell((cell, colNumber) => {
-      const colDef = data.columns[colNumber - 1];
-      
-      cell.font = { size: 9, bold: isEtapa };
-      cell.border = {
-        top: { style: 'thin' },
-        left: { style: 'thin' },
-        bottom: { style: 'thin' },
-        right: { style: 'thin' }
-      };
-
-      // Alinhamento com Wrap Text para evitar texto escondido
-      if (colDef.type === 'currency' || colDef.type === 'number' || colDef.type === 'percentage') {
-        cell.alignment = { horizontal: 'right', vertical: 'middle' };
-      } else {
-        cell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
-      }
-
-      // Formatação Numérica
-      if (typeof cell.value === 'number') {
-        if (colDef.type === 'currency') cell.numFmt = '#,##0.00';
-        if (colDef.type === 'percentage') cell.numFmt = '0.00"%"';
-        if (colDef.type === 'number') cell.numFmt = '#,##0.00';
-      }
-
-      // Estilo de Fundo (Conforme solicitado, mantendo as cores do sistema)
-      const fillColor = rowData.rowColor || (isEtapa ? 'FFFFFFFF' : 'FFF1F5F9');
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fillColor } };
-    });
-  });
-
-  // 3. RESUMO FINAL (Total sem BDI, Total BDI, Total Geral)
-  if (data.summary) {
-    worksheet.addRow([]);
+    // Colors and Formatting based on config
+    const itemCategory = rowData.itemCategory || (isEtapa ? 'etapa' : 'insumo');
     
-    // Tenta encontrar a coluna 'total_geral' para alinhar os valores
-    const totalGeralIdx = data.columns.findIndex(c => c.key === 'total_geral');
-    const valCol = totalGeralIdx !== -1 ? totalGeralIdx + 1 : data.columns.length;
-    const labelCol = valCol - 1;
-    
-    const addSummaryRow = (label: string, value: number) => {
-      const row = worksheet.addRow([]);
-      const labelCell = row.getCell(labelCol);
-      labelCell.value = label;
-      labelCell.font = { bold: true, size: 10 };
-      labelCell.alignment = { horizontal: 'right' };
-      
-      const valCell = row.getCell(valCol);
-      valCell.value = value;
-      valCell.font = { bold: true, size: 10 };
-      valCell.numFmt = '#,##0.00';
-      valCell.alignment = { horizontal: 'right' };
-      
-      // Garante que a coluna do valor tenha largura suficiente para o total
-      if (worksheet.getColumn(valCol).width < 20) {
-        worksheet.getColumn(valCol).width = 20;
-      }
+    let fillColor = isEtapa ? 'FFFFFFFF' : 'FFF1F5F9'; // default
+    let fontColor = 'FF000000'; // default black
+    let isBold = isEtapa; // default
+
+    // Convert Hex to ARGB
+    const hexToArgb = (hex?: string) => {
+      if (!hex) return 'FF000000';
+      const clean = hex.replace('#', '');
+      return clean.length === 6 ? `FF${clean}`.toUpperCase() : clean.toUpperCase();
     };
 
-    addSummaryRow('Total sem BDI', data.summary.totalSemBdi);
-    addSummaryRow('Total do BDI', data.summary.totalBdi);
-    addSummaryRow('Total Geral', data.summary.totalGeral);
-  }
+    if (data.config) {
+      if (itemCategory === 'etapa') {
+        fillColor = hexToArgb(data.config.corFundoEtapa) || fillColor;
+        fontColor = hexToArgb(data.config.corLetraEtapa) || fontColor;
+        isBold = data.config.negritoEtapa !== undefined ? data.config.negritoEtapa : isBold;
+      } else if (itemCategory === 'composicao') {
+        fillColor = hexToArgb(data.config.corFundoComposicao) || fillColor;
+        fontColor = hexToArgb(data.config.corLetraComposicao) || fontColor;
+        isBold = data.config.negritoComposicao !== undefined ? data.config.negritoComposicao : isBold;
+      } else {
+        fillColor = hexToArgb(data.config.corFundoInsumo) || fillColor;
+        fontColor = hexToArgb(data.config.corLetraInsumo) || fontColor;
+        isBold = data.config.negritoInsumo !== undefined ? data.config.negritoInsumo : isBold;
+      }
+    }
+
+    row.eachCell((cell, colNumber) => {
+        const colDef = data.columns[colNumber - 1];
+        
+        cell.font = { size: 9, bold: isBold, color: { argb: fontColor } };
+        cell.border = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' }
+        };
+
+        // Alinhamento com Wrap Text para evitar texto escondido
+        if (colDef.type === 'currency' || colDef.type === 'number' || colDef.type === 'percentage') {
+          cell.alignment = { horizontal: 'right', vertical: 'middle' };
+        } else {
+          cell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+        }
+
+        // Formatação Numérica e Fórmulas
+        if (typeof cell.value === 'number') {
+          if (colDef.type === 'currency') cell.numFmt = '#,##0.00';
+          if (colDef.type === 'percentage') cell.numFmt = '0.00"%"';
+          if (colDef.type === 'number') cell.numFmt = '#,##0.00';
+          
+          if (data.config?.relatoriosComFormulas) {
+             // For formulas support: If this was a total row we could set cell.value = {formula: '...'}.
+             // But simulating simple formulas by placing the value as result.
+             cell.value = { result: cell.value as number, formula: '' } as any; 
+             // Without extensive formula mappings, we keep values for now. 
+             // Complete formulas requires mapping excel cells (A1:A5)
+             cell.value = rowData[colDef.key];
+          }
+        }
+
+        // Estilo de Fundo
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fillColor } };
+      });
+    });
+
+    // 3. RESUMO FINAL (Total sem BDI, Total BDI, Total Geral)
+    if (data.summary) {
+      worksheet.addRow([]);
+      
+      // Tenta encontrar a coluna 'total_geral' para alinhar os valores
+      const totalGeralIdx = data.columns.findIndex(c => c.key === 'total_geral');
+      const valCol = totalGeralIdx !== -1 ? totalGeralIdx + 1 : data.columns.length;
+      const labelCol = valCol - 1;
+      
+      const addSummaryRow = (label: string, value: number) => {
+        const row = worksheet.addRow([]);
+        const labelCell = row.getCell(labelCol);
+        labelCell.value = label;
+        labelCell.font = { bold: true, size: 10 };
+        labelCell.alignment = { horizontal: 'right' };
+        
+        const valCell = row.getCell(valCol);
+        valCell.value = value;
+        valCell.font = { bold: true, size: 10 };
+        valCell.numFmt = '#,##0.00';
+        valCell.alignment = { horizontal: 'right' };
+        
+        // Garante que a coluna do valor tenha largura suficiente para o total
+        if (worksheet.getColumn(valCol).width < 20) {
+          worksheet.getColumn(valCol).width = 20;
+        }
+      };
+
+      if (!data.config?.retirarInfoBDI) {
+        addSummaryRow('Total sem BDI', data.summary.totalSemBdi);
+        addSummaryRow('Total do BDI', data.summary.totalBdi);
+      }
+      addSummaryRow('Total Geral', data.summary.totalGeral);
+    }
 
   // Ajuste de largura das colunas (Valores refinados com base na necessidade operacional)
   const widthMap: { [key: string]: number } = {
@@ -248,13 +321,59 @@ export const generateExcelReport = async (data: ExcelReportData) => {
 
   // 4. ASSINATURA
   const signRow = worksheet.rowCount + 4;
-  worksheet.mergeCells(`E${signRow}:I${signRow}`);
-  const borderCell = worksheet.getCell(`E${signRow}`);
-  borderCell.border = { top: { style: 'thin' } };
   
-  worksheet.mergeCells(`E${signRow + 1}:I${signRow + 1}`);
-  worksheet.getCell(`E${signRow + 1}`).value = 'Assinatura do Responsável';
-  worksheet.getCell(`E${signRow + 1}`).alignment = { horizontal: 'center' };
+  const assinatura1 = data.config?.assinatura1 || 'Assinatura do Responsável';
+  const assinatura2 = data.config?.assinatura2 || '';
+  
+  const numCols = data.columns.length;
+
+  if (assinatura2.trim() !== '') {
+    // Duas assinaturas (Lado a Lado)
+    // Assinatura 1
+    const startCol1 = worksheet.getColumn(Math.max(2, Math.floor(numCols * 0.2))).letter;
+    const endCol1 = worksheet.getColumn(Math.max(4, Math.floor(numCols * 0.4))).letter;
+    worksheet.mergeCells(`${startCol1}${signRow}:${endCol1}${signRow}`);
+    const borderCell1 = worksheet.getCell(`${startCol1}${signRow}`);
+    borderCell1.border = { top: { style: 'thin' } };
+    worksheet.mergeCells(`${startCol1}${signRow + 1}:${endCol1}${signRow + 1}`);
+    const cellSign1 = worksheet.getCell(`${startCol1}${signRow + 1}`);
+    cellSign1.value = assinatura1;
+    cellSign1.alignment = { horizontal: 'center', wrapText: true, vertical: 'top' };
+    worksheet.getRow(signRow + 1).height = 40;
+
+    // Assinatura 2
+    const startCol2 = worksheet.getColumn(Math.max(5, Math.floor(numCols * 0.6))).letter;
+    const endCol2 = worksheet.getColumn(Math.max(8, Math.floor(numCols * 0.8))).letter;
+    worksheet.mergeCells(`${startCol2}${signRow}:${endCol2}${signRow}`);
+    const borderCell2 = worksheet.getCell(`${startCol2}${signRow}`);
+    borderCell2.border = { top: { style: 'thin' } };
+    worksheet.mergeCells(`${startCol2}${signRow + 1}:${endCol2}${signRow + 1}`);
+    const cellSign2 = worksheet.getCell(`${startCol2}${signRow + 1}`);
+    cellSign2.value = assinatura2;
+    cellSign2.alignment = { horizontal: 'center', wrapText: true, vertical: 'top' };
+  } else {
+    // Uma assinatura apenas (Centralizada)
+    const midCol = Math.floor(numCols / 2);
+    const startCol = worksheet.getColumn(Math.max(2, midCol - 1)).letter;
+    const endCol = worksheet.getColumn(Math.min(numCols - 1, midCol + 2)).letter;
+    
+    worksheet.mergeCells(`${startCol}${signRow}:${endCol}${signRow}`);
+    const borderCell = worksheet.getCell(`${startCol}${signRow}`);
+    borderCell.border = { top: { style: 'thin' } };
+    worksheet.mergeCells(`${startCol}${signRow + 1}:${endCol}${signRow + 1}`);
+    const cellSign = worksheet.getCell(`${startCol}${signRow + 1}`);
+    cellSign.value = assinatura1;
+    cellSign.alignment = { horizontal: 'center', wrapText: true, vertical: 'top' };
+    worksheet.getRow(signRow + 1).height = 40;
+  }
+
+  // Bloqueando o Excel (travado) - Senha padrao
+  if (data.config?.bloquearEdicao !== false) {
+    await worksheet.protect('9a64b3330b', {
+      selectLockedCells: true,
+      selectUnlockedCells: true,
+    });
+  }
 
   // Download do Arquivo
   const buffer = await workbook.xlsx.writeBuffer();
