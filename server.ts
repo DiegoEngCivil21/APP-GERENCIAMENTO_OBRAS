@@ -2474,15 +2474,33 @@ async function startServer() {
 
         for (const row of items) {
           if (row.tipo === 'etapa') {
-            const result = insertEtapa.run(obraId, row.descricao, row.item, etapaOrdem++);
-            currentEtapaId = result.lastInsertRowid;
+            try {
+              const result = insertEtapa.run(obraId, row.descricao, row.item, etapaOrdem++);
+              currentEtapaId = result.lastInsertRowid;
+            } catch (e: any) {
+              if (e.message.includes('UNIQUE')) {
+                 const result = insertEtapa.run(obraId, row.descricao, `tmp-${Math.random().toString(36).substring(7)}`, etapaOrdem++);
+                 currentEtapaId = result.lastInsertRowid;
+              } else {
+                throw e;
+              }
+            }
             itemOrdem = 1; // Reset item order for new etapa
           } else {
-            if (!currentEtapaId) {
-              // Create a default etapa if none exists
-              const result = insertEtapa.run(obraId, 'Etapa Padrão', '1', etapaOrdem++);
-              currentEtapaId = result.lastInsertRowid;
-            }
+              if (!currentEtapaId) {
+                // Create a default etapa if none exists
+                try {
+                  const result = insertEtapa.run(obraId, 'Etapa Padrão', '1', etapaOrdem++);
+                  currentEtapaId = result.lastInsertRowid;
+                } catch (e: any) {
+                  if (e.message.includes('UNIQUE')) {
+                    const result = insertEtapa.run(obraId, 'Etapa Padrão', `1-${Date.now()}`, etapaOrdem++);
+                    currentEtapaId = result.lastInsertRowid;
+                  } else {
+                    throw e;
+                  }
+                }
+              }
 
             // Find item in DB
             let itemId = null;
@@ -2865,11 +2883,27 @@ async function startServer() {
               finalOrdem = (maxOrdemRow?.max_ordem || 0) + 1;
             }
 
-            const result = db.prepare(`
-              INSERT INTO v2_etapas (obra_id, codigo, nome, ordem, etapa_pai_id)
-              VALUES (?, ?, ?, ?, ?)
-            `).run(req.params.id, it.item, it.descricao, finalOrdem, etapaPaiId);
-            createdIds.push(`etapa-${result.lastInsertRowid}`);
+            let safeCodigo = it.item;
+            try {
+              const result = db.prepare(`
+                INSERT INTO v2_etapas (obra_id, codigo, nome, ordem, etapa_pai_id)
+                VALUES (?, ?, ?, ?, ?)
+              `).run(req.params.id, safeCodigo, it.descricao, finalOrdem, etapaPaiId);
+              createdIds.push(`etapa-${result.lastInsertRowid}`);
+            } catch (err: any) {
+              if (err.message.includes('UNIQUE constraint failed')) {
+                // If it's a code conflict, insert with a temporary unique code
+                // Resequence will fix it later
+                const tempCodigo = `${safeCodigo}_tmp_${Math.random().toString(36).substring(2, 7)}`;
+                const result = db.prepare(`
+                  INSERT INTO v2_etapas (obra_id, codigo, nome, ordem, etapa_pai_id)
+                  VALUES (?, ?, ?, ?, ?)
+                `).run(req.params.id, tempCodigo, it.descricao, finalOrdem, etapaPaiId);
+                createdIds.push(`etapa-${result.lastInsertRowid}`);
+              } else {
+                throw err;
+              }
+            }
           } else {
             // Find the correct etapa_id based on the 'item' code if provided
             let foundEtapaId = it.etapa_id;
@@ -2896,9 +2930,20 @@ async function startServer() {
               if (lastEtapa) {
                 foundEtapaId = lastEtapa.id;
               } else {
-                // Create a default etapa if none exists
-                const result = db.prepare("INSERT INTO v2_etapas (obra_id, nome, codigo) VALUES (?, 'Etapa Inicial', '1')").run(req.params.id);
-                foundEtapaId = result.lastInsertRowid;
+                // Create a default etapa if none exists, checking for existing code '1'
+                const existingOne = db.prepare("SELECT id FROM v2_etapas WHERE obra_id = ? AND codigo = '1'").get(req.params.id) as any;
+                if (existingOne) {
+                  foundEtapaId = existingOne.id;
+                } else {
+                  try {
+                    const result = db.prepare("INSERT INTO v2_etapas (obra_id, nome, codigo) VALUES (?, 'Etapa Inicial', '1')").run(req.params.id);
+                    foundEtapaId = result.lastInsertRowid;
+                  } catch (e: any) {
+                    // One more fallback
+                    const result = db.prepare("INSERT INTO v2_etapas (obra_id, nome, codigo) VALUES (?, 'Etapa Inicial', ?)").run(req.params.id, `INIT_${Date.now()}`);
+                    foundEtapaId = result.lastInsertRowid;
+                  }
+                }
               }
             }
 

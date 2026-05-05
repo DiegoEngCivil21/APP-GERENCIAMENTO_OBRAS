@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, Layers, Plus, Trash2, Edit2, Check, X, RefreshCw } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Composicao } from '../types';
@@ -31,8 +31,9 @@ const ComposicaoDetailView = ({
   const [showAddItem, setShowAddItem] = useState(false);
   const [selectedItemToAdd, setSelectedItemToAdd] = useState<any>(null);
   const [itemQuantity, setItemQuantity] = useState(1);
-  const [itemTypeToAdd, setItemTypeToAdd] = useState<'insumo' | 'composicao'>('insumo');
+  const [itemTypeToAdd, setItemTypeToAdd] = useState<'insumo' | 'composicao' | 'both'>('both');
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
+  const quantityInputRef = useRef<HTMLInputElement>(null);
   const [isRecalculating, setIsRecalculating] = useState(false);
   const [resolvedDataRef, setResolvedDataRef] = useState<string>('');
   const [resolvedEstado, setResolvedEstado] = useState<string>('');
@@ -111,10 +112,28 @@ const ComposicaoDetailView = ({
   const handleAddSubitem = async () => {
     if (!selectedItemToAdd) return;
     
+    // Check if it's a new item (not yet in the database)
+    if (selectedItemToAdd.isNew) {
+      setToast({ 
+        message: 'Por favor, crie o insumo/composição primeiro na aba de Cadastro antes de adicioná-lo.', 
+        type: 'error' 
+      });
+      return;
+    }
+
+    // Ensure we have the correct ID regardless of whether it's an insumo or composition
+    const resolvedType = selectedItemToAdd.type || itemTypeToAdd;
+    const itemId = (resolvedType === 'insumo' || selectedItemToAdd.id_insumo) 
+      ? selectedItemToAdd.id_insumo 
+      : selectedItemToAdd.id_composicao;
+
+    if (!itemId) {
+      setToast({ message: 'Erro: ID do item não encontrado.', type: 'error' });
+      return;
+    }
+
     const payload = {
-      id_insumo: itemTypeToAdd === 'insumo' ? selectedItemToAdd.id_insumo : null,
-      id_subcomposicao: itemTypeToAdd === 'composicao' ? selectedItemToAdd.id_composicao : null,
-      tipo_item: itemTypeToAdd === 'insumo' ? 'INSUMO' : 'COMPOSICAO',
+      item_id: itemId,
       consumo_unitario: itemQuantity,
       estado: resolvedEstado || estado,
       data_referencia: resolvedDataRef || dataReferencia
@@ -246,7 +265,7 @@ const ComposicaoDetailView = ({
         </div>
       </div>
 
-      <div className="bg-white border border-slate-200 shadow-sm rounded-xl overflow-hidden relative budget-table-container">
+      <div className="bg-white border border-slate-200 shadow-sm rounded-xl overflow-visible relative budget-table-container">
         <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
           <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
             <Layers size={20} className="text-indigo-500" />
@@ -285,8 +304,14 @@ const ComposicaoDetailView = ({
 
         {showAddItem && isAdmin && isPropria && (
           <div className="p-4 bg-indigo-50/50 border-b border-indigo-100 space-y-4">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center justify-between">
               <div className="flex bg-white p-1 rounded-lg border border-slate-200">
+                <button 
+                  onClick={() => { setItemTypeToAdd('both'); setSelectedItemToAdd(null); }}
+                  className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${itemTypeToAdd === 'both' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
+                >
+                  Tudo
+                </button>
                 <button 
                   onClick={() => { setItemTypeToAdd('insumo'); setSelectedItemToAdd(null); }}
                   className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${itemTypeToAdd === 'insumo' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
@@ -300,27 +325,58 @@ const ComposicaoDetailView = ({
                   Composição
                 </button>
               </div>
+
+              {selectedItemToAdd && (
+                <div className="flex items-center gap-3 bg-white px-3 py-1.5 rounded-lg border border-indigo-200 animate-in fade-in slide-in-from-right-4">
+                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-black ${selectedItemToAdd.type === 'composicao' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                    {selectedItemToAdd.type === 'composicao' ? 'C' : 'I'}
+                  </span>
+                  <span className="text-xs font-bold text-indigo-700">{selectedItemToAdd.codigo || selectedItemToAdd.codigo_composicao}</span>
+                  <span className="text-xs text-slate-600 truncate max-w-[300px]">{selectedItemToAdd.descricao}</span>
+                  <button onClick={() => setSelectedItemToAdd(null)} className="text-slate-400 hover:text-red-500">
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
             </div>
             <div className="flex items-end gap-4">
               <div className="flex-1 relative">
-                <label className="block text-xs font-bold text-slate-700 mb-1">Buscar {itemTypeToAdd === 'insumo' ? 'Insumo' : 'Composição'}</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Buscar Item {itemTypeToAdd === 'both' ? '' : (itemTypeToAdd === 'insumo' ? '(Insumo)' : '(Composição)')}
+                </label>
                 <AutocompleteDropdown 
                   type={itemTypeToAdd} 
                   estado={resolvedEstado || estado}
                   dataReferencia={resolvedDataRef || dataReferencia}
                   dropdownStyle={{ left: '50%', transform: 'translateX(-50%)', width: '1000px', minWidth: '1000px' }}
-                  onSelect={(item) => setSelectedItemToAdd(item)} 
+                  onSelect={(item) => {
+                    setSelectedItemToAdd(item);
+                    // Focus quantity input automatically after selection
+                    setTimeout(() => {
+                      if (quantityInputRef.current) {
+                        quantityInputRef.current.focus();
+                        quantityInputRef.current.select();
+                      }
+                    }, 50);
+                  }} 
+                  placeholder="Digite o código ou descrição..."
                 />
               </div>
               <div className="w-32">
                 <label className="block text-xs font-bold text-slate-700 mb-1">Quantidade</label>
                 <input 
+                  ref={quantityInputRef}
                   type="number" 
                   min="0.0000001" 
                   step="0.0000001"
                   className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
                   value={itemQuantity}
                   onChange={(e) => setItemQuantity(parseFloat(e.target.value))}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && selectedItemToAdd) {
+                      handleAddSubitem();
+                    }
+                  }}
                 />
               </div>
               <div className="flex gap-2">

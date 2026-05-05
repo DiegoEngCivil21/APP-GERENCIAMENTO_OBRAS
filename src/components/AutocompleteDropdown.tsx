@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Search, X, Plus } from 'lucide-react';
 
 interface AutocompleteDropdownProps {
-  type: 'insumo' | 'composicao';
+  type: 'insumo' | 'composicao' | 'both';
   onSelect: (item: any) => void;
   placeholder?: string;
   codigo?: string;
@@ -160,65 +160,90 @@ const AutocompleteDropdown = React.forwardRef<HTMLInputElement, AutocompleteDrop
       return;
     }
 
-    const endpoint = type === 'insumo' ? '/api/insumos' : '/api/composicoes';
-    const params = new URLSearchParams();
-    if (query) params.append('search', query);
-    if (codigo) params.append('codigo', codigo);
-    if (descricao) params.append('descricao', descricao);
-    if (estado) params.append('estado', estado);
-    if (dataReferencia) params.append('data_referencia', dataReferencia);
-    
-    if (base) {
-      params.append('base', base);
-    } else if (bases && bases.length > 0) {
-      params.append('bases', bases.join(','));
-    }
+    const searchAction = async () => {
+      const endpoints: { url: string, type: 'insumo' | 'composicao' }[] = [];
+      if (type === 'insumo' || type === 'both') endpoints.push({ url: '/api/insumos', type: 'insumo' });
+      if (type === 'composicao' || type === 'both') endpoints.push({ url: '/api/composicoes', type: 'composicao' });
 
-    fetch(`${endpoint}?${params.toString()}`)
-      .then(async res => {
-        const text = await res.text();
-        try {
-          const json = JSON.parse(text);
-          return json;
-        } catch (e) {
-          throw new Error(`Invalid JSON: ${text.substring(0, 20)}...`);
-        }
-      })
-      .then(data => {
-        if (Array.isArray(data)) {
-          let filtered = data;
-          if (bases && bases.length > 0) {
-            filtered = data.filter(item => bases.map(b => b.toLowerCase()).includes(item.base?.toLowerCase() || ''));
-          }
-          const newResults = filtered.slice(0, 100);
-          setResults(prev => {
-            const next = JSON.stringify(prev) === JSON.stringify(newResults) ? prev : newResults;
-            return next;
-          });
+      try {
+        const promiseResults = await Promise.all(endpoints.map(async (e) => {
+          const params = new URLSearchParams();
+          if (query) params.append('search', query);
+          if (codigo) params.append('codigo', codigo);
+          if (descricao) params.append('descricao', descricao);
+          if (estado) params.append('estado', estado);
+          if (dataReferencia) params.append('data_referencia', dataReferencia);
           
-          // Don't auto-open if it's the exact same as current query and we just selected something
-          const isMyInputFocused = containerRef.current?.querySelector('input') === document.activeElement;
+          if (base) {
+            params.append('base', base);
+          } else if (bases && bases.length > 0) {
+            params.append('bases', bases.join(','));
+          }
 
-          if (ignoreNextOpen.current || justSelected) {
-            setIsOpen(false);
-            setSelectedIndex(-1);
-            ignoreNextOpen.current = false;
-          } else if (!showInput || isMyInputFocused) {
-            // Only open if the input is actually focused to prevent it from popping up while editing other fields (like quantity)
-            const cleanQuery = query.toLowerCase().trim();
-            const exactMatch = newResults.find(r => {
-                const rCodigo = (type === 'insumo' ? r.codigo : r.codigo_composicao)?.toString().toLowerCase();
-                const rDesc = r.descricao?.replace(/^[\d\.]+\s*/, '').toLowerCase().trim();
-                return rCodigo === cleanQuery || rDesc === cleanQuery || r.descricao?.toLowerCase().trim() === cleanQuery;
-            });
-            if (!exactMatch) {
-                setIsOpen(true);
-                setSelectedIndex(-1);
-            }
+          const res = await fetch(`${e.url}?${params.toString()}`);
+          const data = await res.json();
+          if (Array.isArray(data)) {
+             return data.map(item => ({ ...item, itemType: e.type }));
+          }
+          return [];
+        }));
+
+        let combined = promiseResults.flat();
+        
+        if (bases && bases.length > 0) {
+          combined = combined.filter(item => bases.map(b => b.toLowerCase()).includes(item.base?.toLowerCase() || ''));
+        }
+
+        // Sort by search relevance (simplified: exact match first, then starts with, then includes)
+        const q = query.toLowerCase();
+        combined.sort((a, b) => {
+           const aDesc = (a.descricao || '').toLowerCase();
+           const bDesc = (b.descricao || '').toLowerCase();
+           const aMatch = aDesc === q;
+           const bMatch = bDesc === q;
+           if (aMatch && !bMatch) return -1;
+           if (!aMatch && bMatch) return 1;
+           
+           const aStart = aDesc.startsWith(q);
+           const bStart = bDesc.startsWith(q);
+           if (aStart && !bStart) return -1;
+           if (!aStart && bStart) return 1;
+           
+           return aDesc.localeCompare(bDesc);
+        });
+
+        const newResults = combined.slice(0, 100);
+        setResults(prev => {
+          const next = JSON.stringify(prev) === JSON.stringify(newResults) ? prev : newResults;
+          return next;
+        });
+        
+        // Don't auto-open if it's the exact same as current query and we just selected something
+        const isMyInputFocused = containerRef.current?.querySelector('input') === document.activeElement;
+
+        if (ignoreNextOpen.current || justSelected) {
+          setIsOpen(false);
+          setSelectedIndex(-1);
+          ignoreNextOpen.current = false;
+        } else if (!showInput || isMyInputFocused) {
+          // Only open if the input is actually focused to prevent it from popping up while editing other fields (like quantity)
+          const cleanQuery = query.toLowerCase().trim();
+          const exactMatch = newResults.find(r => {
+              const rCodigo = (r.itemType === 'insumo' ? r.codigo : r.codigo_composicao)?.toString().toLowerCase();
+              const rDesc = r.descricao?.replace(/^[\d\.]+\s*/, '').toLowerCase().trim();
+              return rCodigo === cleanQuery || rDesc === cleanQuery || r.descricao?.toLowerCase().trim() === cleanQuery;
+          });
+          if (!exactMatch) {
+              setIsOpen(true);
+              setSelectedIndex(-1);
           }
         }
-      })
-      .catch(err => console.error(`Error fetching autocomplete for ${endpoint}:`, err));
+      } catch (err) {
+        console.error(`Error fetching unified autocomplete:`, err);
+      }
+    };
+
+    searchAction();
   }, [query, type, codigo, descricao, base, bases, estado, dataReferencia]);
 
   useEffect(() => {
@@ -246,7 +271,8 @@ const AutocompleteDropdown = React.forwardRef<HTMLInputElement, AutocompleteDrop
           setJustSelected(true);
           onSelect({
             ...item,
-            preco_unitario: price
+            preco_unitario: price,
+            type: item.itemType
           });
           if (value === undefined) {
             setInternalQuery('');
@@ -262,8 +288,9 @@ const AutocompleteDropdown = React.forwardRef<HTMLInputElement, AutocompleteDrop
             onSelect({ 
               isNew: true, 
               descricao: query,
-              tipo: type,
-              base: 'PRÓPRIO'
+              tipo: type === 'both' ? 'insumo' : type,
+              base: 'PRÓPRIO',
+              type: type === 'both' ? 'insumo' : type
             });
             setIsOpen(false);
             setSelectedIndex(-1);
@@ -291,7 +318,7 @@ const AutocompleteDropdown = React.forwardRef<HTMLInputElement, AutocompleteDrop
             type="text"
             autoFocus={autoFocus}
             className={inputClassName || `w-full ${hideIcon ? 'px-4' : 'pl-9 pr-4'} py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none`}
-            placeholder={placeholder || `Buscar ${type}...`}
+            placeholder={placeholder || `Buscar ${type === 'both' ? 'item' : type}...`}
             value={query}
             onChange={(e) => handleQueryChange(e.target.value)}
             onFocus={() => {
@@ -303,10 +330,11 @@ const AutocompleteDropdown = React.forwardRef<HTMLInputElement, AutocompleteDrop
             onBlur={() => {
               // Delay closing to allow clicking on results
               setTimeout(() => {
-                if (!containerRef.current?.contains(document.activeElement)) {
+                const isFocusedInside = containerRef.current?.contains(document.activeElement);
+                if (!isFocusedInside) {
                   setIsOpen(false);
                 }
-              }, 50);
+              }, 150);
             }}
           />
         </div>
@@ -314,18 +342,26 @@ const AutocompleteDropdown = React.forwardRef<HTMLInputElement, AutocompleteDrop
 
       {isOpen && results.length > 0 && (
         <div 
-          className="absolute top-full z-[100] bg-white shadow-2xl border border-slate-300 flex flex-col overflow-hidden rounded-b-lg"
+          className="absolute top-full z-[100] bg-white shadow-2xl border border-slate-300 flex flex-col overflow-hidden rounded-b-lg scrollbar-thin"
           style={{ 
             ...dropdownStyle, 
             left: dropdownLeft, 
             width: dropdownWidth, 
             minWidth: dropdownWidth, 
-            transform: dropdownLeft === '50%' ? 'translateX(-50%)' : 'none' 
+            transform: dropdownLeft === '50%' ? (dropdownStyle?.transform || 'translateX(-50%)') : 'none' 
           }}
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          onMouseDown={(e) => {
+            // Prevent blur when clicking anywhere inside the dropdown
+            e.preventDefault();
+          }}
         >
           {/* Table Header */}
-          <div className="bg-[#333333] text-white py-2 px-2 grid grid-cols-[70px_100px_1fr_50px_80px_100px] text-[11px] font-bold uppercase tracking-wider">
+          <div className="bg-[#333333] text-white py-2 px-2 grid grid-cols-[30px_70px_100px_1fr_50px_80px_100px] text-[11px] font-bold uppercase tracking-wider">
+            <div className="text-center">T</div>
             <div className="text-center">BASE</div>
             <div className="text-left">CÓDIGO</div>
             <div className="text-left">DESCRIÇÃO</div>
@@ -341,27 +377,47 @@ const AutocompleteDropdown = React.forwardRef<HTMLInputElement, AutocompleteDrop
                 ? (item.valor_desonerado !== null && item.valor_desonerado !== undefined ? Number(item.valor_desonerado) : (Number(item.preco_unitario) || 0)) 
                 : (item.valor_nao_desonerado !== null && item.valor_nao_desonerado !== undefined ? Number(item.valor_nao_desonerado) : (Number(item.preco_unitario) || 0));
               const dateStr = item.data_referencia ? `${item.data_referencia.substring(5, 7)}/${item.data_referencia.substring(0, 4)}` : '-';
+              const isComp = item.itemType === 'composicao';
               return (
                 <button
-                  key={`${type}-${type === 'insumo' ? item.id_insumo : item.id_composicao}-${idx}`}
-                  className={`autocomplete-item w-full text-left py-2 px-2 transition-colors grid grid-cols-[70px_100px_1fr_50px_80px_100px] items-center group border-b border-slate-100 ${idx === selectedIndex ? 'bg-indigo-50 border-l-4 border-l-indigo-500' : 'hover:bg-slate-50'}`}
-                  onClick={() => {
+                  key={`${item.itemType}-${isComp ? item.id_composicao : item.id_insumo}-${idx}`}
+                  className={`autocomplete-item w-full text-left py-2 px-2 transition-colors grid grid-cols-[30px_70px_100px_1fr_50px_80px_100px] items-center group border-b border-slate-100 ${idx === selectedIndex ? 'bg-indigo-50 border-l-4 border-l-indigo-500' : 'hover:bg-slate-50'}`}
+                  onMouseDown={(e) => {
+                    // Use onMouseDown for selection to beat the onBlur event and handle immediately
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
                     ignoreNextOpen.current = true;
                     setJustSelected(true);
                     onSelect({
                       ...item,
-                      preco_unitario: price
+                      preco_unitario: price,
+                      type: item.itemType
                     });
-                    if (value === undefined) {
-                      setInternalQuery('');
-                    }
+                    setInternalQuery(item.descricao || '');
                     setIsOpen(false);
                     setSelectedIndex(-1);
                   }}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onSelect({
+                      ...item,
+                      preco_unitario: price,
+                      type: item.itemType
+                    });
+                    setInternalQuery(item.descricao || '');
+                    setIsOpen(false);
+                  }}
                   onMouseEnter={() => setSelectedIndex(idx)}
                 >
+                  <div className="text-center">
+                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-black ${isComp ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                      {isComp ? 'C' : 'I'}
+                    </span>
+                  </div>
                   <div className={`text-[11px] text-center font-bold ${idx === selectedIndex ? 'text-indigo-600' : 'text-slate-500'}`}>{item.base || '-'}</div>
-                  <div className={`text-[12px] font-medium ${idx === selectedIndex ? 'text-indigo-800' : 'text-slate-600'}`}>{type === 'insumo' ? item.codigo : item.codigo_composicao}</div>
+                  <div className={`text-[12px] font-medium ${idx === selectedIndex ? 'text-indigo-800' : 'text-slate-600'}`}>{isComp ? item.codigo_composicao : item.codigo}</div>
                   <div className={`text-[12px] pr-4 truncate ${idx === selectedIndex ? 'text-indigo-900 font-medium' : 'text-slate-800'}`} title={item.descricao}>{item.descricao?.replace(/^[\d\.]+\s*/, '')}</div>
                   <div className={`text-[11px] text-center ${idx === selectedIndex ? 'text-indigo-600' : 'text-slate-500'}`}>{item.unidade}</div>
                   <div className={`text-[11px] text-center ${idx === selectedIndex ? 'text-indigo-600' : 'text-slate-500'}`}>{dateStr}</div>
@@ -372,22 +428,38 @@ const AutocompleteDropdown = React.forwardRef<HTMLInputElement, AutocompleteDrop
             
             <button
               className={`autocomplete-item w-full text-left px-4 py-3 text-[11px] font-bold flex items-center justify-center gap-2 transition-colors ${selectedIndex === results.length ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-50 hover:bg-indigo-50 text-indigo-600'}`}
-              onClick={() => {
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                
                 ignoreNextOpen.current = true;
                 setJustSelected(true);
                 onSelect({ 
                   isNew: true, 
                   descricao: query,
-                  tipo: type,
-                  base: 'PRÓPRIO'
+                  tipo: type === 'both' ? 'insumo' : type,
+                  base: 'PRÓPRIO',
+                  type: type === 'both' ? 'insumo' : type
                 });
                 setIsOpen(false);
                 setSelectedIndex(-1);
               }}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onSelect({ 
+                  isNew: true, 
+                  descricao: query,
+                  tipo: type === 'both' ? 'insumo' : type,
+                  base: 'PRÓPRIO',
+                  type: type === 'both' ? 'insumo' : type
+                });
+                setIsOpen(false);
+              }}
               onMouseEnter={() => setSelectedIndex(results.length)}
             >
               <Plus size={14} />
-              <span>CRIAR NOVO {type.toUpperCase()} COM ESTA DESCRIÇÃO: "{query}"</span>
+              <span>CRIAR NOVO {type === 'both' ? 'ITEM' : type.toUpperCase()} COM ESTA DESCRIÇÃO: "{query}"</span>
             </button>
           </div>
         </div>
