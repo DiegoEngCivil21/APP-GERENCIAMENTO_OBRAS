@@ -33,6 +33,7 @@ export const Button = ({
     outline: 'bg-transparent text-slate-600 border border-slate-200 hover:bg-slate-50',
     ghost: 'bg-transparent text-slate-500 hover:bg-slate-100 hover:text-slate-900',
     action: 'text-slate-900 border border-slate-200 hover:border-slate-400 hover:bg-slate-50 shadow-sm uppercase tracking-wide text-[11px]',
+    danger: 'bg-red-500 text-white hover:bg-red-600 shadow-sm border border-transparent shadow-red-200',
   };
 
   const sizes = {
@@ -68,6 +69,8 @@ export const Button = ({
 export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (tab: string) => void, user?: any, activeObraId?: string | number | null }) => {
   const [isRelatoriosOpen, setIsRelatoriosOpen] = useState(false);
   const [isCustomizerOpen, setIsCustomizerOpen] = useState(false);
+  const [isResumoModalOpen, setIsResumoModalOpen] = useState(false);
+  const [resumoMaxLevel, setResumoMaxLevel] = useState<number>(2);
   const dropdownRef = useRef<HTMLDivElement>(null);
   
   const [reportConfig, setReportConfig] = useState(() => {
@@ -139,7 +142,7 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleExport = async (reportName: string) => {
+  const handleExport = async (reportName: string, maxLevel?: number) => {
     console.log(`Exportando: ${reportName}`);
     
     if (!activeObraId) {
@@ -176,49 +179,60 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
       const orcamentoData = await orcamentoRes.json();
 
       // 3. Define report structure based on name (Refined for professional layout)
-      let columns: any[] = [
-        { header: 'Item', key: 'item', width: 6 },
-        { header: 'Código', key: 'codigo', width: 12 },
-        { header: 'Banco', key: 'banco', width: 10 },
-        { header: 'Descrição', key: 'descricao', width: 55 },
-        { header: 'Tipo', key: 'tipo_servico', width: 15 },
-        { header: 'Und', key: 'unidade', width: 6 },
-        { header: 'Quant.', key: 'quantidade', width: 10, type: 'number' },
-      ];
-
+      let columns: any[] = [];
+      
       const bdiValue = obraData.bdi || 0;
       const bdiIncidence = obraData.bdi_incidencia || 'unitario';
-
-      if (reportName.includes('Mão de Obra, Equipamento e Material')) {
-        columns.push(
-          { header: 'Valor Unit', key: 'valor_unit_sem_bdi', width: 12, type: 'currency' },
-          { header: 'Valor Unit com BDI', subgroup: ['M. O.', 'MAT.', 'EQUIP.', 'Total'], keys: ['v_unit_bdi_mo', 'v_unit_bdi_mat', 'v_unit_bdi_equip', 'v_unit_bdi_total'], width: 12, type: 'currency' },
-          { header: 'Total', subgroup: ['M. O.', 'MAT.', 'EQUIP.', 'Total'], keys: ['total_mo', 'total_mat', 'total_equip', 'total_total'], width: 12, type: 'currency' },
-          { header: 'Peso (%)', key: 'peso', width: 8, type: 'percentage' }
-        );
-      } else if (reportName.includes('Mão de Obra e Material')) {
-        columns.push(
-          { header: 'Valor Unit', key: 'valor_unit_sem_bdi', width: 12, type: 'currency' },
-          { header: 'Valor Unit com BDI', subgroup: ['M. O.', 'MAT.', 'Total'], keys: ['v_unit_bdi_mo', 'v_unit_bdi_mat', 'v_unit_bdi_total'], width: 12, type: 'currency' },
-          { header: 'Total', subgroup: ['M. O.', 'MAT.', 'Total'], keys: ['total_mo', 'total_mat', 'total_total'], width: 12, type: 'currency' },
-          { header: 'Peso (%)', key: 'peso', width: 8, type: 'percentage' }
-        );
-      } else if (reportName.includes('Mão de Obra')) {
-        columns.push(
-          { header: 'Valor Unit', key: 'valor_unit_sem_bdi', width: 12, type: 'currency' },
-          { header: 'Valor Unit com BDI', key: 'valor_unit_com_bdi', width: 12, type: 'currency' },
-          { header: 'Mão de Obra Valor', key: 'mo_total', width: 12, type: 'currency' },
-          { header: '%', key: 'mo_percent', width: 8, type: 'percentage' },
-          { header: 'Total', key: 'total_geral', width: 15, type: 'currency' },
-          { header: 'Peso (%)', key: 'peso', width: 8, type: 'percentage' }
-        );
+      
+      if (reportName === 'Resumo') {
+        columns = [
+          { header: 'Item', key: 'item', width: 24, colspan: 2 },
+          { header: 'Descrição', key: 'descricao', width: 84, colspan: 6 },
+          { header: 'Total', key: 'total_geral', width: 18, type: 'currency' },
+          { header: 'Peso (%)', key: 'peso', width: 12, type: 'percentage' }
+        ];
       } else {
-        columns.push(
-          { header: 'Valor Unit', key: 'valor_unit_sem_bdi', width: 12, type: 'currency' },
-          { header: 'Valor Unit com BDI', key: 'valor_unit_com_bdi', width: 12, type: 'currency' },
-          { header: 'Total', key: 'total_geral', width: 15, type: 'currency' },
-          { header: 'Peso (%)', key: 'peso', width: 8, type: 'percentage' }
-        );
+        columns = [
+          { header: 'Item', key: 'item', width: 6 },
+          { header: 'Código', key: 'codigo', width: 12 },
+          { header: 'Banco', key: 'banco', width: 10 },
+          { header: 'Descrição', key: 'descricao', width: 55 },
+          { header: 'Tipo', key: 'tipo_servico', width: 15 },
+          { header: 'Und', key: 'unidade', width: 6 },
+          { header: 'Quant.', key: 'quantidade', width: 10, type: 'number' },
+        ];
+
+        if (reportName.includes('Mão de Obra, Equipamento e Material')) {
+          columns.push(
+            { header: 'Valor Unit', key: 'valor_unit_sem_bdi', width: 12, type: 'currency' },
+            { header: 'Valor Unit com BDI', subgroup: ['M. O.', 'MAT.', 'EQUIP.', 'Total'], keys: ['v_unit_bdi_mo', 'v_unit_bdi_mat', 'v_unit_bdi_equip', 'v_unit_bdi_total'], width: 12, type: 'currency' },
+            { header: 'Total', subgroup: ['M. O.', 'MAT.', 'EQUIP.', 'Total'], keys: ['total_mo', 'total_mat', 'total_equip', 'total_total'], width: 12, type: 'currency' },
+            { header: 'Peso (%)', key: 'peso', width: 8, type: 'percentage' }
+          );
+        } else if (reportName.includes('Mão de Obra e Material')) {
+          columns.push(
+            { header: 'Valor Unit', key: 'valor_unit_sem_bdi', width: 12, type: 'currency' },
+            { header: 'Valor Unit com BDI', subgroup: ['M. O.', 'MAT.', 'Total'], keys: ['v_unit_bdi_mo', 'v_unit_bdi_mat', 'v_unit_bdi_total'], width: 12, type: 'currency' },
+            { header: 'Total', subgroup: ['M. O.', 'MAT.', 'Total'], keys: ['total_mo', 'total_mat', 'total_total'], width: 12, type: 'currency' },
+            { header: 'Peso (%)', key: 'peso', width: 8, type: 'percentage' }
+          );
+        } else if (reportName.includes('Mão de Obra')) {
+          columns.push(
+            { header: 'Valor Unit', key: 'valor_unit_sem_bdi', width: 12, type: 'currency' },
+            { header: 'Valor Unit com BDI', key: 'valor_unit_com_bdi', width: 12, type: 'currency' },
+            { header: 'Mão de Obra Valor', key: 'mo_total', width: 12, type: 'currency' },
+            { header: '%', key: 'mo_percent', width: 8, type: 'percentage' },
+            { header: 'Total', key: 'total_geral', width: 15, type: 'currency' },
+            { header: 'Peso (%)', key: 'peso', width: 8, type: 'percentage' }
+          );
+        } else {
+          columns.push(
+            { header: 'Valor Unit', key: 'valor_unit_sem_bdi', width: 12, type: 'currency' },
+            { header: 'Valor Unit com BDI', key: 'valor_unit_com_bdi', width: 12, type: 'currency' },
+            { header: 'Total', key: 'total_geral', width: 15, type: 'currency' },
+            { header: 'Peso (%)', key: 'peso', width: 8, type: 'percentage' }
+          );
+        }
       }
 
       // Remove colunas based on config
@@ -257,19 +271,19 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
         let matUnit = it.custo_material || 0;
         let equipUnit = it.custo_equipamento || 0;
 
-        // SE for um insumo simples (não composição) e os custos específicos estiverem zerados ou não somarem o total,
-        // então distribuímos o valor unitário total baseado na categoria do item.
-        if (!isEtapa && (moUnit + matUnit + equipUnit) === 0 && rawUnitCost > 0) {
+        // SE os custos específicos estiverem zerados, tentamos inferir da categoria.
+        if (!isEtapa && rawUnitCost > 0) {
           const cat = (it.categoria || "").toLowerCase();
           const desc = (it.descricao || "").toLowerCase();
           const tipoItem = (it.tipo_item || "").toLowerCase();
+          const isMO = cat.includes("mão de obra") || cat.includes("mao de obra") || tipoItem === "mao_de_obra" || desc.includes("mão de obra");
+          const isEquip = cat.includes("equipamento") || tipoItem === "equipamento" || desc.includes("equipamento");
           
-          if (cat.includes("mão de obra") || cat.includes("mao de obra") || tipoItem === "mao_de_obra" || desc.includes("mão de obra")) {
+          if (moUnit === 0 && isMO) {
             moUnit = rawUnitCost;
-          } else if (cat.includes("equipamento") || tipoItem === "equipamento" || desc.includes("equipamento")) {
+          } else if (equipUnit === 0 && isEquip) {
             equipUnit = rawUnitCost;
-          } else {
-            // Default para Material
+          } else if (matUnit === 0 && !isMO && !isEquip) {
             matUnit = rawUnitCost;
           }
         }
@@ -279,9 +293,14 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
         const equipUnitWithBDI = equipUnit * bdiMultiplier;
         const unitTotalWithBDI = moUnitWithBDI + matUnitWithBDI + equipUnitWithBDI;
 
-        const moTotal = isEtapa ? (it.custo_mao_obra_total || 0) * bdiMultiplier : (moUnitWithBDI * qty);
-        const matTotal = isEtapa ? (it.custo_material_total || 0) * bdiMultiplier : (matUnitWithBDI * qty);
-        const equipTotal = isEtapa ? (it.custo_equipamento_total || 0) * bdiMultiplier : (equipUnitWithBDI * qty);
+        const moUnitCost = moUnit;
+        const matUnitCost = matUnit;
+        const equipUnitCost = equipUnit;
+
+        // Ensure calculations use raw costs times qty (or 1 for etapas)
+        const moTotal = moUnitCost * (isEtapa ? 1 : qty) * bdiMultiplier;
+        const matTotal = matUnitCost * (isEtapa ? 1 : qty) * bdiMultiplier;
+        const equipTotal = equipUnitCost * (isEtapa ? 1 : qty) * bdiMultiplier;
         
         const total = isEtapa ? (it.total || 0) : (moTotal + matTotal + equipTotal);
         
@@ -298,7 +317,7 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
           }
         }
 
-        return {
+        const mappedRow = {
           item: it.item || '',
           codigo: isEtapa ? '' : it.codigo,
           banco: isEtapa ? '' : it.base,
@@ -306,12 +325,12 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
           tipo_servico: it.categoria || '',
           unidade: it.unidade || '',
           quantidade: isEtapa ? null : qty,
-          valor_unit_sem_bdi: isEtapa ? null : rawUnitCost,
-          valor_unit_com_bdi: isEtapa ? null : unitTotalWithBDI,
-          v_unit_bdi_mo: isEtapa ? null : moUnitWithBDI,
-          v_unit_bdi_mat: isEtapa ? null : matUnitWithBDI,
-          v_unit_bdi_equip: isEtapa ? null : equipUnitWithBDI,
-          v_unit_bdi_total: isEtapa ? null : unitTotalWithBDI,
+          valor_unit_sem_bdi: isEtapa ? null : it.custo_unitario_aplicado,
+          valor_unit_com_bdi: isEtapa ? null : (it.custo_unitario_aplicado || 0) * bdiMultiplier,
+          v_unit_bdi_mo: moUnitCost * bdiMultiplier,
+          v_unit_bdi_mat: matUnitCost * bdiMultiplier,
+          v_unit_bdi_equip: equipUnitCost * bdiMultiplier,
+          v_unit_bdi_total: (it.custo_unitario_aplicado || 0) * bdiMultiplier,
           total_mo: moTotal,
           total_mat: matTotal,
           total_equip: equipTotal,
@@ -323,7 +342,20 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
           isEtapa: isEtapa,
           itemCategory: itemCategory
         };
+        return mappedRow;
       });
+
+      // Filter rows if it's the Resumo report
+      let finalRows = rows;
+      if (reportName === 'Resumo') {
+        const targetMaxLevel = maxLevel !== undefined ? maxLevel : 100;
+        finalRows = rows.filter((row: any) => {
+          if (!row.isEtapa) return false;
+          const itemStr = (row.item || '').toString().trim();
+          const parts = itemStr.split('.').filter(Boolean);
+          return parts.length <= targetMaxLevel;
+        });
+      }
 
       // Identify unique bases (banks) used in the budget
       const rawBases = orcamentoData.map((it: any) => it.base).filter(Boolean);
@@ -346,7 +378,7 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
         desconto: obraData.desconto || 0,
         encargos: `${obraData.desonerado === 1 ? "Desonerado" : "Não Desonerado"}\nHorista: ${obraData.encargos_horista?.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0.00'}%\nMensalista: ${obraData.encargos_mensalista?.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0.00'}%`,
         columns,
-        rows,
+        rows: finalRows,
         summary: {
           totalSemBdi: totalSemBdi,
           totalBdi: totalBdi,
@@ -459,6 +491,9 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
                                 onClick={() => {
                                   if (opt.label === "Personalizar Relatório") {
                                     setIsCustomizerOpen(true);
+                                    setIsRelatoriosOpen(false);
+                                  } else if (opt.label === "Resumo") {
+                                    setIsResumoModalOpen(true);
                                     setIsRelatoriosOpen(false);
                                   } else {
                                     handleExport(opt.label);
@@ -954,6 +989,63 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
                   className="px-6 py-2.5 bg-slate-900 text-white text-[11px] font-black uppercase tracking-widest hover:bg-slate-800 rounded-xl shadow-lg transition-all"
                 >
                   Salvar Configurações
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {isResumoModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-start justify-center p-4 pt-16">
+            <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsResumoModalOpen(false)} />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+            >
+              <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                <h2 className="text-sm font-black text-slate-800 uppercase tracking-widest flex items-center gap-2">
+                  <FileSpreadsheet size={16} className="text-emerald-500" />
+                  Opções do Resumo
+                </h2>
+                <button onClick={() => setIsResumoModalOpen(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+              </div>
+
+              <div className="p-6">
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Nível máximo de sub-etapas</label>
+                <div className="flex flex-col gap-1">
+                  <input
+                    type="number"
+                    min="1"
+                    max="10"
+                    value={resumoMaxLevel}
+                    onChange={e => setResumoMaxLevel(parseInt(e.target.value) || 1)}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none text-slate-700"
+                  />
+                  <p className="text-xs text-slate-500 mt-2">
+                    Exemplo: Nível 2 imprimirá etapas como 1.1, 1.2, etc. mas ignorará 1.1.1.
+                  </p>
+                </div>
+              </div>
+
+              <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-3 shrink-0">
+                <button 
+                  onClick={() => setIsResumoModalOpen(false)}
+                  className="px-5 py-2.5 text-[11px] font-black text-slate-500 uppercase tracking-widest hover:bg-slate-200 rounded-xl transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  onClick={() => {
+                    handleExport("Resumo", resumoMaxLevel);
+                    setIsResumoModalOpen(false);
+                  }}
+                  className="px-6 py-2.5 bg-emerald-600 text-white text-[11px] font-black uppercase tracking-widest hover:bg-emerald-500 rounded-xl shadow-lg shadow-emerald-500/20 transition-all"
+                >
+                  Gerar Relatório
                 </button>
               </div>
             </motion.div>

@@ -847,7 +847,7 @@ const ComposicoesView = ({ isAdmin, isMaster, onSelectComposicao }: { isAdmin: b
                               </button>
                               <button 
                                 onClick={() => setDeleteConfirm({ type: 'single', id: comp.id_composicao })}
-                                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                className="p-1.5 text-slate-400 hover:text-red-500 transition-all border border-slate-200 rounded hover:border-red-200 hover:bg-red-50"
                                 title="Excluir"
                               >
                                 <Trash2 size={15} />
@@ -967,19 +967,19 @@ const ComposicoesView = ({ isAdmin, isMaster, onSelectComposicao }: { isAdmin: b
             </p>
             <div className="flex gap-3 justify-center">
               <Button variant="secondary" onClick={() => setDeleteConfirm(null)}>Cancelar</Button>
-              <Button 
-                variant="danger" 
-                onClick={() => {
-                  if (deleteConfirm.type === 'bulk') {
-                    handleBulkDelete();
-                  } else if (deleteConfirm.id) {
-                    handleDelete(deleteConfirm.id);
-                    setDeleteConfirm(null);
-                  }
-                }}
-              >
-                Sim, Excluir
-              </Button>
+                  <Button 
+                    variant="danger" 
+                    onClick={() => {
+                      if (deleteConfirm.type === 'bulk') {
+                        handleBulkDelete();
+                      } else if (deleteConfirm.id !== undefined) {
+                        handleDelete(deleteConfirm.id);
+                        setDeleteConfirm(null);
+                      }
+                    }}
+                  >
+                    Sim, Excluir
+                  </Button>
             </div>
           </motion.div>
         </div>

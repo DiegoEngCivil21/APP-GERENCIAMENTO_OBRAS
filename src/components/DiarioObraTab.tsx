@@ -45,6 +45,7 @@ export default function DiarioObraTab({ obraId, onRefresh }: { obraId: string | 
   const [rdoCount, setRdoCount] = useState(0);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [lightbox, setLightbox] = useState({ open: false, urls: [] as string[], idx: 0 });
+  const [deleteId, setDeleteId] = useState<number | null>(null);
 
   const load = () => api.getDiarios(obraId)
     .then(r => {
@@ -90,11 +91,17 @@ export default function DiarioObraTab({ obraId, onRefresh }: { obraId: string | 
     if (onRefresh) onRefresh();
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm("Excluir este registro?")) return;
-    await api.deleteDiario(obraId, id);
-    load();
-    if (onRefresh) onRefresh();
+  const handleDelete = async () => {
+    if (!deleteId) return;
+    try {
+      await api.deleteDiario(obraId, deleteId);
+      setDeleteId(null);
+      load();
+      if (onRefresh) onRefresh();
+    } catch (err) {
+      console.error("Error deleting diary:", err);
+      alert("Erro ao excluir registro.");
+    }
   };
 
   const set = (k: string, v: any) => setForm((f: any) => ({ ...f, [k]: v }));
@@ -192,7 +199,13 @@ export default function DiarioObraTab({ obraId, onRefresh }: { obraId: string | 
                 <div className="flex gap-2 flex-shrink-0">
                   <button className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors" title="Visualizar" onClick={() => openView(r)}><Eye size={18} /></button>
                   <button className="p-2 text-slate-500 hover:text-[#003366] hover:bg-blue-50 rounded-xl transition-colors" title="Editar" onClick={() => openEdit(r)}><Pencil size={18} /></button>
-                  <button className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors" title="Excluir" onClick={() => handleDelete(r.id)}><Trash2 size={18} /></button>
+                    <button 
+                      className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors" 
+                      title="Excluir" 
+                      onClick={() => setDeleteId(r.id)}
+                    >
+                      <Trash2 size={18} />
+                    </button>
                 </div>
               </div>
             </div>
@@ -458,6 +471,36 @@ export default function DiarioObraTab({ obraId, onRefresh }: { obraId: string | 
           </button>
           <div className="absolute bottom-6 left-1/2 -translate-x-1/2 text-white/80 text-sm font-medium bg-black/50 px-4 py-1.5 rounded-full backdrop-blur-sm z-10">
             {lightbox.idx + 1} / {lightbox.urls.length}
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {deleteId && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[32px] p-8 max-w-sm w-full shadow-2xl border border-slate-100">
+            <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Trash2 size={40} className="text-red-500" />
+            </div>
+            <h3 className="text-xl font-black text-slate-800 text-center mb-2 uppercase tracking-tight">Excluir Registro?</h3>
+            <p className="text-slate-500 text-center mb-8 text-sm leading-relaxed">
+              Deseja realmente excluir este Diário de Obra?
+              <br/><span className="text-red-500 font-bold">Esta ação não pode ser desfeita.</span>
+            </p>
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setDeleteId(null)}
+                className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-200 transition-all"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={handleDelete}
+                className="flex-1 py-4 bg-red-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-red-600 shadow-lg shadow-red-200 transition-all"
+              >
+                Excluir
+              </button>
+            </div>
           </div>
         </div>
       )}

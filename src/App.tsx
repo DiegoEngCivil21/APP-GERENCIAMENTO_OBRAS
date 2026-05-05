@@ -419,6 +419,7 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
 
   const [abcData, setAbcData] = useState<any[]>([]);
   const [abcCategoryFilter, setAbcCategoryFilter] = useState<'all' | 'material' | 'mao_de_obra' | 'equipamento' | 'encargos'>('all');
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string, tipo: string } | null>(null);
 
   const calculateAbcData = useCallback(async (orcamentoItems: OrcamentoItem[], dataReferencia: string, estado: string, desonerado: boolean, bancosAtivos: any[], bdiIncidence: string = 'unitario', bdiValue: number = 0) => {
     try {
@@ -853,22 +854,25 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
   };
 
   const handleDeleteItem = async (id: string, tipo: string) => {
-    // No alert/confirm as per guidelines, but the user requested "Finish what you were doing" 
-    // and usually a delete needs a confirmation. I'll use a simple check or just delete.
-    // The guidelines say: "Do NOT use confirm(), window.confirm(), alert() or window.alert() in the code."
-    // I should use a custom modal or just proceed. For now, I'll just proceed to keep it simple 
-    // but I'll add a small delay or something if needed. Actually, I'll just proceed.
-    
-    const res = await fetch(`/api/obras/${obraId}/orcamento/${id}?tipo=${tipo}`, {
-      method: 'DELETE'
-    });
-    if (res.ok) {
-      // Automatically resequence after deleting an item
-      await fetch(`/api/obras/${obraId}/orcamento/resequence`, {
-        method: 'POST'
+    try {
+      const res = await fetch(`/api/obras/${obraId}/orcamento/${id}?tipo=${tipo}`, {
+        method: 'DELETE'
       });
+      if (res.ok) {
+        // Automatically resequence after deleting an item
+        await fetch(`/api/obras/${obraId}/orcamento/resequence`, {
+          method: 'POST'
+        });
 
-      fetchData();
+        fetchData();
+        setToast({ message: 'Item excluído com sucesso!', type: 'success' });
+      } else {
+        const errorData = await res.json().catch(() => ({}));
+        setToast({ message: errorData.message || 'Erro ao excluir item.', type: 'error' });
+      }
+    } catch (error) {
+      console.error("Delete error:", error);
+      setToast({ message: 'Erro de conexão ao excluir item.', type: 'error' });
     }
   };
 
@@ -2061,16 +2065,16 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
                             >
                               <Edit2 size={14} />
                             </button>
-                            <button 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteItem(row.id, row.tipo);
-                              }}
-                              className="p-1.5 hover:bg-red-50 rounded text-red-500"
-                              title="Excluir"
-                            >
-                              <Trash2 size={14} />
-                            </button>
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDeleteConfirm({ id: row.id, tipo: row.tipo });
+                                }}
+                                className="p-1.5 text-slate-400 hover:text-red-500 transition-all border border-slate-200 rounded hover:border-red-200 hover:bg-red-50"
+                                title="Excluir"
+                              >
+                                <Trash2 size={14} />
+                              </button>
                           </div>
                         )}
                         <div className="flex items-center gap-1 justify-center">
@@ -3039,6 +3043,46 @@ const ObraDetailView = ({ obraId, onBack, onNavigateToComposicao, isAdmin = fals
           );
         })()}
       </div>
+
+      {deleteConfirm && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-[100] p-4 font-sans">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }} 
+            animate={{ opacity: 1, scale: 1 }} 
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden p-8 text-center"
+          >
+            <div className="w-20 h-20 bg-red-50 text-red-500 rounded-3xl flex items-center justify-center mx-auto mb-6 transform rotate-3">
+              <Trash2 size={40} />
+            </div>
+            <h3 className="text-2xl font-black text-slate-900 mb-2 uppercase tracking-tight">Confirmar Exclusão</h3>
+            <p className="text-slate-500 text-sm font-medium mb-8">
+              Tem certeza que deseja remover este item do orçamento?
+              <br/><span className="text-red-500 font-bold">Esta ação não pode ser desfeita.</span>
+            </p>
+            <div className="flex gap-3">
+              <Button 
+                variant="secondary"
+                className="flex-1"
+                onClick={() => setDeleteConfirm(null)}
+              >
+                Cancelar
+              </Button>
+              <Button 
+                variant="danger"
+                className="flex-1"
+                onClick={() => {
+                  if (deleteConfirm) {
+                    handleDeleteItem(deleteConfirm.id, deleteConfirm.tipo);
+                  }
+                  setDeleteConfirm(null);
+                }}
+              >
+                Excluir
+              </Button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 };

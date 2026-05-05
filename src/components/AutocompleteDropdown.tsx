@@ -28,10 +28,11 @@ const AutocompleteDropdown = React.forwardRef<HTMLInputElement, AutocompleteDrop
   autoFocus, desonerado = true, bases = [], estado = 'DF', dataReferencia = '2026-04-01'
 }, ref) => {
   console.log('AutocompleteDropdown rendered', { type, value, showInput });
-  const [internalQuery, setInternalQuery] = useState('');
+  const [internalQuery, setInternalQuery] = useState(value || '');
+  const [isOpen, setIsOpen] = useState(false);
+  const skipNextSearchRef = useRef(false);
   const query = value !== undefined ? value : internalQuery;
   const [results, setResults] = useState<any[]>([]);
-  const [isOpen, setIsOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const [justSelected, setJustSelected] = useState(false);
   const [dropdownWidth, setDropdownWidth] = useState<number | string>(dropdownStyle?.width || '1150px');
@@ -161,6 +162,10 @@ const AutocompleteDropdown = React.forwardRef<HTMLInputElement, AutocompleteDrop
     }
 
     const searchAction = async () => {
+      if (skipNextSearchRef.current) {
+        skipNextSearchRef.current = false;
+        return;
+      }
       const endpoints: { url: string, type: 'insumo' | 'composicao' }[] = [];
       if (type === 'insumo' || type === 'both') endpoints.push({ url: '/api/insumos', type: 'insumo' });
       if (type === 'composicao' || type === 'both') endpoints.push({ url: '/api/composicoes', type: 'composicao' });
@@ -275,7 +280,7 @@ const AutocompleteDropdown = React.forwardRef<HTMLInputElement, AutocompleteDrop
             type: item.itemType
           });
           if (value === undefined) {
-            setInternalQuery('');
+            setInternalQuery(item.descricao || '');
           }
           setIsOpen(false);
           setSelectedIndex(-1);
@@ -330,11 +335,10 @@ const AutocompleteDropdown = React.forwardRef<HTMLInputElement, AutocompleteDrop
             onBlur={() => {
               // Delay closing to allow clicking on results
               setTimeout(() => {
-                const isFocusedInside = containerRef.current?.contains(document.activeElement);
-                if (!isFocusedInside) {
+                if (containerRef.current && !containerRef.current.contains(document.activeElement)) {
                   setIsOpen(false);
                 }
-              }, 150);
+              }, 300);
             }}
           />
         </div>
@@ -360,18 +364,18 @@ const AutocompleteDropdown = React.forwardRef<HTMLInputElement, AutocompleteDrop
           }}
         >
           {/* Table Header */}
-          <div className="bg-[#333333] text-white py-2 px-2 grid grid-cols-[30px_70px_100px_1fr_50px_80px_100px] text-[11px] font-bold uppercase tracking-wider">
-            <div className="text-center">T</div>
-            <div className="text-center">BASE</div>
-            <div className="text-left">CÓDIGO</div>
-            <div className="text-left">DESCRIÇÃO</div>
-            <div className="text-center">UN</div>
-            <div className="text-center">DATA</div>
-            <div className="text-right">VALOR</div>
+          <div className="bg-[#333333] text-white py-2.5 px-3 grid grid-cols-[30px_90px_120px_1fr_50px_80px_110px] text-[10px] font-black uppercase tracking-widest border-b border-slate-600">
+            <div className="text-center">TIPO</div>
+            <div className="text-center border-l border-slate-600">BANCO</div>
+            <div className="text-left border-l border-slate-600 pl-3">CÓDIGO</div>
+            <div className="text-left border-l border-slate-600 pl-3">DESCRIÇÃO</div>
+            <div className="text-center border-l border-slate-600">UN</div>
+            <div className="text-center border-l border-slate-600">DATA REF.</div>
+            <div className="text-right border-l border-slate-600 pr-2">VALOR UNIT.</div>
           </div>
 
           {/* Results List */}
-          <div ref={listRef} className="max-h-[400px] overflow-y-auto divide-y divide-slate-100">
+          <div ref={listRef} className="max-h-[450px] overflow-y-auto divide-y divide-slate-100 bg-white">
             {results.map((item, idx) => {
               const price = desonerado 
                 ? (item.valor_desonerado !== null && item.valor_desonerado !== undefined ? Number(item.valor_desonerado) : (Number(item.preco_unitario) || 0)) 
@@ -381,18 +385,20 @@ const AutocompleteDropdown = React.forwardRef<HTMLInputElement, AutocompleteDrop
               return (
                 <button
                   key={`${item.itemType}-${isComp ? item.id_composicao : item.id_insumo}-${idx}`}
-                  className={`autocomplete-item w-full text-left py-2 px-2 transition-colors grid grid-cols-[30px_70px_100px_1fr_50px_80px_100px] items-center group border-b border-slate-100 ${idx === selectedIndex ? 'bg-indigo-50 border-l-4 border-l-indigo-500' : 'hover:bg-slate-50'}`}
+                  className={`autocomplete-item w-full text-left py-2.5 px-3 transition-all grid grid-cols-[30px_90px_120px_1fr_50px_80px_110px] items-center group ${idx === selectedIndex ? 'bg-indigo-50/80' : 'hover:bg-slate-50'}`}
                   onMouseDown={(e) => {
                     // Use onMouseDown for selection to beat the onBlur event and handle immediately
                     e.preventDefault();
                     e.stopPropagation();
                     
+                    skipNextSearchRef.current = true;
                     ignoreNextOpen.current = true;
                     setJustSelected(true);
                     onSelect({
                       ...item,
                       preco_unitario: price,
-                      type: item.itemType
+                      type: item.itemType,
+                      codigo: isComp ? item.codigo_composicao : item.codigo // Ensure consistent field name for selection
                     });
                     setInternalQuery(item.descricao || '');
                     setIsOpen(false);
@@ -404,7 +410,8 @@ const AutocompleteDropdown = React.forwardRef<HTMLInputElement, AutocompleteDrop
                     onSelect({
                       ...item,
                       preco_unitario: price,
-                      type: item.itemType
+                      type: item.itemType,
+                      codigo: isComp ? item.codigo_composicao : item.codigo
                     });
                     setInternalQuery(item.descricao || '');
                     setIsOpen(false);
@@ -412,16 +419,28 @@ const AutocompleteDropdown = React.forwardRef<HTMLInputElement, AutocompleteDrop
                   onMouseEnter={() => setSelectedIndex(idx)}
                 >
                   <div className="text-center">
-                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-black ${isComp ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                    <span className={`w-6 h-6 flex items-center justify-center rounded-md text-[10px] font-black shadow-sm ${isComp ? 'bg-emerald-500 text-white' : 'bg-amber-500 text-white'}`}>
                       {isComp ? 'C' : 'I'}
                     </span>
                   </div>
-                  <div className={`text-[11px] text-center font-bold ${idx === selectedIndex ? 'text-indigo-600' : 'text-slate-500'}`}>{item.base || '-'}</div>
-                  <div className={`text-[12px] font-medium ${idx === selectedIndex ? 'text-indigo-800' : 'text-slate-600'}`}>{isComp ? item.codigo_composicao : item.codigo}</div>
-                  <div className={`text-[12px] pr-4 truncate ${idx === selectedIndex ? 'text-indigo-900 font-medium' : 'text-slate-800'}`} title={item.descricao}>{item.descricao?.replace(/^[\d\.]+\s*/, '')}</div>
-                  <div className={`text-[11px] text-center ${idx === selectedIndex ? 'text-indigo-600' : 'text-slate-500'}`}>{item.unidade}</div>
-                  <div className={`text-[11px] text-center ${idx === selectedIndex ? 'text-indigo-600' : 'text-slate-500'}`}>{dateStr}</div>
-                  <div className={`text-[12px] text-right font-semibold ${idx === selectedIndex ? 'text-indigo-900' : 'text-slate-900'}`}>{price.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                  <div className={`text-[11px] text-center font-black tracking-wider ${idx === selectedIndex ? 'text-indigo-600' : 'text-slate-500'}`}>
+                    <span className="px-2 py-0.5 bg-slate-100 rounded border border-slate-200">{item.base || '-'}</span>
+                  </div>
+                  <div className={`text-[13px] font-black pl-3 ${idx === selectedIndex ? 'text-indigo-800' : 'text-slate-700'}`}>
+                    {isComp ? item.codigo_composicao : item.codigo}
+                  </div>
+                  <div className={`text-[12px] pl-3 pr-4 truncate leading-tight ${idx === selectedIndex ? 'text-indigo-900 font-medium' : 'text-slate-800'}`} title={item.descricao}>
+                    {item.descricao?.replace(/^[\d\.]+\s*/, '')}
+                  </div>
+                  <div className={`text-[11px] text-center font-bold ${idx === selectedIndex ? 'text-indigo-600' : 'text-slate-500'}`}>
+                    {item.unidade}
+                  </div>
+                  <div className={`text-[11px] text-center font-medium ${idx === selectedIndex ? 'text-indigo-600' : 'text-slate-500'}`}>
+                    {dateStr}
+                  </div>
+                  <div className={`text-[13px] text-right font-black font-mono pr-2 ${idx === selectedIndex ? 'text-indigo-900' : 'text-slate-900'}`}>
+                    {price.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
                 </button>
               );
             })}

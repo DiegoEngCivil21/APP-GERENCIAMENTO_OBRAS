@@ -2698,11 +2698,12 @@ async function startServer() {
           
           for (const flat of flatItems) {
             const cat = (flat.categoria || '').toLowerCase();
-            if (cat.includes('material')) {
-              custo_material += flat.preco_unitario * flat.quantidade;
-            } else if (cat.includes('mão de obra') || cat.includes('mao de obra')) {
+            const desc = (flat.descricao || flat.nome || '').toLowerCase();
+            const tipoItem = (flat.tipo_item || flat.tipo || '').toLowerCase();
+            
+            if (cat.includes('mão de obra') || cat.includes('mao de obra') || tipoItem === 'mao_de_obra' || desc.includes('mão de obra')) {
               custo_mao_obra += flat.preco_unitario * flat.quantidade;
-            } else if (cat.includes('equipamento')) {
+            } else if (cat.includes('equipamento') || tipoItem === 'equipamento' || desc.includes('equipamento')) {
               custo_equipamento += flat.preco_unitario * flat.quantidade;
             } else {
               custo_material += flat.preco_unitario * flat.quantidade; // Fallback
@@ -2716,11 +2717,12 @@ async function startServer() {
         } else {
           // If it's an insumo, attribute its cost to its category
           const cat = (it.categoria || '').toLowerCase();
-          if (cat.includes('material')) {
-            custo_material = valor_unitario;
-          } else if (cat.includes('mão de obra') || cat.includes('mao de obra')) {
+          const desc = (it.descricao || it.nome || '').toLowerCase();
+          const tipoItem = (it.item_tipo || it.tipo || '').toLowerCase();
+          
+          if (cat.includes('mão de obra') || cat.includes('mao de obra') || tipoItem === 'mao_de_obra' || desc.includes('mão de obra')) {
             custo_mao_obra = valor_unitario;
-          } else if (cat.includes('equipamento')) {
+          } else if (cat.includes('equipamento') || tipoItem === 'equipamento' || desc.includes('equipamento')) {
             custo_equipamento = valor_unitario;
           } else {
             custo_material = valor_unitario;
@@ -2742,16 +2744,16 @@ async function startServer() {
         result.push({
           ...it,
           valor_unitario,
+          custo_material,
+          custo_mao_obra,
+          custo_equipamento,
           id: `item-${it.id}`,
           tipo: it.item_tipo,
           categoria: it.categoria,
           item: it.item_numero || '',
           etapa_nome: etapa ? etapa.nome : '',
           valor_bdi,
-          total,
-          custo_material,
-          custo_mao_obra,
-          custo_equipamento
+          total
         });
       }
 
@@ -5894,15 +5896,25 @@ app.get("/api/composicoes/:id/subitens", (req, res) => {
 
 // POST /api/composicoes/:id/subitens - Versão corrigida
 app.post("/api/composicoes/:id/subitens", (req, res) => {
-  const { item_id, consumo_unitario, estado = 'DF', data_referencia = '2026-04-01' } = req.body;
+  let { item_id, consumo_unitario, estado = 'DF', data_referencia } = req.body;
   
-  if (!item_id || !consumo_unitario) {
+  // Normalize parameters
+  if (estado === 'Todos' || !estado) estado = 'DF';
+  const normalizedDataRef = normalizeDate(data_referencia) || '2026-04-01';
+  
+  console.log('DEBUG: POST subitem - compId:', req.params.id, 'itemId:', item_id, 'consumo:', consumo_unitario, 'estado:', estado, 'data_ref:', normalizedDataRef);
+  
+  if (!item_id || consumo_unitario === undefined) {
     return res.status(400).json({ message: "item_id e consumo_unitario são obrigatórios" });
   }
   
   try {
+    const compId = parseInt(req.params.id, 10);
+    const itemId = parseInt(String(item_id), 10);
+    const quantity = parseNumber(consumo_unitario) || 0;
+
     // Verifica se a composição existe e é PRÓPRIA
-    const comp = db.prepare("SELECT base FROM v2_itens WHERE id = ? AND tipo = 'composicao'").get(req.params.id);
+    const comp = db.prepare("SELECT base FROM v2_itens WHERE id = ? AND tipo = 'composicao'").get(compId);
     if (!comp) {
       return res.status(404).json({ message: "Composição não encontrada" });
     }
@@ -5912,39 +5924,39 @@ app.post("/api/composicoes/:id/subitens", (req, res) => {
     }
     
     // Verifica se o item existe
-    const item = db.prepare("SELECT id, tipo FROM v2_itens WHERE id = ?").get(item_id);
+    const item = db.prepare("SELECT id, tipo FROM v2_itens WHERE id = ?").get(itemId);
     if (!item) {
       return res.status(404).json({ message: "Item não encontrado" });
     }
     
     // Verifica se não está criando loop (composição não pode conter a si mesma)
-    if (item.tipo === 'composicao' && item.id == req.params.id) {
+    if (item.tipo === 'composicao' && itemId === compId) {
       return res.status(400).json({ message: "Composição não pode conter a si mesma" });
     }
     
     // Verifica profundidade máxima para evitar loops complexos
     if (item.tipo === 'composicao') {
-      const verificarLoop = (compId, itemId, visited = new Set()) => {
-        if (visited.has(compId)) return true;
-        visited.add(compId);
+      const verificarLoop = (cId, iId, visited = new Set()) => {
+        if (visited.has(cId)) return true;
+        visited.add(cId);
         
         const filhos = db.prepare(`
           SELECT item_id FROM v2_composicao_itens 
           WHERE composicao_id = ? AND estado = ? AND data_referencia = ?
-        `).all(compId, estado, data_referencia);
+        `).all(cId, estado, normalizedDataRef);
         
-        for (const filho of filhos) {
-          if (filho.item_id == itemId) return true;
+        for (const filho of filhos as any) {
+          if (filho.item_id == iId) return true;
           
-          const tipoFilho = db.prepare("SELECT tipo FROM v2_itens WHERE id = ?").get(filho.item_id);
+          const tipoFilho = db.prepare("SELECT tipo FROM v2_itens WHERE id = ?").get(filho.item_id) as any;
           if (tipoFilho?.tipo === 'composicao') {
-            if (verificarLoop(filho.item_id, itemId, visited)) return true;
+            if (verificarLoop(filho.item_id, iId, visited)) return true;
           }
         }
         return false;
       };
       
-      if (verificarLoop(item.id, req.params.id)) {
+      if (verificarLoop(itemId, compId)) {
         return res.status(400).json({ message: "Esta operação criaria um loop na composição" });
       }
     }
@@ -5955,35 +5967,44 @@ app.post("/api/composicoes/:id/subitens", (req, res) => {
       VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(composicao_id, item_id, estado, data_referencia) 
       DO UPDATE SET quantidade = excluded.quantidade
-    `).run(
-      req.params.id, 
-      item_id, 
-      parseNumber(consumo_unitario), 
-      estado, 
-      data_referencia
-    );
+    `).run(compId, itemId, quantity, estado, normalizedDataRef);
     
     // Recalcula preços em cascata
-    triggerCascadeRecalculation(parseInt(req.params.id, 10), estado, data_referencia);
+    try {
+      triggerCascadeRecalculation(compId, estado, normalizedDataRef);
+    } catch (calcError) {
+      console.error("Erro ao recalcular preços após add subitem:", calcError);
+    }
     
     res.json({ 
       message: "Item adicionado/atualizado com sucesso",
-      composicao_id: req.params.id,
-      item_id: item_id
+      item_id: itemId,
+      quantidade: quantity,
+      data_referencia: normalizedDataRef
     });
-  } catch (error) {
-    console.error("Erro ao adicionar item:", error);
-    res.status(500).json({ message: "Erro ao adicionar item", error: error.message });
+  } catch (error: any) {
+    console.error("Erro ao inserir subitem:", error);
+    res.status(500).json({ message: "Erro ao inserir subitem", error: error.message });
   }
 });
 
 // DELETE /api/composicoes/:id/subitens/:itemId - Versão corrigida
 app.delete("/api/composicoes/:id/subitens/:itemId", (req, res) => {
-  const { estado = 'DF', data_referencia = '2026-04-01' } = req.body;
+  let { estado, data_referencia } = req.body;
+  
+  // Fallback to query params if not in body (common for DELETE)
+  if (!estado) estado = req.query.estado as string;
+  if (!data_referencia) data_referencia = req.query.data_referencia as string;
+  
+  if (!estado) estado = 'DF';
+  const normalizedDataRef = normalizeDate(data_referencia) || '2026-04-01';
+  
+  // Normalization
+  if (estado === 'Todos') estado = 'DF';
   
   try {
     // Verifica se a composição existe e é PRÓPRIA
-    const comp = db.prepare("SELECT base FROM v2_itens WHERE id = ? AND tipo = 'composicao'").get(req.params.id);
+    const comp = db.prepare("SELECT base FROM v2_itens WHERE id = ? AND tipo = 'composicao'").get(req.params.id) as { base: string } | undefined;
     if (!comp) {
       return res.status(404).json({ message: "Composição não encontrada" });
     }
@@ -5992,10 +6013,12 @@ app.delete("/api/composicoes/:id/subitens/:itemId", (req, res) => {
       return res.status(403).json({ message: "Apenas composições de base 'PRÓPRIA' podem ser editadas" });
     }
     
+    console.log(`[DELETE subitem] comp_id: ${req.params.id}, item_id: ${req.params.itemId}, estado: ${estado}, dataRef: ${normalizedDataRef}`);
+
     const result = db.prepare(`
       DELETE FROM v2_composicao_itens 
-      WHERE composicao_id = ? AND item_id = ? AND estado = ? AND data_referencia = ?
-    `).run(req.params.id, req.params.itemId, estado, data_referencia);
+      WHERE composicao_id = ? AND item_id = ? AND estado = ?
+    `).run(req.params.id, req.params.itemId, estado);
     
     if (result.changes === 0) {
       return res.status(404).json({ message: "Item não encontrado na composição" });
@@ -6013,7 +6036,10 @@ app.delete("/api/composicoes/:id/subitens/:itemId", (req, res) => {
 
 
   app.put("/api/composicoes/:id/subitens/:itemId", (req, res) => {
-    const { consumo_unitario, estado, data_referencia } = req.body;
+    let { consumo_unitario, estado = 'DF', data_referencia } = req.body;
+    if (estado === 'Todos') estado = 'DF';
+    const normalizedDataRef = normalizeDate(data_referencia) || '2026-04-01';
+    
     try {
       const comp = db.prepare("SELECT base FROM v2_itens WHERE id = ?").get(req.params.id) as { base: string } | undefined;
       if (!comp || comp.base !== 'PRÓPRIA') {
@@ -6022,13 +6048,11 @@ app.delete("/api/composicoes/:id/subitens/:itemId", (req, res) => {
 
       const itemId = parseInt(req.params.itemId, 10);
       const composicaoId = parseInt(req.params.id, 10);
-      db.prepare("UPDATE v2_composicao_itens SET quantidade = ? WHERE composicao_id = ? AND item_id = ? AND estado = ? AND data_referencia = ?").run(
-        parseNumber(consumo_unitario), composicaoId, itemId, estado || 'DF', data_referencia || '2026-04-01'
+      db.prepare("UPDATE v2_composicao_itens SET quantidade = ? WHERE composicao_id = ? AND item_id = ? AND estado = ?").run(
+        parseNumber(consumo_unitario), composicaoId, itemId, estado || 'DF'
       );
       
-      if (estado && data_referencia) {
-        triggerCascadeRecalculation(parseInt(req.params.id, 10), estado, data_referencia);
-      }
+      triggerCascadeRecalculation(composicaoId, estado || 'DF', normalizedDataRef);
       
       res.json({ message: "Quantidade atualizada com sucesso." });
     } catch (error: any) {
@@ -6103,10 +6127,17 @@ app.delete("/api/composicoes/:id/subitens/:itemId", (req, res) => {
           const price = db.prepare(`
             SELECT preco_unitario 
             FROM v2_precos 
-            WHERE item_id = ? AND estado = ? AND tipo_desoneracao = ? AND data_referencia <= ?
-            ORDER BY data_referencia DESC 
+            WHERE item_id = ? 
+              AND (estado = ? OR estado = 'PRÓPRIO' OR ? = 'Todos')
+              AND tipo_desoneracao = ? 
+              AND data_referencia <= ?
+            ORDER BY 
+              CASE WHEN estado = ? THEN 0 
+                   WHEN estado = 'PRÓPRIO' THEN 1 
+                   ELSE 2 END, 
+              data_referencia DESC 
             LIMIT 1
-          `).get(item.item_id, estado, tipo_desoneracao, data_referencia) as { preco_unitario: number } | undefined;
+          `).get(item.item_id, estado, estado, tipo_desoneracao, data_referencia, estado) as { preco_unitario: number } | undefined;
           
           if (price) {
             priceUnit = truncateToTwo(price.preco_unitario);

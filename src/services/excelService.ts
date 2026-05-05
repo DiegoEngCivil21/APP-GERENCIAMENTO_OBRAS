@@ -16,6 +16,7 @@ export interface ExcelReportData {
     type?: 'currency' | 'number' | 'percentage' | 'text';
     subgroup?: string[];
     keys?: string[];
+    colspan?: number;
   }[];
   rows: any[];
   summary: {
@@ -141,29 +142,36 @@ export const generateExcelReport = async (data: ExcelReportData) => {
     alignment: { wrapText: true, vertical: 'top', horizontal: 'left' }
   };
 
-  const totalPhysicalCols = data.columns.reduce((acc, col) => acc + (col.subgroup ? col.subgroup.length : 1), 0);
-  const lastColLetter = worksheet.getColumn(totalPhysicalCols).letter;
-  const numCols = totalPhysicalCols;
+  const totalPhysicalCols = data.columns.reduce((acc, col) => acc + (col.subgroup ? col.subgroup.length : (col.colspan || 1)), 0);
+  // Guarantee at least 7 columns for the header blocks to avoid overlapping
+  const numCols = Math.max(8, totalPhysicalCols); 
+  const lastColLetter = worksheet.getColumn(numCols).letter;
 
   // Distribute columns starting from column 3 (since A and B are for Logo)
   let currentStart = 3;
+  let remainingColsForHeader = Math.max(5, numCols - 2); // At least 5 spaces for 5 blocks
   
-  // Obra: ~25%
-  let obraSpan = Math.max(1, Math.floor(numCols * 0.25));
-  let colObraEnd = Math.min(numCols, currentStart + obraSpan - 1);
+  // Distribute the remaining columns proportionally but leave room for the last 3 items
+  let obraSpan = Math.max(1, Math.floor(remainingColsForHeader * 0.35));
+  let bancoSpan = Math.max(1, Math.floor(remainingColsForHeader * 0.35));
+  // Guarantee at least 3 cols left for BDI, Desconto, Encargos
+  if (obraSpan + bancoSpan + 3 > remainingColsForHeader) {
+    bancoSpan = Math.max(1, Math.floor((remainingColsForHeader - 3) / 2));
+    obraSpan = remainingColsForHeader - 3 - bancoSpan;
+  }
+  
+  let colObraEnd = Math.min(numCols, currentStart + Math.max(1, obraSpan) - 1);
   currentStart = colObraEnd + 1;
   
-  // Bancos: ~25%
-  let bancoSpan = Math.max(1, Math.floor(numCols * 0.25));
-  let colBancosEnd = Math.min(numCols, currentStart + bancoSpan - 1);
+  let colBancosEnd = Math.min(numCols, currentStart + Math.max(1, bancoSpan) - 1);
   currentStart = colBancosEnd + 1;
   
-  // BDI: 1 column
-  let colBdiEnd = Math.min(numCols, currentStart);
+  let bdiSpan = 1;
+  let colBdiEnd = Math.min(numCols, currentStart + bdiSpan - 1);
   currentStart = colBdiEnd + 1;
   
-  // Desconto: 1 column
-  let colDescontoEnd = Math.min(numCols, currentStart);
+  let descSpan = 1;
+  let colDescontoEnd = Math.min(numCols, currentStart + descSpan - 1);
   currentStart = colDescontoEnd + 1;
   
   let colEncargosEnd = numCols;
@@ -292,9 +300,10 @@ export const generateExcelReport = async (data: ExcelReportData) => {
   data.columns.forEach((col) => {
     const startColLetter = worksheet.getColumn(currentHeaderCol).letter;
     const cell1 = headerRow1.getCell(currentHeaderCol);
+    const span = col.colspan || 1;
     
     if (col.subgroup && col.keys) {
-      // Grupo de colunas
+        // Grupo de colunas
       cell1.value = col.header;
       cell1.style = headerStyle;
       
@@ -313,14 +322,23 @@ export const generateExcelReport = async (data: ExcelReportData) => {
       
       currentHeaderCol += col.subgroup.length;
     } else {
-      // Coluna normal: Mescla vertical
+      // Coluna normal: Mescla vertical (ou horizontal tbm se colspan > 1)
       cell1.value = col.header;
       cell1.style = headerStyle;
-      const cell2 = headerRow2.getCell(currentHeaderCol);
-      cell2.style = headerStyle;
+      const endColLetter = worksheet.getColumn(currentHeaderCol + span - 1).letter;
       
-      worksheet.mergeCells(`${startColLetter}6:${startColLetter}7`);
-      currentHeaderCol += 1;
+      if (span > 1) {
+        worksheet.mergeCells(`${startColLetter}6:${endColLetter}7`);
+      } else {
+        worksheet.mergeCells(`${startColLetter}6:${startColLetter}7`);
+      }
+      
+      for (let i = 0; i < span; i++) {
+        const cell2 = headerRow2.getCell(currentHeaderCol + i);
+        cell2.style = headerStyle;
+      }
+      
+      currentHeaderCol += span;
     }
   });
 
@@ -328,16 +346,36 @@ export const generateExcelReport = async (data: ExcelReportData) => {
   data.rows.forEach((rowData) => {
     const rowValues: any[] = [];
     data.columns.forEach(col => {
+      const span = col.colspan || 1;
       if (col.keys) {
         col.keys.forEach(k => rowValues.push(rowData[k]));
       } else if (col.key) {
         rowValues.push(rowData[col.key]);
+        for (let i = 1; i < span; i++) rowValues.push(null);
       } else {
         rowValues.push(null);
+        for (let i = 1; i < span; i++) rowValues.push(null);
       }
     });
 
     const row = worksheet.addRow(rowValues);
+    const rowOffset = row.number;
+    
+    // Merge cell columns with colspan > 1
+    let cIdx = 1;
+    data.columns.forEach(col => {
+      if (col.subgroup) {
+        cIdx += col.subgroup.length;
+      } else {
+        const span = col.colspan || 1;
+        if (span > 1) {
+          const startColLetter = worksheet.getColumn(cIdx).letter;
+          const endColLetter = worksheet.getColumn(cIdx + span - 1).letter;
+          worksheet.mergeCells(`${startColLetter}${rowOffset}:${endColLetter}${rowOffset}`);
+        }
+        cIdx += span;
+      }
+    });
     
     const isEtapa = rowData.tipo_item === 'etapa' || rowData.isEtapa;
 
@@ -348,7 +386,8 @@ export const generateExcelReport = async (data: ExcelReportData) => {
       if (col.subgroup) {
         col.subgroup.forEach(() => physicalColDefs.push(col));
       } else {
-        physicalColDefs.push(col);
+        const span = col.colspan || 1;
+        for (let i = 0; i < span; i++) physicalColDefs.push(col);
       }
     });
 
@@ -395,7 +434,7 @@ export const generateExcelReport = async (data: ExcelReportData) => {
 
         // Alinhamento com Wrap Text para evitar texto escondido
         if (colDef.type === 'currency' || colDef.type === 'number' || colDef.type === 'percentage') {
-          cell.alignment = { horizontal: 'right', vertical: 'middle' };
+          cell.alignment = { horizontal: 'right', vertical: 'bottom' };
         } else {
           cell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
         }
@@ -439,36 +478,44 @@ export const generateExcelReport = async (data: ExcelReportData) => {
         } else {
           if (col.key === 'peso') pesoPhysicalIdx = pIdx;
           if (col.key === 'total_geral') totalGeralPhysicalIdx = pIdx;
-          pIdx++;
+          pIdx += (col.colspan || 1);
         }
       });
       
-      // Se 'peso' existir, usa ela. Senão tenta 'total_geral'. Por fim, garante que a última coluna seja usada.
-      let valCol = numCols; 
-      if (pesoPhysicalIdx !== -1) {
-        valCol = pesoPhysicalIdx;
-      } else if (totalGeralPhysicalIdx !== -1) {
+      // Se 'total_geral' existir, usamos ela para alinhar os valores em reais (R$). Senão, tenta a última coluna.
+      let valCol = totalPhysicalCols; 
+      if (totalGeralPhysicalIdx !== -1) {
         valCol = totalGeralPhysicalIdx;
+      } else if (pesoPhysicalIdx !== -1) {
+        valCol = pesoPhysicalIdx;
       }
       
-      const labelCol = valCol - 1;
+      const labelCol = Math.max(1, valCol - 2);
       
       const addSummaryRow = (label: string, value: number) => {
         const row = worksheet.addRow([]);
+        const rowNum = row.number;
+        
+        const startLabelCol = worksheet.getColumn(labelCol).letter;
+        const endLabelCol = worksheet.getColumn(Math.max(1, valCol - 1)).letter;
+        if (startLabelCol !== endLabelCol) {
+          worksheet.mergeCells(`${startLabelCol}${rowNum}:${endLabelCol}${rowNum}`);
+        }
+        
         const labelCell = row.getCell(labelCol);
         labelCell.value = label;
         labelCell.font = { bold: true, size: 10 };
-        labelCell.alignment = { horizontal: 'right' };
+        labelCell.alignment = { horizontal: 'right', vertical: 'bottom' };
         
         const valCell = row.getCell(valCol);
         valCell.value = value;
         valCell.font = { bold: true, size: 10 };
         valCell.numFmt = '#,##0.00';
-        valCell.alignment = { horizontal: 'right', vertical: 'middle' };
+        valCell.alignment = { horizontal: 'right', vertical: 'bottom' };
         
         // Garante que a coluna do valor tenha largura suficiente para o total
-        if (worksheet.getColumn(valCol).width < 20) {
-          worksheet.getColumn(valCol).width = 20;
+        if ((worksheet.getColumn(valCol).width || 0) < 18) {
+          worksheet.getColumn(valCol).width = 18;
         }
       };
 
@@ -494,8 +541,8 @@ export const generateExcelReport = async (data: ExcelReportData) => {
   if (assinatura2.trim() !== '') {
     // Duas assinaturas (Lado a Lado)
     // Assinatura 1
-    const startCol1 = worksheet.getColumn(Math.max(2, Math.floor(numCols * 0.2))).letter;
-    const endCol1 = worksheet.getColumn(Math.max(4, Math.floor(numCols * 0.4))).letter;
+    const startCol1 = worksheet.getColumn(Math.max(1, Math.floor(totalPhysicalCols * 0.1))).letter;
+    const endCol1 = worksheet.getColumn(Math.max(2, Math.floor(totalPhysicalCols * 0.4))).letter;
     worksheet.mergeCells(`${startCol1}${signRow}:${endCol1}${signRow}`);
     const borderCell1 = worksheet.getCell(`${startCol1}${signRow}`);
     borderCell1.border = { top: { style: 'medium' } };
@@ -506,8 +553,8 @@ export const generateExcelReport = async (data: ExcelReportData) => {
     worksheet.getRow(signRow + 1).height = 40;
 
     // Assinatura 2
-    const startCol2 = worksheet.getColumn(Math.max(5, Math.floor(numCols * 0.6))).letter;
-    const endCol2 = worksheet.getColumn(Math.max(8, Math.floor(numCols * 0.8))).letter;
+    const startCol2 = worksheet.getColumn(Math.min(totalPhysicalCols, Math.max(Math.floor(totalPhysicalCols / 2) + 1, Math.floor(totalPhysicalCols * 0.6)))).letter;
+    const endCol2 = worksheet.getColumn(Math.min(totalPhysicalCols, Math.max(Math.floor(totalPhysicalCols / 2) + 2, Math.floor(totalPhysicalCols * 0.8)))).letter;
     worksheet.mergeCells(`${startCol2}${signRow}:${endCol2}${signRow}`);
     const borderCell2 = worksheet.getCell(`${startCol2}${signRow}`);
     borderCell2.border = { top: { style: 'medium' } };
@@ -517,9 +564,9 @@ export const generateExcelReport = async (data: ExcelReportData) => {
     cellSign2.alignment = { horizontal: 'center', wrapText: true, vertical: 'top' };
   } else {
     // Uma assinatura apenas (Centralizada)
-    const midCol = Math.floor(numCols / 2);
-    const startCol = worksheet.getColumn(Math.max(2, midCol - 1)).letter;
-    const endCol = worksheet.getColumn(Math.min(numCols - 1, midCol + 2)).letter;
+    const midCol = Math.max(2, Math.floor(totalPhysicalCols / 2));
+    const startCol = worksheet.getColumn(Math.max(1, midCol - 1)).letter;
+    const endCol = worksheet.getColumn(Math.min(totalPhysicalCols, midCol + 1)).letter;
     
     worksheet.mergeCells(`${startCol}${signRow}:${endCol}${signRow}`);
     const borderCell = worksheet.getCell(`${startCol}${signRow}`);
@@ -552,7 +599,7 @@ export const generateExcelReport = async (data: ExcelReportData) => {
   data.columns.forEach((col) => {
     if (col.subgroup && col.keys) {
       col.subgroup.forEach((sub, sIdx) => {
-        let width = widthMap[col.keys![sIdx]] || col.width || 12;
+        let width = col.width || widthMap[col.keys![sIdx]] || 12;
         if (col.type === 'currency' || col.keys![sIdx].includes('total') || col.keys![sIdx].includes('valor')) {
           width = Math.max(width, 14);
         }
@@ -560,12 +607,18 @@ export const generateExcelReport = async (data: ExcelReportData) => {
         currentWidthCol++;
       });
     } else {
-      let width = widthMap[col.key!] || col.width || 12;
+      const span = col.colspan || 1;
+      let totalWidth = col.width || widthMap[col.key!] || 12;
       if (col.type === 'currency' || col.key === 'total_geral' || col.key === 'valor_unit_com_bdi') {
-        width = Math.max(width, 18);
+        totalWidth = Math.max(totalWidth, 18);
       }
-      worksheet.getColumn(currentWidthCol).width = width;
-      currentWidthCol++;
+      
+      // Distribute width evenly among spanned columns
+      const widthPerCol = totalWidth / span;
+      for (let i = 0; i < span; i++) {
+        worksheet.getColumn(currentWidthCol + i).width = widthPerCol;
+      }
+      currentWidthCol += span;
     }
   });
 

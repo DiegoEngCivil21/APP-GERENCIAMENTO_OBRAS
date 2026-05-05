@@ -1033,9 +1033,17 @@ const InsumosMgmtView = ({ isAdmin, isMaster }: InsumosMgmtViewProps) => {
                       <>
                         <button 
                           onClick={() => openEditModal(insumo)}
-                          className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-white rounded-lg border border-transparent hover:border-slate-100 transition-all"
+                          className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-50 rounded border border-slate-200 transition-all font-bold"
+                          title="Editar"
                         >
                           <Edit2 size={14} />
+                        </button>
+                        <button 
+                          onClick={() => setDeleteConfirm({ type: 'single', id: insumo.id_insumo })}
+                          className="p-1.5 text-slate-400 hover:text-red-500 transition-all border border-slate-200 rounded hover:border-red-200 hover:bg-red-50"
+                          title="Excluir"
+                        >
+                          <Trash2 size={14} />
                         </button>
                       </>
                     ) : (
@@ -1079,8 +1087,8 @@ const InsumosMgmtView = ({ isAdmin, isMaster }: InsumosMgmtViewProps) => {
                 onClick={() => {
                   if (deleteConfirm.type === 'bulk') {
                     handleBulkDelete();
-                  } else if (deleteConfirm.id) {
-                    handleDelete(deleteConfirm.id);
+                  } else if (deleteConfirm.id !== undefined) {
+                    handleDelete(Number(deleteConfirm.id));
                     setDeleteConfirm(null);
                   }
                 }}

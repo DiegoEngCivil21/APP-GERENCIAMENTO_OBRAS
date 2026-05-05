@@ -35,8 +35,10 @@ const ComposicaoDetailView = ({
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
   const quantityInputRef = useRef<HTMLInputElement>(null);
   const [isRecalculating, setIsRecalculating] = useState(false);
+  const [isAdding, setIsAdding] = useState(false);
   const [resolvedDataRef, setResolvedDataRef] = useState<string>('');
   const [resolvedEstado, setResolvedEstado] = useState<string>('');
+  const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'composition' | 'subitem', id?: number | string } | null>(null);
 
   useEffect(() => {
     if (toast) {
@@ -110,7 +112,7 @@ const ComposicaoDetailView = ({
   const [totalDesonerado, setTotalDesonerado] = useState(0);
 
   const handleAddSubitem = async () => {
-    if (!selectedItemToAdd) return;
+    if (!selectedItemToAdd || isAdding) return;
     
     // Check if it's a new item (not yet in the database)
     if (selectedItemToAdd.isNew) {
@@ -121,53 +123,90 @@ const ComposicaoDetailView = ({
       return;
     }
 
-    // Ensure we have the correct ID regardless of whether it's an insumo or composition
-    const resolvedType = selectedItemToAdd.type || itemTypeToAdd;
-    const itemId = (resolvedType === 'insumo' || selectedItemToAdd.id_insumo) 
-      ? selectedItemToAdd.id_insumo 
-      : selectedItemToAdd.id_composicao;
+    setIsAdding(true);
+
+    // We strictly need the 'item_id' which corresponds to v2_itens.id
+    const itemId = selectedItemToAdd.item_id || 
+                   selectedItemToAdd.id_insumo || 
+                   selectedItemToAdd.id_composicao || 
+                   selectedItemToAdd.id;
+
+    console.log('Attempting to add subitem:', { composicaoId, itemId, itemQuantity });
 
     if (!itemId) {
-      setToast({ message: 'Erro: ID do item não encontrado.', type: 'error' });
+      setToast({ message: 'Erro: Identificador do item não encontrado. Tente selecionar novamente.', type: 'error' });
+      setIsAdding(false);
       return;
     }
 
-    const payload = {
-      item_id: itemId,
-      consumo_unitario: itemQuantity,
-      estado: resolvedEstado || estado,
-      data_referencia: resolvedDataRef || dataReferencia
-    };
+    try {
+      const payload = {
+        item_id: itemId,
+        consumo_unitario: itemQuantity,
+        estado: resolvedEstado || estado,
+        data_referencia: resolvedDataRef || dataReferencia
+      };
 
-    const res = await fetch(`/api/composicoes/${composicaoId}/subitens`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
+      const res = await fetch(`/api/composicoes/${composicaoId}/subitens`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
 
-    if (res.ok) {
-      fetchData();
-      setShowAddItem(false);
-      setSelectedItemToAdd(null);
-      setItemQuantity(1);
-      setToast({ message: 'Item adicionado com sucesso!', type: 'success' });
-    } else {
-      setToast({ message: 'Erro ao adicionar item.', type: 'error' });
+      if (res.ok) {
+        // Clear inputs first
+        setSelectedItemToAdd(null);
+        setItemQuantity(1);
+        setToast({ message: 'Item adicionado com sucesso!', type: 'success' });
+        
+        // REFRESH DATA
+        await fetchData();
+      } else {
+        const errorData = await res.json().catch(() => ({}));
+        setToast({ message: errorData.message || 'Erro ao adicionar item.', type: 'error' });
+      }
+    } catch (e) {
+      console.error('Add error:', e);
+      setToast({ message: 'Erro de conexão ao adicionar item.', type: 'error' });
+    } finally {
+      setIsAdding(false);
     }
   };
 
   const handleRemoveSubitem = async (itemId: number) => {
-    if (!confirm('Remover este item da composição?')) return;
-    
-    const res = await fetch(`/api/composicoes/${composicaoId}/subitens/${itemId}?estado=${resolvedEstado || estado}&data_referencia=${resolvedDataRef || dataReferencia}`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ estado, data_referencia: resolvedDataRef || dataReferencia })
-    });
+    try {
+      const res = await fetch(`/api/composicoes/${composicaoId}/subitens/${itemId}?estado=${resolvedEstado || estado}&data_referencia=${resolvedDataRef || dataReferencia}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' }
+      });
 
-    if (res.ok) {
-      fetchData();
-      setToast({ message: 'Item removido com sucesso!', type: 'success' });
+      if (res.ok) {
+        setToast({ message: 'Item removido com sucesso!', type: 'success' });
+        fetchData();
+      } else {
+        const errorData = await res.json().catch(() => ({}));
+        setToast({ message: errorData.message || 'Erro ao remover item.', type: 'error' });
+      }
+    } catch (e) {
+      setToast({ message: 'Erro de conexão ao remover item.', type: 'error' });
+    }
+  };
+
+  const handleDeleteComposition = async () => {
+    if (!composicaoId) return;
+    try {
+      const res = await fetch(`/api/composicoes/${composicaoId}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        setToast({ message: 'Composição excluída com sucesso!', type: 'success' });
+        setTimeout(() => onBack(), 1000);
+      } else {
+        const errorData = await res.json().catch(() => ({}));
+        setToast({ message: errorData.message || 'Erro ao excluir composição.', type: 'error' });
+      }
+    } catch (e) {
+      setToast({ message: 'Erro de conexão.', type: 'error' });
     }
   };
 
@@ -227,10 +266,19 @@ const ComposicaoDetailView = ({
             {composicao.descricao?.replace(/^[\d\.]+\s*/, '')}
           </p>
         </div>
-        {!isPropria && (
+        {!isPropria ? (
           <div className="ml-auto px-3 py-1 bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-bold uppercase rounded-lg">
             Base Oficial - Somente Leitura
           </div>
+        ) : isAdmin && (
+          <button
+            onClick={() => setDeleteConfirm({ type: 'composition' })}
+            className="flex items-center gap-2 px-4 py-2 bg-white border-2 border-red-100 text-red-500 rounded-xl hover:bg-red-50 hover:border-red-200 transition-all font-black text-xs uppercase tracking-widest shadow-sm active:scale-95 ml-auto"
+            title="Excluir Composição Base"
+          >
+            <Trash2 size={16} />
+            EXCLUIR
+          </button>
         )}
       </div>
 
@@ -295,124 +343,187 @@ const ComposicaoDetailView = ({
               }}>
                 {isRecalculating ? 'Recalculando...' : 'Recalcular'}
               </Button>
-              <Button variant="primary" icon={Plus} onClick={() => setShowAddItem(true)}>
-                Adicionar Item
-              </Button>
+              {!showAddItem && (
+                <Button variant="primary" icon={Plus} onClick={() => {
+                  setSelectedItemToAdd(null);
+                  setShowAddItem(true);
+                }}>
+                  Adicionar Item
+                </Button>
+              )}
             </div>
           )}
         </div>
 
-        {showAddItem && isAdmin && isPropria && (
-          <div className="p-4 bg-indigo-50/50 border-b border-indigo-100 space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex bg-white p-1 rounded-lg border border-slate-200">
-                <button 
-                  onClick={() => { setItemTypeToAdd('both'); setSelectedItemToAdd(null); }}
-                  className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${itemTypeToAdd === 'both' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
-                >
-                  Tudo
-                </button>
-                <button 
-                  onClick={() => { setItemTypeToAdd('insumo'); setSelectedItemToAdd(null); }}
-                  className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${itemTypeToAdd === 'insumo' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
-                >
-                  Insumo
-                </button>
-                <button 
-                  onClick={() => { setItemTypeToAdd('composicao'); setSelectedItemToAdd(null); }}
-                  className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${itemTypeToAdd === 'composicao' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
-                >
-                  Composição
-                </button>
-              </div>
-
-              {selectedItemToAdd && (
-                <div className="flex items-center gap-3 bg-white px-3 py-1.5 rounded-lg border border-indigo-200 animate-in fade-in slide-in-from-right-4">
-                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-black ${selectedItemToAdd.type === 'composicao' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                    {selectedItemToAdd.type === 'composicao' ? 'C' : 'I'}
-                  </span>
-                  <span className="text-xs font-bold text-indigo-700">{selectedItemToAdd.codigo || selectedItemToAdd.codigo_composicao}</span>
-                  <span className="text-xs text-slate-600 truncate max-w-[300px]">{selectedItemToAdd.descricao}</span>
-                  <button onClick={() => setSelectedItemToAdd(null)} className="text-slate-400 hover:text-red-500">
-                    <X size={14} />
-                  </button>
-                </div>
-              )}
-            </div>
-            <div className="flex items-end gap-4">
-              <div className="flex-1 relative">
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Buscar Item {itemTypeToAdd === 'both' ? '' : (itemTypeToAdd === 'insumo' ? '(Insumo)' : '(Composição)')}
-                </label>
-                <AutocompleteDropdown 
-                  type={itemTypeToAdd} 
-                  estado={resolvedEstado || estado}
-                  dataReferencia={resolvedDataRef || dataReferencia}
-                  dropdownStyle={{ left: '50%', transform: 'translateX(-50%)', width: '1000px', minWidth: '1000px' }}
-                  onSelect={(item) => {
-                    setSelectedItemToAdd(item);
-                    // Focus quantity input automatically after selection
-                    setTimeout(() => {
-                      if (quantityInputRef.current) {
-                        quantityInputRef.current.focus();
-                        quantityInputRef.current.select();
-                      }
-                    }, 50);
-                  }} 
-                  placeholder="Digite o código ou descrição..."
-                />
-              </div>
-              <div className="w-32">
-                <label className="block text-xs font-bold text-slate-700 mb-1">Quantidade</label>
-                <input 
-                  ref={quantityInputRef}
-                  type="number" 
-                  min="0.0000001" 
-                  step="0.0000001"
-                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                  value={itemQuantity}
-                  onChange={(e) => setItemQuantity(parseFloat(e.target.value))}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && selectedItemToAdd) {
-                      handleAddSubitem();
-                    }
-                  }}
-                />
-              </div>
-              <div className="flex gap-2">
-                <Button variant="primary" onClick={handleAddSubitem} disabled={!selectedItemToAdd}>
-                  Adicionar
-                </Button>
-                <Button variant="secondary" onClick={() => {
-                  setShowAddItem(false);
-                  setSelectedItemToAdd(null);
-                }}>
-                  Cancelar
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white shadow-sm mb-6 min-h-[500px] budget-table-container">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="px-3 py-1.5 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">C/I</th>
-                <th className="px-3 py-1.5 text-xs font-bold text-slate-500 uppercase tracking-wider">Base</th>
-                <th className="px-3 py-1.5 text-xs font-bold text-slate-500 uppercase tracking-wider">Código</th>
-                <th className="px-3 py-1.5 text-xs font-bold text-slate-500 uppercase tracking-wider">Descrição</th>
-                <th className="px-3 py-1.5 text-xs font-bold text-slate-500 uppercase tracking-wider">Categoria</th>
-                <th className="px-3 py-1.5 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Und</th>
-                <th className="px-3 py-1.5 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Valor Não Deson.</th>
-                <th className="px-3 py-1.5 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Valor Deson.</th>
-                <th className="px-3 py-1.5 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Coeficiente</th>
-                <th className="px-3 py-1.5 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Total Não Deson.</th>
-                <th className="px-3 py-1.5 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Total Deson.</th>
-                {isAdmin && <th className="px-3 py-1.5 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Ações</th>}
+                <th className="px-3 py-2 text-[10px] font-black text-slate-500 uppercase tracking-wider text-center w-12">C/I</th>
+                <th className="px-3 py-2 text-[10px] font-black text-slate-500 uppercase tracking-wider">Base</th>
+                <th className="px-3 py-2 text-[10px] font-black text-slate-500 uppercase tracking-wider">Código</th>
+                <th className="px-3 py-2 text-[10px] font-black text-slate-500 uppercase tracking-wider min-w-[300px]">Descrição</th>
+                <th className="px-3 py-2 text-[10px] font-black text-slate-500 uppercase tracking-wider">Categoria</th>
+                <th className="px-3 py-2 text-[10px] font-black text-slate-500 uppercase tracking-wider text-center">Und</th>
+                <th className="px-3 py-2 text-[10px] font-black text-slate-500 uppercase tracking-wider text-right">V. Não Deson.</th>
+                <th className="px-3 py-2 text-[10px] font-black text-slate-500 uppercase tracking-wider text-right">V. Deson.</th>
+                <th className="px-3 py-2 text-[10px] font-black text-slate-500 uppercase tracking-wider text-center w-32">Coeficiente</th>
+                <th className="px-3 py-2 text-[10px] font-black text-slate-500 uppercase tracking-wider text-right">T. Não Des.</th>
+                <th className="px-3 py-2 text-[10px] font-black text-slate-500 uppercase tracking-wider text-right">T. Des.</th>
+                {isAdmin && <th className="px-3 py-2 text-[10px] font-black text-slate-500 uppercase tracking-wider text-center">Ações</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
+              {showAddItem && isAdmin && isPropria && (
+                <tr className="bg-indigo-50/50 border-b-2 border-indigo-200 animate-in slide-in-from-top-2 duration-300">
+                  <td className="px-3 py-4 text-center">
+                    <span className={`w-8 h-8 flex items-center justify-center rounded-lg text-xs font-black shadow-sm mx-auto ${selectedItemToAdd?.type === 'composicao' ? 'bg-emerald-500 text-white' : selectedItemToAdd ? 'bg-amber-500 text-white' : 'bg-slate-200 text-slate-400'}`}>
+                      {selectedItemToAdd?.type === 'composicao' ? 'C' : selectedItemToAdd ? 'I' : '?'}
+                    </span>
+                  </td>
+                  <td className="px-3 py-4">
+                    <div className="flex flex-col gap-1 items-center">
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">BANCO</span>
+                      <span className="text-[11px] font-black text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                        {selectedItemToAdd?.base || '-'}
+                      </span>
+                      {!selectedItemToAdd && (
+                        <select 
+                          className="text-[9px] bg-white border border-slate-200 rounded p-0.5 font-bold outline-none mt-1"
+                          onChange={(e) => setItemTypeToAdd(e.target.value as any)}
+                          value={itemTypeToAdd}
+                        >
+                          <option value="both">TUDO</option>
+                          <option value="insumo">INSUMO</option>
+                          <option value="composicao">COMP</option>
+                        </select>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-3 py-4">
+                    <div className="flex flex-col gap-1 items-center">
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">CÓDIGO</span>
+                      <span className="text-[12px] font-black text-indigo-600 font-mono">
+                        {selectedItemToAdd?.codigo || '-'}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="px-3 py-4 relative">
+                    {!selectedItemToAdd ? (
+                      <AutocompleteDropdown 
+                        type={itemTypeToAdd} 
+                        estado={resolvedEstado || estado}
+                        dataReferencia={resolvedDataRef || dataReferencia}
+                        dropdownStyle={{ left: '0', width: '900px', minWidth: '900px', top: '100%' }}
+                        onSelect={(item) => {
+                          console.log('Item selected for addition:', item);
+                          // Ensure we collect EVERY possible ID field because different versions of the API use different keys
+                          const normalizedItem = {
+                            ...item,
+                            type: item.itemType || (item.codigo_composicao ? 'composicao' : 'insumo'),
+                            codigo: item.codigo_composicao || item.codigo || item.item_id || item.id_insumo || item.id_composicao,
+                            item_id: item.item_id || item.id_insumo || item.id_composicao || item.id
+                          };
+                          setSelectedItemToAdd(normalizedItem);
+                          // Auto focus quantity after selection
+                          setTimeout(() => {
+                            if (quantityInputRef.current) {
+                                quantityInputRef.current.focus();
+                                quantityInputRef.current.select();
+                            }
+                          }, 100);
+                        }}
+                        placeholder="Clique para pesquisar insumos ou composições..."
+                      />
+                    ) : (
+                      <div className="flex items-center justify-between gap-3 bg-indigo-50 px-3 py-2 rounded-xl border-2 border-indigo-200 shadow-sm animate-in zoom-in-95 duration-200">
+                        <div className="flex items-center gap-2 overflow-hidden">
+                           <span className={`w-5 h-5 flex-shrink-0 flex items-center justify-center rounded text-[9px] font-black ${selectedItemToAdd.type === 'composicao' ? 'bg-emerald-500 text-white' : 'bg-amber-500 text-white'}`}>
+                             {selectedItemToAdd.type === 'composicao' ? 'C' : 'I'}
+                           </span>
+                           <span className="text-[12px] font-bold text-slate-800 truncate">{selectedItemToAdd.descricao}</span>
+                        </div>
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedItemToAdd(null);
+                          }}
+                          className="p-1.5 text-indigo-400 hover:text-indigo-600 hover:bg-white rounded-lg transition-all"
+                          title="Trocar item"
+                        >
+                          <RefreshCw size={14} />
+                        </button>
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-3 py-4 text-[9px] font-black text-slate-400 uppercase">
+                    {selectedItemToAdd?.type === 'composicao' ? 'Composição' : selectedItemToAdd ? 'Insumo' : '-'}
+                  </td>
+                  <td className="px-3 py-4 text-[10px] font-black text-slate-500 text-center uppercase">
+                    {selectedItemToAdd?.unidade || '-'}
+                  </td>
+                  <td className="px-3 py-4 text-right text-[11px] font-black text-slate-700 font-mono">
+                    {selectedItemToAdd ? formatTruncated(selectedItemToAdd.valor_nao_desonerado || 0) : '-'}
+                  </td>
+                  <td className="px-3 py-4 text-right text-[11px] font-black text-slate-700 font-mono">
+                    {selectedItemToAdd ? formatTruncated(selectedItemToAdd.valor_desonerado || 0) : '-'}
+                  </td>
+                  <td className="px-3 py-4">
+                    <div className="relative">
+                      <input
+                        ref={quantityInputRef}
+                        type="number"
+                        value={itemQuantity}
+                        onChange={(e) => setItemQuantity(e.target.value === '' ? 0 : parseFloat(e.target.value))}
+                        disabled={!selectedItemToAdd || isAdding}
+                        className="h-9 w-full bg-white border-2 border-slate-200 rounded-lg px-2 text-[12px] font-black font-mono focus:border-indigo-500 outline-none text-center shadow-sm"
+                        placeholder="0.000"
+                        step="0.0001"
+                        onKeyDown={(e) => e.key === 'Enter' && handleAddSubitem()}
+                      />
+                    </div>
+                  </td>
+                  <td className="px-3 py-4 text-right text-[10px] font-black text-slate-400 font-mono">
+                    {selectedItemToAdd ? formatTruncated((selectedItemToAdd.valor_nao_desonerado || 0) * itemQuantity) : '-'}
+                  </td>
+                  <td className="px-3 py-4 text-right text-[11px] font-black text-indigo-500 font-mono">
+                    {selectedItemToAdd ? formatTruncated((selectedItemToAdd.valor_desonerado || 0) * itemQuantity) : '-'}
+                  </td>
+                  <td className="px-3 py-4">
+                    <div className="flex gap-1 justify-center">
+                      <button 
+                        onClick={handleAddSubitem}
+                        disabled={!selectedItemToAdd || isAdding || itemQuantity <= 0}
+                        className={`h-10 px-4 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 group whitespace-nowrap font-black text-[10px] uppercase tracking-widest ${
+                          (!selectedItemToAdd || isAdding || itemQuantity <= 0)
+                            ? 'bg-slate-100 text-slate-300 shadow-none' 
+                            : 'bg-emerald-500 text-white hover:bg-emerald-600 shadow-emerald-200'
+                        }`}
+                      >
+                        {isAdding ? (
+                          <RefreshCw size={16} className="animate-spin" />
+                        ) : (
+                          <>
+                            <Check size={18} className="group-hover:scale-110 transition-transform" />
+                            <span>Confirmar</span>
+                          </>
+                        )}
+                      </button>
+                      <button 
+                        onClick={() => {
+                          setShowAddItem(false);
+                          setSelectedItemToAdd(null);
+                        }}
+                        disabled={isAdding}
+                        className="h-9 w-9 flex items-center justify-center rounded-lg bg-white border-2 border-slate-200 text-slate-400 hover:text-red-500 hover:border-red-200 transition-all active:scale-95"
+                        title="Cancelar"
+                      >
+                        <X size={20} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )}
               {subitens.length > 0 ? subitens.map((sub, idx) => (
                 <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
                   <td className="px-3 py-1.5 text-[13px] font-bold text-center">
@@ -484,11 +595,11 @@ const ComposicaoDetailView = ({
                   {isAdmin && isPropria && (
                     <td className="px-3 py-1.5 text-center">
                       <button 
-                        onClick={() => handleRemoveSubitem(sub.id_comp_insumo)}
-                        className="text-slate-400 hover:text-red-500 transition-colors p-1"
+                        onClick={() => setDeleteConfirm({ type: 'subitem', id: sub.id_comp_insumo })}
+                        className="text-slate-400 hover:text-red-500 transition-all p-1.5 border border-slate-200 rounded hover:border-red-200 hover:bg-red-50"
                         title="Remover Item"
                       >
-                        <Trash2 size={16} />
+                        <Trash2 size={14} />
                       </button>
                     </td>
                   )}
@@ -504,6 +615,72 @@ const ComposicaoDetailView = ({
           </table>
         </div>
       </div>
+      {showAddItem && isAdmin && isPropria && (
+        <div className="mt-4 p-4 bg-indigo-50/30 border border-indigo-100 rounded-2xl">
+          <p className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em] mb-3">Pesquisar para Adicionar</p>
+          <AutocompleteDropdown 
+             type={itemTypeToAdd} 
+             estado={resolvedEstado || estado}
+             dataReferencia={resolvedDataRef || dataReferencia}
+             onSelect={(item) => {
+               console.log('Item selected for addition:', item);
+               const normalizedItem = {
+                 ...item,
+                 type: item.itemType || (item.codigo_composicao ? 'composicao' : 'insumo'),
+                 codigo: item.codigo_composicao || item.codigo || item.item_id || item.id_insumo || item.id_composicao,
+                 item_id: item.item_id || item.id_insumo || item.id_composicao || item.id
+               };
+               setSelectedItemToAdd(normalizedItem);
+               setTimeout(() => quantityInputRef.current?.focus(), 50);
+             }}
+             placeholder="Pesquise o código ou descrição do item..."
+          />
+        </div>
+      )}
+
+      {deleteConfirm && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-[100] p-4 font-sans">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }} 
+            animate={{ opacity: 1, scale: 1 }} 
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden p-8 text-center"
+          >
+            <div className="w-20 h-20 bg-red-50 text-red-500 rounded-3xl flex items-center justify-center mx-auto mb-6 transform rotate-3">
+              <Trash2 size={40} />
+            </div>
+            <h3 className="text-2xl font-black text-slate-900 mb-2 uppercase tracking-tight">Confirmar Exclusão</h3>
+            <p className="text-slate-500 text-sm font-medium mb-8">
+              {deleteConfirm.type === 'subitem' 
+                ? 'Tem certeza que deseja remover este item desta composição?' 
+                : 'Tem certeza que deseja excluir esta composição permanentemente?'}
+              <br/><span className="text-red-500 font-bold">Esta ação não pode ser desfeita.</span>
+            </p>
+            <div className="flex gap-3">
+              <Button 
+                variant="secondary"
+                className="flex-1"
+                onClick={() => setDeleteConfirm(null)}
+              >
+                Cancelar
+              </Button>
+              <Button 
+                variant="danger"
+                className="flex-1"
+                onClick={() => {
+                  if (deleteConfirm.type === 'subitem' && deleteConfirm.id !== undefined) {
+                    handleRemoveSubitem(Number(deleteConfirm.id));
+                  } else if (deleteConfirm.type === 'composition') {
+                    handleDeleteComposition();
+                  }
+                  setDeleteConfirm(null);
+                }}
+              >
+                Excluir
+              </Button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </motion.div>
   );
 };
