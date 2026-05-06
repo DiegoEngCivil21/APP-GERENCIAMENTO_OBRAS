@@ -3373,7 +3373,7 @@ function AppContent() {
       {/* Main Content */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
         {/* Fixed Header Area */}
-        <div id="top-toolbar-wrapper" className="px-4 pt-6 pb-2 z-50">
+        <div id="top-toolbar-wrapper" className="px-4 pt-6 pb-2 z-[100]">
           <TopToolbar onNavigate={handleNavigate} user={user} activeObraId={selectedObraId} />
         </div>
 

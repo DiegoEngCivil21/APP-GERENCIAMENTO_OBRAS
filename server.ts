@@ -2546,16 +2546,18 @@ async function startServer() {
 
   app.get("/api/obras/:id/orcamento", (req, res) => {
     try {
-      const { desonerado, estado, data_referencia, bancos_ativos } = req.query;
+      const { desonerado, estado, data_referencia, bancos_ativos, analitico } = req.query;
       const isDesonerado = desonerado === 'true';
+      const isAnalitico = analitico === 'true';
       const tipoDesoneracao = isDesonerado ? 'Desonerado' : 'Não Desonerado';
       const estadoFilter = estado || 'DF';
       const dataRefFilter = data_referencia || '2026-04-01';
 
-      const obra = db.prepare("SELECT bdi, bdi_incidencia, bancos_ativos FROM v2_obras WHERE id = ?").get(req.params.id) as any;
+      const obra = db.prepare("SELECT bdi, bdi_incidencia, bancos_ativos, encargos_horista, encargos_mensalista, encargos_incidir FROM v2_obras WHERE id = ?").get(req.params.id) as any;
       const bdi = obra ? (obra.bdi ?? 0) : 0;
       const bdiIncidencia = obra?.bdi_incidencia || 'unitario';
-      
+      const lsPercent = (obra?.encargos_horista || 0) / 100;
+      const encargosIncidir = obra?.encargos_incidir !== 0; 
       let bancosAtivos: any[] = [];
       if (bancos_ativos) {
         try {
@@ -2692,8 +2694,14 @@ async function startServer() {
         let custo_mao_obra = 0;
         let custo_equipamento = 0;
 
+        let filhos: any[] = [];
         // If it's a composition, calculate breakdown dynamically
         if (it.item_tipo === 'composicao') {
+          if (isAnalitico) {
+            const tree = getCompositionTree(it.item_id, estadoFilter, dataRefFilter, tipoDesoneracao, bancosAtivos);
+            filhos = tree.items || [];
+          }
+
           const flatItems = getFlatCompositionItems(it.item_id, estadoFilter, dataRefFilter, tipoDesoneracao, bancosAtivos);
           
           for (const flat of flatItems) {
@@ -2702,11 +2710,11 @@ async function startServer() {
             const tipoItem = (flat.tipo_item || flat.tipo || '').toLowerCase();
             
             if (cat.includes('mão de obra') || cat.includes('mao de obra') || tipoItem === 'mao_de_obra' || desc.includes('mão de obra')) {
-              custo_mao_obra += flat.preco_unitario * flat.quantidade;
+              custo_mao_obra += (flat.preco_unitario || 0) * (flat.quantidade || 0);
             } else if (cat.includes('equipamento') || tipoItem === 'equipamento' || desc.includes('equipamento')) {
-              custo_equipamento += flat.preco_unitario * flat.quantidade;
+              custo_equipamento += (flat.preco_unitario || 0) * (flat.quantidade || 0);
             } else {
-              custo_material += flat.preco_unitario * flat.quantidade; // Fallback
+              custo_material += (flat.preco_unitario || 0) * (flat.quantidade || 0); // Fallback
             }
           }
           
@@ -2753,7 +2761,8 @@ async function startServer() {
           item: it.item_numero || '',
           etapa_nome: etapa ? etapa.nome : '',
           valor_bdi,
-          total
+          total,
+          filhos
         });
       }
 
@@ -4252,19 +4261,35 @@ async function startServer() {
       if (items.length === 0) return res.json([]);
 
       // Expand all items into a flat list of insumos
-      const insumosAchatados = new Map<number, { descricao: string, quantidade: number, valor_unitario: number }>();
+      const insumosAchatados = new Map<number, { codigo: string, descricao: string, unidade: string, categoria: string, base: string, quantidade: number, valor_unitario: number }>();
 
       for (const item of items) {
         if (item.tipo === 'insumo') {
-          const info = db.prepare("SELECT nome FROM v2_itens WHERE id = ?").get(item.item_id) as { nome: string };
-          const existing = insumosAchatados.get(item.item_id) || { descricao: info.nome, quantidade: 0, valor_unitario: item.valor_unitario };
+          const info = db.prepare("SELECT codigo, nome, unidade, categoria, base FROM v2_itens WHERE id = ?").get(item.item_id) as any;
+          const existing = insumosAchatados.get(item.item_id) || { 
+            codigo: info.codigo, 
+            descricao: info.nome, 
+            unidade: info.unidade, 
+            categoria: info.categoria || 'Material',
+            base: info.base,
+            quantidade: 0, 
+            valor_unitario: item.valor_unitario 
+          };
           existing.quantidade += item.quantidade;
           insumosAchatados.set(item.item_id, existing);
         } else {
           // Expand composition
           const subItems = getFlatCompositionItems(item.item_id, estado, dataRef, isDesonerado ? 'Desonerado' : 'Não Desonerado', parsedBancosAtivos);
           for (const sub of subItems) {
-            const existing = insumosAchatados.get(sub.item_id) || { descricao: sub.descricao, quantidade: 0, valor_unitario: sub.preco_unitario };
+            const existing = insumosAchatados.get(sub.item_id) || { 
+              codigo: sub.codigo, 
+              descricao: sub.descricao, 
+              unidade: sub.unidade, 
+              categoria: sub.categoria || 'Material',
+              base: sub.base || 'SINAPI',
+              quantidade: 0, 
+              valor_unitario: sub.preco_unitario 
+            };
             existing.quantidade += sub.quantidade * item.quantidade;
             insumosAchatados.set(sub.item_id, existing);
           }
@@ -4273,7 +4298,7 @@ async function startServer() {
 
       // Convert map to array and calculate totals
       const orcamento = Array.from(insumosAchatados.values()).map(it => ({
-        descricao: it.descricao,
+        ...it,
         total: bdiIncidencia === 'unitario' ? it.quantidade * (it.valor_unitario * (1 + bdi / 100)) : it.quantidade * it.valor_unitario
       })).sort((a, b) => b.total - a.total);
 

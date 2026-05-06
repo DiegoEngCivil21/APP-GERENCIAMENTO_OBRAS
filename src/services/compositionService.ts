@@ -142,7 +142,7 @@ export function getCompositionTree(composicaoId, estado, dataReferencia, tipoDes
     const dataRefBanco = bancoAtivo?.data_referencia || dataReferencia;
     
     let items = db.prepare(`
-      SELECT ci.*, i.nome, i.codigo, i.unidade, i.tipo, i.categoria
+      SELECT ci.*, i.nome, i.codigo, i.unidade, i.tipo, i.categoria, i.base
       FROM v2_composicao_itens ci
       JOIN v2_itens i ON ci.item_id = i.id
       WHERE ci.composicao_id = ?
@@ -165,7 +165,7 @@ export function getCompositionTree(composicaoId, estado, dataReferencia, tipoDes
       
       if (anyDate) {
         items = db.prepare(`
-          SELECT ci.*, i.nome, i.codigo, i.unidade, i.tipo, i.categoria
+          SELECT ci.*, i.nome, i.codigo, i.unidade, i.tipo, i.categoria, i.base
           FROM v2_composicao_itens ci
           JOIN v2_itens i ON ci.item_id = i.id
           WHERE ci.composicao_id = ? AND ci.estado = ? AND ci.data_referencia = ?
@@ -220,7 +220,7 @@ export function getFlatCompositionItems(composicaoId, estado, dataReferencia, ti
     const dataRefBanco = bancoAtivo?.data_referencia || dataReferencia;
     
     let items = db.prepare(`
-      SELECT ci.*, i.nome, i.codigo, i.unidade, i.tipo, i.categoria
+      SELECT ci.*, i.nome, i.codigo, i.unidade, i.tipo, i.categoria, i.base
       FROM v2_composicao_itens ci
       JOIN v2_itens i ON ci.item_id = i.id
       WHERE ci.composicao_id = ?
@@ -243,7 +243,7 @@ export function getFlatCompositionItems(composicaoId, estado, dataReferencia, ti
       
       if (anyDate) {
         items = db.prepare(`
-          SELECT ci.*, i.nome, i.codigo, i.unidade, i.tipo, i.categoria
+          SELECT ci.*, i.nome, i.codigo, i.unidade, i.tipo, i.categoria, i.base
           FROM v2_composicao_itens ci
           JOIN v2_itens i ON ci.item_id = i.id
           WHERE ci.composicao_id = ? AND ci.estado = ? AND ci.data_referencia = ?

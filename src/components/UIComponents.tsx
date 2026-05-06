@@ -173,64 +173,171 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
       if (!obraRes.ok) throw new Error("Erro ao buscar dados da obra");
       const obraData = await obraRes.json();
 
-      // 2. Fetch Orcamento Items
-      const orcamentoRes = await fetch(`/api/obras/${activeObraId}/orcamento?desonerado=${obraData.desonerado === 1}&estado=${obraData.uf}&data_referencia=${obraData.data_referencia}`);
-      if (!orcamentoRes.ok) throw new Error("Erro ao buscar orçamento");
-      const orcamentoData = await orcamentoRes.json();
-
-      // 3. Define report structure based on name (Refined for professional layout)
-      let columns: any[] = [];
-      
       const bdiValue = obraData.bdi || 0;
       const bdiIncidence = obraData.bdi_incidencia || 'unitario';
+
+      // 2. Specialized Fetch for Resource Reports
+      const isResourceReport = reportName === 'Curva ABC de Insumos' || reportName === 'Relatório de Mão de Obra' || reportName === 'Relatório de Material';
       
-      if (reportName === 'Resumo') {
+      if (isResourceReport) {
+        const abcRes = await fetch(`/api/obras/${activeObraId}/curva-abc?desonerado=${obraData.desonerado === 1}`);
+        if (!abcRes.ok) throw new Error("Erro ao buscar curva ABC");
+        const abcData = await abcRes.json();
+
+        let columns = [
+          { header: 'Código', key: 'codigo', width: 15 },
+          { header: 'Banco', key: 'base', width: 12 },
+          { header: 'Descrição', key: 'descricao', width: 60 },
+          { header: 'Unidade', key: 'unidade', width: 8 },
+          { header: 'Quantidade', key: 'quantidade', width: 12, type: 'number' },
+          { header: 'Valor Unitário', key: 'valor_unitario', width: 16, type: 'currency' },
+          { header: 'Total', key: 'total', width: 20, type: 'currency' },
+          { header: 'Peso (%)', key: 'percentual', width: 10, type: 'percentage' },
+          { header: 'Acumulado (%)', key: 'percentualAcumulado', width: 12, type: 'percentage' },
+          { header: 'Classe', key: 'classe', width: 8, alignment: { horizontal: 'center' } }
+        ];
+
+        let filteredData = abcData;
+        let title = reportName;
+
+        if (reportName === 'Relatório de Mão de Obra') {
+          filteredData = abcData.filter((it: any) => (it.categoria || '').toLowerCase().includes('mão de obra') || (it.categoria || '').toLowerCase().includes('mao de obra'));
+          columns = columns.filter(c => c.key !== 'percentualAcumulado' && c.key !== 'classe');
+        } else if (reportName === 'Relatório de Material') {
+          filteredData = abcData.filter((it: any) => (it.categoria || '').toLowerCase().includes('material'));
+          columns = columns.filter(c => c.key !== 'percentualAcumulado' && c.key !== 'classe');
+        }
+
+        const totalGeralFiltered = filteredData.reduce((acc: number, curr: any) => acc + (curr.total || 0), 0);
+
+        await generateExcelReport({
+          title: title.toUpperCase(),
+          obraName: obraData.nome.toUpperCase(),
+          cliente: obraData.cliente?.toUpperCase() || "N/A",
+          bancos: Array.from(new Set(abcData.map((it: any) => it.base).filter(Boolean))).map(b => `${b} - ${obraData.data_referencia} - ${obraData.uf}`).join('\n'),
+          bdi: bdiValue,
+          desconto: obraData.desconto || 0,
+          encargos: `${obraData.desonerado === 1 ? "Desonerado" : "Não Desonerado"}\nHorista: ${obraData.encargos_horista?.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0.00'}%\nMensalista: ${obraData.encargos_mensalista?.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0.00'}%`,
+          columns: columns as any,
+          rows: filteredData.map((it: any) => ({ ...it, itemCategory: 'insumo' })),
+          summary: {
+            totalSemBdi: bdiIncidence === 'unitario' ? totalGeralFiltered / (1 + bdiValue / 100) : totalGeralFiltered,
+            totalBdi: bdiIncidence === 'unitario' ? totalGeralFiltered - (totalGeralFiltered / (1 + bdiValue / 100)) : 0,
+            totalDesconto: totalGeralFiltered * (obraData.desconto / 100),
+            totalGeral: totalGeralFiltered * (1 - (obraData.desconto / 100))
+          },
+          config: reportConfig
+        });
+
+        return;
+      }
+
+      // 3. Normal Budget Export (ORCAMENTO)
+      const isAnalitico = reportName === 'Orçamento Analítico';
+      const orcamentoRes = await fetch(`/api/obras/${activeObraId}/orcamento?desonerado=${obraData.desonerado === 1}&estado=${obraData.uf}&data_referencia=${obraData.data_referencia}${isAnalitico ? '&analitico=true' : ''}`);
+      if (!orcamentoRes.ok) throw new Error("Erro ao buscar orçamento");
+      let orcamentoData = await orcamentoRes.json();
+
+      if (reportName === 'Curva ABC de Serviços') {
+        const itemsOnly = orcamentoData.filter((it: any) => it.tipo !== 'etapa');
+        const sortedItems = [...itemsOnly].sort((a: any, b: any) => (b.total || 0) - (a.total || 0));
+        
+        let acumulado = 0;
+        const totalComBdiItems = sortedItems.reduce((acc, curr) => acc + (curr.total || 0), 0);
+        
+        orcamentoData = sortedItems.map(it => {
+          acumulado += (it.total || 0);
+          const percentual = totalComBdiItems > 0 ? (it.total / totalComBdiItems) * 100 : 0;
+          const percentualAcumulado = totalComBdiItems > 0 ? (acumulado / totalComBdiItems) * 100 : 0;
+          let classe = 'C';
+          if (percentualAcumulado <= 80) classe = 'A';
+          else if (percentualAcumulado <= 95) classe = 'B';
+          
+          return {
+            ...it,
+            peso: percentual,
+            percentualAcumulado,
+            classe
+          };
+        });
+      }
+
+      // 4. Define report structure
+      let columns: any[] = [];
+      
+      if (reportName === 'Curva ABC de Serviços') {
+        columns = [
+          { header: 'Item', key: 'item', width: 12 },
+          { header: 'Código', key: 'codigo', width: 10 },
+          { header: 'Banco', key: 'banco', width: 12 },
+          { header: 'Descrição', key: 'descricao', width: 70 },
+          { header: 'Und', key: 'unidade', width: 8 },
+          { header: 'Quant.', key: 'quantidade', width: 16, type: 'number' },
+          { header: 'Valor Unit.', key: 'valor_unit_com_bdi', width: 16, type: 'currency' },
+          { header: 'Total', key: 'total_geral', width: 20, type: 'currency' },
+          { header: 'Peso (%)', key: 'peso', width: 10, type: 'percentage' },
+          { header: 'Acum (%)', key: 'percentualAcumulado', width: 12, type: 'percentage' },
+          { header: 'Classe', key: 'classe', width: 8 }
+        ];
+      } else if (reportName === 'Resumo') {
         columns = [
           { header: 'Item', key: 'item', width: 24, colspan: 2 },
-          { header: 'Descrição', key: 'descricao', width: 84, colspan: 6 },
-          { header: 'Total', key: 'total_geral', width: 18, type: 'currency' },
-          { header: 'Peso (%)', key: 'peso', width: 12, type: 'percentage' }
+          { header: 'Descrição', key: 'descricao', width: 100, colspan: 6 },
+          { header: 'Total', key: 'total_geral', width: 22, type: 'currency' },
+          { header: 'Peso (%)', key: 'peso', width: 15, type: 'percentage' }
+        ];
+      } else if (isAnalitico) {
+        columns = [
+          { header: 'Item', key: 'item', width: 12 },
+          { header: 'Código', key: 'codigo', width: 10 },
+          { header: 'Banco', key: 'banco', width: 12 },
+          { header: 'Descrição', key: 'descricao', width: 70 },
+          { header: 'Tipo', key: 'item_tipo_label', width: 20 },
+          { header: 'Und', key: 'unidade', width: 8 },
+          { header: 'Quant.', key: 'quantidade', width: 16, type: 'number' },
+          { header: 'Valor Unit.', key: 'valor_unit_sem_bdi', width: 16, type: 'currency' },
+          { header: 'Total', key: 'total_geral', width: 20, type: 'currency' },
         ];
       } else {
         columns = [
-          { header: 'Item', key: 'item', width: 6 },
-          { header: 'Código', key: 'codigo', width: 12 },
-          { header: 'Banco', key: 'banco', width: 10 },
-          { header: 'Descrição', key: 'descricao', width: 55 },
-          { header: 'Tipo', key: 'tipo_servico', width: 15 },
-          { header: 'Und', key: 'unidade', width: 6 },
-          { header: 'Quant.', key: 'quantidade', width: 10, type: 'number' },
+          { header: 'Item', key: 'item', width: 12 },
+          { header: 'Código', key: 'codigo', width: 10 },
+          { header: 'Banco', key: 'banco', width: 12 },
+          { header: 'Descrição', key: 'descricao', width: 70 },
+          { header: 'Tipo', key: 'tipo_servico', width: 20 },
+          { header: 'Und', key: 'unidade', width: 8 },
+          { header: 'Quant.', key: 'quantidade', width: 16, type: 'number' },
         ];
 
         if (reportName.includes('Mão de Obra, Equipamento e Material')) {
           columns.push(
-            { header: 'Valor Unit', key: 'valor_unit_sem_bdi', width: 12, type: 'currency' },
-            { header: 'Valor Unit com BDI', subgroup: ['M. O.', 'MAT.', 'EQUIP.', 'Total'], keys: ['v_unit_bdi_mo', 'v_unit_bdi_mat', 'v_unit_bdi_equip', 'v_unit_bdi_total'], width: 12, type: 'currency' },
-            { header: 'Total', subgroup: ['M. O.', 'MAT.', 'EQUIP.', 'Total'], keys: ['total_mo', 'total_mat', 'total_equip', 'total_total'], width: 12, type: 'currency' },
-            { header: 'Peso (%)', key: 'peso', width: 8, type: 'percentage' }
+            { header: 'Valor Unit', key: 'valor_unit_sem_bdi', width: 16, type: 'currency' },
+            { header: 'Valor Unit com BDI', subgroup: ['M. O.', 'MAT.', 'EQUIP.', 'Total'], keys: ['v_unit_bdi_mo', 'v_unit_bdi_mat', 'v_unit_bdi_equip', 'v_unit_bdi_total'], width: 14, type: 'currency' },
+            { header: 'Total', subgroup: ['M. O.', 'MAT.', 'EQUIP.', 'Total'], keys: ['total_mo', 'total_mat', 'total_equip', 'total_total'], width: 14, type: 'currency' },
+            { header: 'Peso (%)', key: 'peso', width: 10, type: 'percentage' }
           );
         } else if (reportName.includes('Mão de Obra e Material')) {
           columns.push(
-            { header: 'Valor Unit', key: 'valor_unit_sem_bdi', width: 12, type: 'currency' },
-            { header: 'Valor Unit com BDI', subgroup: ['M. O.', 'MAT.', 'Total'], keys: ['v_unit_bdi_mo', 'v_unit_bdi_mat', 'v_unit_bdi_total'], width: 12, type: 'currency' },
-            { header: 'Total', subgroup: ['M. O.', 'MAT.', 'Total'], keys: ['total_mo', 'total_mat', 'total_total'], width: 12, type: 'currency' },
-            { header: 'Peso (%)', key: 'peso', width: 8, type: 'percentage' }
+            { header: 'Valor Unit', key: 'valor_unit_sem_bdi', width: 16, type: 'currency' },
+            { header: 'Valor Unit com BDI', subgroup: ['M. O.', 'MAT.', 'Total'], keys: ['v_unit_bdi_mo', 'v_unit_bdi_mat', 'v_unit_bdi_total'], width: 14, type: 'currency' },
+            { header: 'Total', subgroup: ['M. O.', 'MAT.', 'Total'], keys: ['total_mo', 'total_mat', 'total_total'], width: 14, type: 'currency' },
+            { header: 'Peso (%)', key: 'peso', width: 10, type: 'percentage' }
           );
         } else if (reportName.includes('Mão de Obra')) {
           columns.push(
-            { header: 'Valor Unit', key: 'valor_unit_sem_bdi', width: 12, type: 'currency' },
-            { header: 'Valor Unit com BDI', key: 'valor_unit_com_bdi', width: 12, type: 'currency' },
-            { header: 'Mão de Obra Valor', key: 'mo_total', width: 12, type: 'currency' },
-            { header: '%', key: 'mo_percent', width: 8, type: 'percentage' },
-            { header: 'Total', key: 'total_geral', width: 15, type: 'currency' },
-            { header: 'Peso (%)', key: 'peso', width: 8, type: 'percentage' }
+            { header: 'Valor Unit', key: 'valor_unit_sem_bdi', width: 16, type: 'currency' },
+            { header: 'Valor Unit com BDI', key: 'valor_unit_com_bdi', width: 16, type: 'currency' },
+            { header: 'Mão de Obra Valor', key: 'mo_total', width: 16, type: 'currency' },
+            { header: '%', key: 'mo_percent', width: 10, type: 'percentage' },
+            { header: 'Total', key: 'total_geral', width: 18, type: 'currency' },
+            { header: 'Peso (%)', key: 'peso', width: 10, type: 'percentage' }
           );
         } else {
           columns.push(
-            { header: 'Valor Unit', key: 'valor_unit_sem_bdi', width: 12, type: 'currency' },
-            { header: 'Valor Unit com BDI', key: 'valor_unit_com_bdi', width: 12, type: 'currency' },
-            { header: 'Total', key: 'total_geral', width: 15, type: 'currency' },
-            { header: 'Peso (%)', key: 'peso', width: 8, type: 'percentage' }
+            { header: 'Valor Unit', key: 'valor_unit_sem_bdi', width: 16, type: 'currency' },
+            { header: 'Valor Unit com BDI', key: 'valor_unit_com_bdi', width: 16, type: 'currency' },
+            { header: 'Total', key: 'total_geral', width: 18, type: 'currency' },
+            { header: 'Peso (%)', key: 'peso', width: 10, type: 'percentage' }
           );
         }
       }
@@ -259,91 +366,157 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
       const totalBudget = totalComBdi - totalDesconto;
       
       // Map rows
-      const rows = orcamentoData.map((it: any) => {
-        const isEtapa = it.tipo === 'etapa';
-        const qty = it.quantidade || 0;
+      const lsPercent = (obraData.encargos_horista || 0) / 100;
+      const bdiMultiplier = (1 + bdiValue / 100);
+      const rows: any[] = [];
+      
+      const mapItemToRow = (it: any, itemCategory: string, isEtapa: boolean, depth: number) => {
+        const qty = Number(it.quantidade) || 0;
         
-        const rawUnitCost = it.valor_unitario || 0;
-        const bdiMultiplier = (1 + bdiValue / 100);
-        const unitWithBDI = bdiIncidence === 'unitario' ? rawUnitCost * bdiMultiplier : rawUnitCost;
+        // Custo Unitário do servidor (ou cálculo local)
+        const rawUnitCost = Number(it.valor_unitario) || Number(it.custo_unitario_aplicado) || 0;
         
-        let moUnit = it.custo_mao_obra || 0;
-        let matUnit = it.custo_material || 0;
-        let equipUnit = it.custo_equipamento || 0;
+        let moUnit = Number(it.custo_mao_obra) || 0;
+        let matUnit = Number(it.custo_material) || 0;
+        let equipUnit = Number(it.custo_equipamento) || 0;
 
-        // SE os custos específicos estiverem zerados, tentamos inferir da categoria.
-        if (!isEtapa && rawUnitCost > 0) {
+        // Se for um item individual (insumo) e os custos específicos estiverem zerados, inferimos da categoria
+        if (!isEtapa && moUnit === 0 && matUnit === 0 && equipUnit === 0 && rawUnitCost > 0) {
           const cat = (it.categoria || "").toLowerCase();
           const desc = (it.descricao || "").toLowerCase();
-          const tipoItem = (it.tipo_item || "").toLowerCase();
-          const isMO = cat.includes("mão de obra") || cat.includes("mao de obra") || tipoItem === "mao_de_obra" || desc.includes("mão de obra");
-          const isEquip = cat.includes("equipamento") || tipoItem === "equipamento" || desc.includes("equipamento");
+          const tipoItem = (it.item_tipo || it.tipo || "").toLowerCase();
           
-          if (moUnit === 0 && isMO) {
+          if (cat.includes("mão de obra") || cat.includes("mao de obra") || tipoItem === "mao_de_obra" || desc.includes("mão de obra")) {
             moUnit = rawUnitCost;
-          } else if (equipUnit === 0 && isEquip) {
+          } else if (cat.includes("equipamento") || tipoItem === "equipamento" || desc.includes("equipamento")) {
             equipUnit = rawUnitCost;
-          } else if (matUnit === 0 && !isMO && !isEquip) {
+          } else {
             matUnit = rawUnitCost;
           }
         }
 
-        const moUnitWithBDI = moUnit * bdiMultiplier;
-        const matUnitWithBDI = matUnit * bdiMultiplier;
-        const equipUnitWithBDI = equipUnit * bdiMultiplier;
-        const unitTotalWithBDI = moUnitWithBDI + matUnitWithBDI + equipUnitWithBDI;
-
-        const moUnitCost = moUnit;
-        const matUnitCost = matUnit;
-        const equipUnitCost = equipUnit;
-
-        // Ensure calculations use raw costs times qty (or 1 for etapas)
-        const moTotal = moUnitCost * (isEtapa ? 1 : qty) * bdiMultiplier;
-        const matTotal = matUnitCost * (isEtapa ? 1 : qty) * bdiMultiplier;
-        const equipTotal = equipUnitCost * (isEtapa ? 1 : qty) * bdiMultiplier;
+        const multiplier = isEtapa ? 1 : qty;
+        const moTotal = moUnit * bdiMultiplier * multiplier;
+        const matTotal = matUnit * bdiMultiplier * multiplier;
+        const equipTotal = equipUnit * bdiMultiplier * multiplier;
         
-        const total = isEtapa ? (it.total || 0) : (moTotal + matTotal + equipTotal);
+        // Total Geral da Linha
+        const totalLinha = isEtapa ? (Number(it.total) || 0) : (moTotal + matTotal + equipTotal);
         
-        const moPercent = total > 0 ? (moTotal / total) * 100 : 0;
-        const peso = totalBudget > 0 ? (total / totalBudget) * 100 : 0;
+        const moPercent = totalLinha > 0 ? (moTotal / totalLinha) * 100 : 0;
+        const peso = totalBudget > 0 ? (totalLinha / totalBudget) * 100 : 0;
 
-        let itemCategory = 'insumo';
-        if (isEtapa) {
-          itemCategory = 'etapa';
-        } else {
-          const tipoItem = (it.item_tipo || '').toLowerCase();
-          if (tipoItem === 'composicao' || tipoItem === 'composição') {
-            itemCategory = 'composicao';
-          }
+        let typeLabel = (it.item_tipo || it.tipo || '').toLowerCase();
+        if (typeLabel === 'composicao') typeLabel = 'Composição';
+        else if (typeLabel === 'insumo') typeLabel = 'Insumo';
+        else typeLabel = typeLabel.charAt(0).toUpperCase() + typeLabel.slice(1);
+
+        if (depth > 1 && typeLabel === 'Composição') {
+            typeLabel = 'Composição Auxiliar';
         }
 
-        const mappedRow = {
-          item: it.item || '',
+        const moSemLS = lsPercent > 0 ? moUnit / (1 + lsPercent) : moUnit;
+        const lsValue = moUnit - moSemLS;
+
+        const row = {
+          item: it.item || it.item_numero || '',
           codigo: isEtapa ? '' : it.codigo,
-          banco: isEtapa ? '' : it.base,
-          descricao: isEtapa ? it.descricao?.toUpperCase() : it.descricao,
+          banco: isEtapa ? '' : (it.base || it.banco || ''),
+          descricao: isEtapa ? (it.descricao || it.nome || "").toUpperCase() : (it.descricao || it.nome || ""),
           tipo_servico: it.categoria || '',
           unidade: it.unidade || '',
           quantidade: isEtapa ? null : qty,
-          valor_unit_sem_bdi: isEtapa ? null : it.custo_unitario_aplicado,
-          valor_unit_com_bdi: isEtapa ? null : (it.custo_unitario_aplicado || 0) * bdiMultiplier,
-          v_unit_bdi_mo: moUnitCost * bdiMultiplier,
-          v_unit_bdi_mat: matUnitCost * bdiMultiplier,
-          v_unit_bdi_equip: equipUnitCost * bdiMultiplier,
-          v_unit_bdi_total: (it.custo_unitario_aplicado || 0) * bdiMultiplier,
+          valor_unit_sem_bdi: isEtapa ? null : rawUnitCost,
+          valor_unit_com_bdi: isEtapa ? null : rawUnitCost * bdiMultiplier,
+          v_unit_bdi_mo: isEtapa ? null : moUnit * bdiMultiplier,
+          v_unit_bdi_mat: isEtapa ? null : matUnit * bdiMultiplier,
+          v_unit_bdi_equip: isEtapa ? null : equipUnit * bdiMultiplier,
+          v_unit_bdi_total: isEtapa ? null : (moUnit + matUnit + equipUnit) * bdiMultiplier,
           total_mo: moTotal,
           total_mat: matTotal,
           total_equip: equipTotal,
-          total_total: total,
+          total_total: totalLinha,
           mo_total: moTotal,
           mo_percent: moPercent,
-          total_geral: total,
+          total_geral: totalLinha,
           peso: peso,
           isEtapa: isEtapa,
-          itemCategory: itemCategory
+          itemCategory: itemCategory,
+          depth: depth,
+          item_tipo_label: isEtapa ? '' : (it.categoria || ''),
+          // Extra fields for analysis
+          footer_data: {
+            mo_sem_ls: moSemLS,
+            ls: lsValue,
+            mo_com_ls: moUnit,
+            valor_bdi: (moUnit + matUnit + equipUnit) * (bdiValue / 100),
+            valor_com_bdi: (moUnit + matUnit + equipUnit) * bdiMultiplier,
+            quantidade: qty,
+            preco_total: totalLinha
+          }
         };
-        return mappedRow;
-      });
+
+        if (isAnalitico && !isEtapa) {
+           row.item = typeLabel;
+        }
+
+        return row;
+      };
+
+      const processLevel = (items: any[], depth: number) => {
+        items.forEach((it: any) => {
+          const isEtapa = it.tipo === 'etapa' || (it.id && it.id.toString().startsWith('etapa-'));
+          let itemCategory = 'insumo';
+          if (isEtapa) {
+            itemCategory = 'etapa';
+          } else {
+            const tipoItem = (it.item_tipo || it.tipo || '').toLowerCase();
+            if (tipoItem === 'composicao' || tipoItem === 'composição') {
+              itemCategory = 'composicao';
+            }
+          }
+
+          // If analytical and it's a root item (depth 1) but NOT an etapa, add an Inner Header
+          if (isAnalitico && depth === 1 && !isEtapa) {
+            rows.push({
+              isInnerHeader: true,
+              itemCategory: 'inner-header',
+              item: it.item_numero || it.item || '',
+              depth: 1
+            });
+          }
+
+          const row = mapItemToRow(it, itemCategory, isEtapa, depth);
+          
+          // If analytical, adjust category for coloring
+          if (isAnalitico && !isEtapa) {
+            if (depth === 1) {
+              row.itemCategory = itemCategory === 'composicao' ? 'main-composition' : 'main-insumo';
+            }
+            else if (itemCategory === 'composicao') row.itemCategory = 'auxiliary-composition';
+            else row.itemCategory = 'child-insumo';
+          }
+
+          rows.push(row);
+
+          if (isAnalitico && depth === 1 && it.filhos && it.filhos.length > 0) {
+            processLevel(it.filhos, depth + 1);
+          }
+
+          // If analytical, add a separator/footer row for analytical budget
+          // Use isAnalitico && depth === 1 && !isEtapa
+          if (isAnalitico && depth === 1 && !isEtapa) {
+            rows.push({
+              isFooter: true,
+              itemCategory: 'footer',
+              depth: depth,
+              ...row.footer_data
+            });
+          }
+        });
+      };
+
+      processLevel(orcamentoData, 1);
 
       // Filter rows if it's the Resumo report
       let finalRows = rows;
@@ -377,7 +550,7 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
         bdi: bdiValue,
         desconto: obraData.desconto || 0,
         encargos: `${obraData.desonerado === 1 ? "Desonerado" : "Não Desonerado"}\nHorista: ${obraData.encargos_horista?.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0.00'}%\nMensalista: ${obraData.encargos_mensalista?.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0.00'}%`,
-        columns,
+        columns: columns as any,
         rows: finalRows,
         summary: {
           totalSemBdi: totalSemBdi,
@@ -430,6 +603,8 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
       options: [
         { label: "Curva ABC de Insumos", icon: <BarChart3 size={13} className="text-emerald-500" /> },
         { label: "Curva ABC de Serviços", icon: <BarChart3 size={13} className="text-blue-500" /> },
+        { label: "Relatório de Mão de Obra", icon: <ListFilter size={13} className="text-orange-500" /> },
+        { label: "Relatório de Material", icon: <ListFilter size={13} className="text-blue-400" /> },
         { label: "Custo Horário de Equipamentos" },
         { label: "Custo Horário de Mão de Obra" },
         { label: "Produção de Equipe Mecânica" }
@@ -476,7 +651,7 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: 10, scale: 0.95 }}
                     transition={{ duration: 0.15 }}
-                    className="absolute top-full left-0 mt-2 w-80 bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden"
+                    className="absolute top-full left-0 mt-2 w-80 bg-white border border-slate-200 rounded-2xl shadow-2xl z-[110] overflow-hidden"
                   >
                     <div className="max-h-[75vh] overflow-y-auto py-2 scrollbar-thin scrollbar-thumb-slate-200">
                       {reportGroups.map((group, gIdx) => (
@@ -577,7 +752,7 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
       {/* Report Customization Modal */}
       <AnimatePresence>
         {isCustomizerOpen && (
-          <div className="fixed inset-0 z-[100] p-4 sm:p-8 pt-[5vh] sm:pt-[5vh] bg-slate-900/40 backdrop-blur-sm flex items-start justify-center">
+          <div className="fixed inset-0 z-[200] p-4 sm:p-8 pt-[5vh] sm:pt-[5vh] bg-slate-900/40 backdrop-blur-sm flex items-start justify-center">
             <motion.div 
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
