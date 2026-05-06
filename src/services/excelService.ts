@@ -553,33 +553,16 @@ export const generateExcelReport = async (data: ExcelReportData) => {
     if (data.summary) {
       worksheet.addRow([]);
       
-      // Encontra a coluna para alinhar os valores (prioriza 'peso' ou a última coluna)
-      let pesoPhysicalIdx = -1;
-      let totalGeralPhysicalIdx = -1;
-      let pIdx = 1;
+      // Sempre alinhar com a última coluna, conforme solicitado
+      const valCol = totalPhysicalCols;
+      let labelCol = Math.max(1, valCol - 2);
       
-      data.columns.forEach(col => {
-        if (col.subgroup && col.keys) {
-          col.keys.forEach(k => {
-            if (k === 'total_total' || k === 'total_geral') totalGeralPhysicalIdx = pIdx;
-            pIdx++;
-          });
-        } else {
-          if (col.key === 'peso') pesoPhysicalIdx = pIdx;
-          if (col.key === 'total_geral') totalGeralPhysicalIdx = pIdx;
-          pIdx += (col.colspan || 1);
-        }
-      });
-      
-      // Se 'total_geral' existir, usamos ela para alinhar os valores em reais (R$). Senão, tenta a última coluna.
-      let valCol = totalPhysicalCols; 
-      if (totalGeralPhysicalIdx !== -1) {
-        valCol = totalGeralPhysicalIdx;
-      } else if (pesoPhysicalIdx !== -1) {
-        valCol = pesoPhysicalIdx;
+      // Ajuste para não sobrepor colunas muito pequenas
+      if (valCol === totalPhysicalCols && data.columns.find(c => c.key === 'peso') && !data.config?.retirarColunaPeso) {
+        labelCol = Math.max(1, valCol - 2);
+      } else {
+          labelCol = Math.max(1, valCol - 1);
       }
-      
-      const labelCol = Math.max(1, valCol - 2);
       
       const addSummaryRow = (label: string, value: number) => {
         const row = worksheet.addRow([]);
