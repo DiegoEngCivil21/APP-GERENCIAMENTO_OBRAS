@@ -535,8 +535,7 @@ export const generateExcelReport = async (data: ExcelReportData) => {
           if (colDef.type === 'currency') cell.numFmt = '#,##0.00';
           if (colDef.type === 'percentage') cell.numFmt = '0.00"%"';
           if (colDef.type === 'number') {
-            if (colDef.key === 'quantidade') cell.numFmt = '#,##0.0000000';
-            else cell.numFmt = '#,##0.00';
+            cell.numFmt = '#,##0.00';
           }
           
           if (data.config?.relatoriosComFormulas && colDef.key) {

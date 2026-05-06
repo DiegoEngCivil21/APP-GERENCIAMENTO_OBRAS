@@ -314,7 +314,7 @@ const MedicaoView = ({ obraId, orcamento, bdiIncidence, bdiValue }: { obraId: st
                         <div className="text-sm font-bold text-slate-900 truncate" title={item.descricao}>{item.descricao}</div>
                         <div className="text-[10px] font-medium text-slate-400 uppercase tracking-widest">{item.codigo}</div>
                       </td>
-                      <td className="py-2 text-right text-xs font-medium text-slate-500 w-24">{item.quantidade} {item.unidade}</td>
+                      <td className="py-2 text-right text-xs font-medium text-slate-500 w-24">{(item.quantidade || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {item.unidade}</td>
                       <td className="py-2 text-right text-xs font-medium text-slate-500 w-24">
                         {((item.progresso || 0) / 100 * item.quantidade).toFixed(2)}
                       </td>

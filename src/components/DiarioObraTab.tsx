@@ -619,14 +619,17 @@ function RdoView({ rdo, fmtDate, onOpenLightbox }: { rdo: any, fmtDate: (d: stri
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {rdo.materiais_recebidos.map((m: any, i: number) => (
-                  <tr key={i} className="hover:bg-slate-50">
-                    <td className="p-3 text-slate-700">{m.descricao}</td>
-                    <td className="p-3 text-center font-medium text-slate-900">{m.quantidade}</td>
-                    <td className="p-3 text-center text-slate-600">{m.unidade}</td>
-                    <td className="p-3 text-slate-500 font-mono text-xs">{m.nota_fiscal}</td>
-                  </tr>
-                ))}
+                {rdo.materiais_recebidos.map((m: any, i: number) => {
+                    const q = parseFloat(String(m.quantidade || 0));
+                    return (
+                      <tr key={i} className="hover:bg-slate-50">
+                        <td className="p-3 text-slate-700">{m.descricao}</td>
+                        <td className="p-3 text-center font-medium text-slate-900">{q.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td className="p-3 text-center text-slate-600">{m.unidade}</td>
+                        <td className="p-3 text-slate-500 font-mono text-xs">{m.nota_fiscal}</td>
+                      </tr>
+                    );
+                  })}
               </tbody>
             </table>
           </div>
