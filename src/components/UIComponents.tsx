@@ -593,9 +593,7 @@ export const TopToolbar = ({ onNavigate, user, activeObraId }: { onNavigate?: (t
     {
       title: "Analítico",
       options: [
-        { label: "Orçamento Analítico" },
-        { label: "Composições Analíticas com Preço Unitário" },
-        { label: "Composições Analíticas com Preço Unitário - Somente Insumos" }
+        { label: "Orçamento Analítico" }
       ]
     },
     {

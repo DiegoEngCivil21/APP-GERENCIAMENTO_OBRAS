@@ -69,10 +69,9 @@ export const generateExcelReport = async (data: ExcelReportData) => {
     fitToPage: true,
     fitToWidth: 1, // Garante que caiba todas as colunas em 1 página de largura
     fitToHeight: 0, // Permite que o relatório cresça verticalmente em múltiplas páginas
-    scale: 85, // Reduz a escala para caber melhor e não estourar a página
     margins: {
-      left: 0.5, right: 0.5,
-      top: 0.5, bottom: 0.5,
+      left: 0.3, right: 0.3,
+      top: 0.4, bottom: 0.4,
       header: 0.2, footer: 0.2
     }
     // printTitlesRow removed as the main header is gone
@@ -152,52 +151,29 @@ export const generateExcelReport = async (data: ExcelReportData) => {
   const currentStart = 3;
   const availableCols = Math.max(0, numCols - 2); 
   
-  // Initial spans distribution based on ratios
-  const distribution = [0.44, 0.22, 0.11, 0.11, 0.12]; // Target indices: 3..6 (Obra), 7..8 (Bancos), 9 (BDI), 10 (Desconto), 11 (Encargos)
-  let spans = distribution.map(p => Math.round(availableCols * p));
-  
-  // Refined for Analytical (where numCols is 11? or availableCols is 9?)
-  // Let's re-calculate: numCols = item(1), codigo(2), banco(3), descricao(4), tipo(5), unidade(6), quant(7), unit(8), total(9)
-  // Wait, in my previous turns numCols was mentioned as 9 for analytical.
-  // indices 1-indexed: 1,2,3,4,5,6,7,8,9
-  // If availableCols is 7 (numCols-2), indices 3,4,5,6,7,8,9.
-  // Target: Obra (3,4,5,6), Bancos (7,8) -> Col E, F. 
-  // Let's check: 3=C, 4=D, 5=E, 6=F, 7=G, 8=H, 9=I.
-  // If Bancos is E and F, that's indices 5 and 6.
-  // That means Obra should be indices 3 and 4.
-  // So spans[0]=2, spans[1]=2.
-  if (availableCols === 7) {
-    spans = [2, 2, 1, 1, 1]; // 2 (C,D), 2 (E,F), 1 (G), 1 (H), 1 (I)
-  }
-
-  // Adjust spans to fit exactly into availableCols
-  let sumSpans = spans.reduce((a, b) => a + b, 0);
-  if (availableCols > 0 && availableCols !== 7) {
-    while (sumSpans > availableCols) {
-      const maxIdx = spans.lastIndexOf(Math.max(...spans));
-      if (spans[maxIdx] > 1) {
-        spans[maxIdx]--;
-        sumSpans--;
-      } else break;
-    }
-    while (sumSpans < availableCols) {
-      let bestIdx = -1;
-      let maxDiff = -Infinity;
-      for (let i = 0; i < spans.length; i++) {
-        const theoretical = availableCols * distribution[i];
-        const diff = theoretical - spans[i];
-        if (diff > maxDiff) {
-          maxDiff = diff;
-          bestIdx = i;
-        }
+  // Final spans distribution: strictly proportional to ensure we always cover the full width
+  let spans = [0, 0, 0, 0, 0];
+  if (availableCols > 0) {
+    // Ratios: Obra (40%), Bancos (20%), BDI (10%), Desconto (10%), Encargos (20%)
+    const ratios = [0.4, 0.2, 0.1, 0.1, 0.2];
+    spans = ratios.map(p => Math.max(1, Math.floor(availableCols * p)));
+    
+    let currentSum = spans.reduce((a, b) => a + b, 0);
+    
+    // Adjust logic to match exactly availableCols
+    if (currentSum > availableCols) {
+      // Squeeze from largest spans first
+      while (currentSum > availableCols) {
+        let maxIdx = 0;
+        for (let i = 1; i < spans.length; i++) if (spans[i] > spans[maxIdx]) maxIdx = i;
+        if (spans[maxIdx] > 1) {
+          spans[maxIdx]--;
+          currentSum--;
+        } else break;
       }
-      if (bestIdx !== -1) {
-        spans[bestIdx]++;
-        sumSpans++;
-      } else {
-        spans[0]++;
-        sumSpans++;
-      }
+    } else if (currentSum < availableCols) {
+      // Add to the main "Obra" span (spans[0])
+      spans[0] += (availableCols - currentSum);
     }
   }
 
@@ -318,10 +294,16 @@ export const generateExcelReport = async (data: ExcelReportData) => {
       
       if (col.subgroup && col.keys) {
         cell1.value = col.header;
-        cell1.style = headerStyle;
         const endHeaderCol = currentHeaderCol + col.subgroup.length - 1;
         const endColLetter = worksheet.getColumn(endHeaderCol).letter;
+        
+        // Apply style and basic alignment to all cells in the potential merge range before merging
+        for (let i = currentHeaderCol; i <= endHeaderCol; i++) {
+          headerRow1.getCell(i).style = headerStyle;
+        }
+
         if (startColLetter !== endColLetter) worksheet.mergeCells(`${startColLetter}6:${endColLetter}6`);
+        
         col.subgroup.forEach((subHeader, sIdx) => {
           const subCell = headerRow2.getCell(currentHeaderCol + sIdx);
           subCell.value = subHeader;
@@ -330,17 +312,19 @@ export const generateExcelReport = async (data: ExcelReportData) => {
         currentHeaderCol += col.subgroup.length;
       } else {
         cell1.value = col.header;
-        cell1.style = headerStyle;
-        const endColLetter = worksheet.getColumn(currentHeaderCol + span - 1).letter;
-        if (span > 1) {
+        const endColIdx = currentHeaderCol + span - 1;
+        const endColLetter = worksheet.getColumn(endColIdx).letter;
+        
+        // Apply style to all cells involved in the merge for this column
+        for (let i = currentHeaderCol; i <= endColIdx; i++) {
+          headerRow1.getCell(i).style = headerStyle;
+          headerRow2.getCell(i).style = headerStyle;
+        }
+
+        if (span > 1 || true) { // Always merge vertically for 6:7 if no subgroup
           worksheet.mergeCells(`${startColLetter}6:${endColLetter}7`);
-        } else {
-          worksheet.mergeCells(`${startColLetter}6:${startColLetter}7`);
         }
-        for (let i = 0; i < span; i++) {
-          const cell2 = headerRow2.getCell(currentHeaderCol + i);
-          cell2.style = headerStyle;
-        }
+        
         currentHeaderCol += span;
       }
     });
@@ -527,9 +511,10 @@ export const generateExcelReport = async (data: ExcelReportData) => {
       }
     }
 
-    row.eachCell((cell, colNumber) => {
+    for (let colNumber = 1; colNumber <= totalPhysicalCols; colNumber++) {
+        const cell = row.getCell(colNumber);
         const colDef = physicalColDefs[colNumber - 1];
-        if (!colDef) return;
+        if (!colDef) continue;
         cell.font = { size: isEtapa ? 9 : 8, bold: isBold, color: { argb: fontColor } };
         cell.border = {
           left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
@@ -562,7 +547,7 @@ export const generateExcelReport = async (data: ExcelReportData) => {
 
         // Estilo de Fundo
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fillColor } };
-      });
+      }
     });
 
     // 3. RESUMO FINAL (Total sem BDI, Total BDI, Total Geral)
@@ -638,16 +623,21 @@ export const generateExcelReport = async (data: ExcelReportData) => {
     }
 
   // 4. ASSINATURA
-  const signRow = worksheet.rowCount + 4;
+  const signRow = worksheet.rowCount + 12;
   
   const assinatura1 = data.config?.assinatura1 || 'Assinatura do Responsável';
   const assinatura2 = data.config?.assinatura2 || '';
 
   if (assinatura2.trim() !== '') {
-    // Duas assinaturas (Lado a Lado)
-    // Assinatura 1
-    const startCol1 = worksheet.getColumn(Math.max(1, Math.floor(totalPhysicalCols * 0.1))).letter;
-    const endCol1 = worksheet.getColumn(Math.max(2, Math.floor(totalPhysicalCols * 0.4))).letter;
+    // Symmetrical positioning with identical width for both fields
+    const span = Math.max(4, Math.floor(totalPhysicalCols * 0.30));
+    
+    // Signature 1 (Left Side)
+    const startIdx1 = Math.max(1, Math.floor(totalPhysicalCols * 0.10));
+    const endIdx1 = startIdx1 + span - 1;
+    const startCol1 = worksheet.getColumn(startIdx1).letter;
+    const endCol1 = worksheet.getColumn(endIdx1).letter;
+    
     worksheet.mergeCells(`${startCol1}${signRow}:${endCol1}${signRow}`);
     const borderCell1 = worksheet.getCell(`${startCol1}${signRow}`);
     borderCell1.border = { top: { style: 'medium' } };
@@ -655,11 +645,13 @@ export const generateExcelReport = async (data: ExcelReportData) => {
     const cellSign1 = worksheet.getCell(`${startCol1}${signRow + 1}`);
     cellSign1.value = assinatura1;
     cellSign1.alignment = { horizontal: 'center', wrapText: true, vertical: 'top' };
-    worksheet.getRow(signRow + 1).height = 40;
 
-    // Assinatura 2
-    const startCol2 = worksheet.getColumn(Math.min(totalPhysicalCols, Math.max(Math.floor(totalPhysicalCols / 2) + 1, Math.floor(totalPhysicalCols * 0.6)))).letter;
-    const endCol2 = worksheet.getColumn(Math.min(totalPhysicalCols, Math.max(Math.floor(totalPhysicalCols / 2) + 2, Math.floor(totalPhysicalCols * 0.8)))).letter;
+    // Signature 2 (Right Side) - Perfectly symmetrical
+    const endIdx2 = Math.min(totalPhysicalCols, Math.ceil(totalPhysicalCols * 0.90));
+    const startIdx2 = endIdx2 - span + 1;
+    const startCol2 = worksheet.getColumn(startIdx2).letter;
+    const endCol2 = worksheet.getColumn(endIdx2).letter;
+    
     worksheet.mergeCells(`${startCol2}${signRow}:${endCol2}${signRow}`);
     const borderCell2 = worksheet.getCell(`${startCol2}${signRow}`);
     borderCell2.border = { top: { style: 'medium' } };
@@ -667,11 +659,16 @@ export const generateExcelReport = async (data: ExcelReportData) => {
     const cellSign2 = worksheet.getCell(`${startCol2}${signRow + 1}`);
     cellSign2.value = assinatura2;
     cellSign2.alignment = { horizontal: 'center', wrapText: true, vertical: 'top' };
+    
+    worksheet.getRow(signRow + 1).height = 40;
   } else {
-    // Uma assinatura apenas (Centralizada)
-    const midCol = Math.max(2, Math.floor(totalPhysicalCols / 2));
-    const startCol = worksheet.getColumn(Math.max(1, midCol - 1)).letter;
-    const endCol = worksheet.getColumn(Math.min(totalPhysicalCols, midCol + 1)).letter;
+    // Single signature perfectly centered on the sheet axis
+    const spanWidth = Math.max(4, Math.floor(totalPhysicalCols * 0.4));
+    const startIdx = Math.max(1, Math.floor((totalPhysicalCols - spanWidth) / 2) + 1);
+    const endIdx = Math.min(totalPhysicalCols, startIdx + spanWidth - 1);
+    
+    const startCol = worksheet.getColumn(startIdx).letter;
+    const endCol = worksheet.getColumn(endIdx).letter;
     
     worksheet.mergeCells(`${startCol}${signRow}:${endCol}${signRow}`);
     const borderCell = worksheet.getCell(`${startCol}${signRow}`);
@@ -683,21 +680,21 @@ export const generateExcelReport = async (data: ExcelReportData) => {
     worksheet.getRow(signRow + 1).height = 40;
   }
 
-  // Ajuste de largura das colunas (Valores refinados com base na necessidade operacional)
+  // Ajuste de largura das colunas (Otimizado para manter largura útil da folha em A4 Paisagem)
   const widthMap: { [key: string]: number } = {
-    'item': 18,
-    'codigo': 8,
-    'banco': 12,
-    'descricao': 75,
-    'tipo_servico': 20,
-    'unidade': 8,
-    'quantidade': 18,
-    'valor_unit_sem_bdi': 18,
-    'valor_unit_com_bdi': 18,
-    'mo_total': 18,
-    'mo_percent': 10,
-    'total_geral': 22,
-    'peso': 15
+    'item': 12,
+    'codigo': 12,
+    'banco': 10,
+    'descricao': 72,
+    'tipo_servico': 15,
+    'unidade': 7,
+    'quantidade': 14,
+    'valor_unit_sem_bdi': 16,
+    'valor_unit_com_bdi': 16,
+    'mo_total': 16,
+    'mo_percent': 9,
+    'total_geral': 18,
+    'peso': 10
   };
 
   let currentWidthCol = 1;

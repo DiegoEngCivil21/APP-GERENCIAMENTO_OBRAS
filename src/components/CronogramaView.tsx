@@ -77,6 +77,13 @@ interface OrcamentoItem {
   item: string;
   descricao: string;
   tipo: string;
+  total?: number;
+  valor_total?: number; // Keep for compatibility if used elsewhere
+  valor_unitario?: number;
+  quantidade?: number;
+  unidade?: string;
+  etapa_id?: number | string | null;
+  etapa_pai_id?: number | string | null;
 }
 
 type ViewMode = 'day' | 'week' | 'month';
@@ -604,8 +611,11 @@ export const CronogramaView = ({ obraId, orcamento, onRefresh }: { obraId: strin
   const itemValuesMap = useMemo(() => {
     const map: Record<string | number, number> = {};
     orcamentoItens.forEach(oi => {
+      const val = Number((oi as any).total) || Number((oi as any).valor_total) || Number((oi as any).valor_total_final) || 0;
+      map[String(oi.id)] = val;
+      // Also map without prefix if it has one
       const cleanId = String(oi.id).replace('item-', '').replace('etapa-', '');
-      map[cleanId] = (oi as any).total || 0;
+      if (!map.hasOwnProperty(cleanId)) map[cleanId] = val;
     });
     return map;
   }, [orcamentoItens]);
@@ -620,71 +630,207 @@ export const CronogramaView = ({ obraId, orcamento, onRefresh }: { obraId: strin
     const stageTotals: Record<string | number, number> = {};
     let projectTotal = 0;
 
+    // --- HIERARCHY MAPPING ---
+    // Build a complete parent map for stages using RAW IDs (numeric if possible) used in Gantt rows
+    const parentMap: Record<string | number, string | number> = {};
+    const itemToIdMap: Record<string, string | number> = {};
+    const summaryStageIds = new Set<string | number>();
+    
+    orcamentoItens.forEach(item => {
+      let stageId: number | string | null = null;
+      if (typeof item.id === 'number') stageId = item.id;
+      else if (typeof item.id === 'string' && item.id) {
+        if (item.id.startsWith('etapa-')) stageId = parseInt(item.id.replace('etapa-', ''), 10) || item.id;
+        else if (item.id.startsWith('item-')) stageId = parseInt(item.id.replace('item-', ''), 10) || item.id;
+        else {
+          const match = item.id.match(/\d+/);
+          if (match) stageId = parseInt(match[0], 10);
+          else stageId = item.id;
+        }
+      }
+
+      if (item.item && stageId !== null) {
+        itemToIdMap[item.item.trim()] = stageId;
+      }
+      
+      // Identify summary stages (those that have a reference in other items)
+      if (item.etapa_id) {
+        summaryStageIds.add(item.etapa_id);
+      }
+      if ((item as any).etapa_pai_id) {
+        summaryStageIds.add((item as any).etapa_pai_id);
+      }
+    });
+
+    orcamentoItens.forEach(item => {
+      if (item.tipo === 'etapa' && item.item) {
+        const parts = item.item.split('.');
+        const stageId = itemToIdMap[item.item.trim()];
+        if (parts.length > 1 && stageId !== undefined) {
+          const parentItemNum = parts.slice(0, -1).join('.');
+          const parentId = itemToIdMap[parentItemNum];
+          if (parentId !== undefined) {
+            parentMap[stageId] = parentId;
+            summaryStageIds.add(parentId);
+          }
+        }
+      }
+    });
+
+    const getAtvRowId = (atv: Atividade) => atv.etapa_id;
+
+    const getAtvBudgetId = (atv: Atividade) => {
+      const oid = atv.orcamento_item_id;
+      const eid = atv.etapa_id;
+
+      if (oid !== null && oid !== undefined) {
+        const sOid = String(oid);
+        if (itemValuesMap.hasOwnProperty(sOid)) return sOid;
+        if (itemValuesMap.hasOwnProperty(`item-${oid}`)) return `item-${oid}`;
+        if (itemValuesMap.hasOwnProperty(`etapa-${oid}`)) return `etapa-${oid}`;
+      }
+
+      if (eid !== null && eid !== undefined) {
+        const sEid = String(eid);
+        if (itemValuesMap.hasOwnProperty(sEid)) return sEid;
+        if (itemValuesMap.hasOwnProperty(`etapa-${eid}`)) return `etapa-${eid}`;
+        if (itemValuesMap.hasOwnProperty(`item-${eid}`)) return `item-${eid}`;
+      }
+
+      return null;
+    };
+
+    // Recursive aggregation helper
+    const aggregateToStage = (targetDict: any, startId: string | number, monthKey: string, value: number, isSimulated?: boolean) => {
+      let currentId: string | number | undefined = startId;
+      const seen = new Set<string | number>(); 
+      
+      while (currentId !== undefined && currentId !== null && !seen.has(currentId)) {
+        seen.add(currentId);
+        if (!targetDict[currentId]) targetDict[currentId] = {};
+        if (!targetDict[currentId][monthKey]) targetDict[currentId][monthKey] = { valor: 0, isSimulated };
+        targetDict[currentId][monthKey].valor += value;
+        
+        currentId = parentMap[currentId];
+        if (currentId === undefined) break;
+      }
+    };
+
+    const updateStageTotal = (startId: string | number, value: number) => {
+      let currentId: string | number | undefined = startId;
+      const seen = new Set<string | number>();
+      
+      while (currentId !== undefined && currentId !== null && !seen.has(currentId)) {
+        seen.add(currentId);
+        stageTotals[currentId] = (stageTotals[currentId] || 0) + value;
+        currentId = parentMap[currentId];
+        if (currentId === undefined) break;
+      }
+    };
+    // -------------------------
+
     // 1. Calcular Denominadores Reais (Pesos Totais) com rateio de valores entre atividades vinculadas ao mesmo item
     const totalDurationPerBudgetItem: Record<string, number> = {};
     atividades.forEach(atv => {
-      const cleanId = atv.orcamento_item_id ? String(atv.orcamento_item_id).replace('item-', '').replace('etapa-', '') : null;
-      if (cleanId && (itemValuesMap[cleanId] || 0) > 0) {
-        totalDurationPerBudgetItem[cleanId] = (totalDurationPerBudgetItem[cleanId] || 0) + (atv.duracao_dias || 1);
+      const budgetId = getAtvBudgetId(atv);
+      if (budgetId && (itemValuesMap[budgetId] || 0) > 0) {
+        totalDurationPerBudgetItem[budgetId] = (totalDurationPerBudgetItem[budgetId] || 0) + (atv.duracao_dias || 1);
       }
     });
 
     atividades.forEach(atv => {
-      const cleanId = atv.orcamento_item_id ? String(atv.orcamento_item_id).replace('item-', '').replace('etapa-', '') : null;
-      const itemTotalValue = cleanId ? (itemValuesMap[cleanId] || 0) : 0;
+      const budgetId = getAtvBudgetId(atv);
+      
+      if (budgetId) {
+        const rawBudgetId = String(budgetId).replace('item-', '').replace('etapa-', '');
+        const budgetNumId = parseInt(rawBudgetId, 10) || rawBudgetId;
+        
+        if (summaryStageIds.has(budgetNumId)) {
+          const hasChildActivities = atividades.some(a => {
+            if (a.id === atv.id) return false;
+            const bid = getAtvBudgetId(a);
+            if (!bid) return false;
+            const childItem = orcamentoItens.find(oi => String(oi.id) === String(bid));
+            return childItem && (String((childItem as any).etapa_id) === String(budgetNumId) || String((childItem as any).etapa_pai_id) === String(budgetNumId));
+          });
+          if (hasChildActivities) return;
+        }
+      }
+
+      const itemTotalValue = budgetId ? (itemValuesMap[budgetId] || 0) : 0;
       
       let weight = 0;
-      if (itemTotalValue > 0 && cleanId) {
-        // Se o item tem valor orçado, rateia entre as atividades que o compartilham proporcionalmente à duração
+      if (itemTotalValue > 0 && budgetId) {
         const activityDuration = atv.duracao_dias || 1;
-        const totalItemDuration = totalDurationPerBudgetItem[cleanId] || 1;
+        const totalItemDuration = totalDurationPerBudgetItem[budgetId] || 1;
         weight = (activityDuration / totalItemDuration) * itemTotalValue;
       } else {
-        // Se não tem valor, usa a duração como peso (fall-back)
         weight = atv.duracao_dias || 1;
       }
       
-      const stageId = atv.etapa_id || 0;
-      stageTotals[stageId] = (stageTotals[stageId] || 0) + weight;
+      const rowId = getAtvRowId(atv);
+      if (rowId) {
+        updateStageTotal(rowId, weight);
+      }
       projectTotal += weight;
     });
 
-    // 2. MEDIÇÃO (Actual)
     medicaoItens.forEach(it => {
       const date = parseDate(it.data_medicao);
       if (!isValid(date)) return;
+      
+      const budgetId = it.orcamento_item_id;
+      // Skip medication on parent items to avoid double counting if they are sum of children
+      if (budgetId && summaryStageIds.has(budgetId)) return;
+
       const monthKey = format(date, 'yyyy-MM');
       const itemValor = (it.quantidade_medida || 0) * (it.custo_unitario_aplicado || 0) * (1 + (it.bdi || 0) / 100);
       
       const stageId = it.etapa_id;
-      if (stageId !== undefined && stageId !== null) {
-        if (!medicao[stageId]) medicao[stageId] = {};
-        if (!medicao[stageId][monthKey]) medicao[stageId][monthKey] = { valor: 0 };
-        medicao[stageId][monthKey].valor += itemValor;
+      if (stageId !== null && stageId !== undefined) {
+        aggregateToStage(medicao, stageId, monthKey, itemValor);
       }
       if (!projectMedicao[monthKey]) projectMedicao[monthKey] = { valor: 0 };
       projectMedicao[monthKey].valor += itemValor;
     });
 
-    // 3. PLANEJADO (Planned) - Distribuído proporcionalmente usando o weight rateado
     atividades.forEach(atv => {
       if (!atv.data_inicio_prevista || !atv.data_fim_prevista) return;
       const start = parseDate(atv.data_inicio_prevista);
       const end = parseDate(atv.data_fim_prevista);
       if (!isValid(start) || !isValid(end)) return;
 
-      const cleanId = atv.orcamento_item_id ? String(atv.orcamento_item_id).replace('item-', '').replace('etapa-', '') : null;
-      const itemTotalValue = cleanId ? (itemValuesMap[cleanId] || 0) : 0;
+      const budgetId = getAtvBudgetId(atv);
+      
+      if (budgetId) {
+        // Find if this budget item is a parent by checking if any other budget item links to it
+        const rawBudgetId = String(budgetId).replace('item-', '').replace('etapa-', '');
+        const budgetNumId = parseInt(rawBudgetId, 10) || rawBudgetId;
+        
+        if (summaryStageIds.has(budgetNumId)) {
+          const hasChildActivities = atividades.some(a => {
+            if (a.id === atv.id) return false;
+            const bid = getAtvBudgetId(a);
+            if (!bid) return false;
+            const childItem = orcamentoItens.find(oi => String(oi.id) === String(bid));
+            return childItem && (String((childItem as any).etapa_id) === String(budgetNumId) || String((childItem as any).etapa_pai_id) === String(budgetNumId));
+          });
+          if (hasChildActivities) return;
+        }
+      }
+
+      const itemTotalValue = budgetId ? (itemValuesMap[budgetId] || 0) : 0;
       
       let weight = 0;
-      if (itemTotalValue > 0 && cleanId) {
+      if (itemTotalValue > 0 && budgetId) {
         const activityDuration = atv.duracao_dias || 1;
-        const totalItemDuration = totalDurationPerBudgetItem[cleanId] || 1;
+        const totalItemDuration = totalDurationPerBudgetItem[budgetId] || 1;
         weight = (activityDuration / totalItemDuration) * itemTotalValue;
       } else {
         weight = atv.duracao_dias || 1;
       }
-
+      
+      const rowId = getAtvRowId(atv);
       const totalWorkingDays = countWorkingDays(start, end) || 1;
       const dailyWeight = weight / totalWorkingDays;
       const isSimulated = itemTotalValue === 0;
@@ -693,11 +839,10 @@ export const CronogramaView = ({ obraId, orcamento, onRefresh }: { obraId: strin
       while (!isAfter(current, end)) {
         if (isWorkingDay(current)) {
           const monthKey = format(current, 'yyyy-MM');
-          const stageId = atv.etapa_id || 0;
 
-          if (!planned[stageId]) planned[stageId] = {};
-          if (!planned[stageId][monthKey]) planned[stageId][monthKey] = { valor: 0, isSimulated };
-          planned[stageId][monthKey].valor += dailyWeight;
+          if (rowId) {
+            aggregateToStage(planned, rowId, monthKey, dailyWeight, isSimulated);
+          }
 
           if (!projectPlanned[monthKey]) projectPlanned[monthKey] = { valor: 0, isSimulated };
           projectPlanned[monthKey].valor += dailyWeight;
@@ -2880,34 +3025,56 @@ export const CronogramaView = ({ obraId, orcamento, onRefresh }: { obraId: strin
                             const medPercTotal = medVal > 0 ? (medVal / totalStageVal) * 100 : 0;
                             const planPercTotal = planVal > 0 ? (planVal / totalStageVal) * 100 : 0;
 
-                            const financialBudgetValue = isProjectSummary ? projectSummaryData.valor : (stageData?.valor || 0);
+                            const financialBudgetValue = budgetValue || 0;
                             const displayPlanVal = (planPercTotal / 100) * financialBudgetValue;
                             const displayMedVal = (medPercTotal / 100) * financialBudgetValue;
 
                             return (
                               <div key={colIdx} style={{ width: `${monthWidth}%` }} className="relative h-full flex items-center px-1 border-r border-slate-200/30">
-                                <div className="bg-slate-100 h-9 w-full rounded flex flex-col items-center justify-center overflow-hidden border border-slate-200 relative">
-                                  {/* Fundo planejado (Barra de fundo sutil) */}
-                                  <div 
-                                    className="absolute inset-x-0 bottom-0 bg-slate-400/20"
-                                    style={{ height: planPercTotal > 0 ? '100%' : '0%' }}
-                                  />
+                                <div className="bg-white h-9 w-full rounded flex flex-col items-center justify-center overflow-hidden border border-slate-100 relative shadow-sm">
+                                  {/* Planned Bar (Background) */}
+                                  {planPercTotal > 0 && (
+                                    <div 
+                                      className="absolute inset-x-0 bottom-0 bg-indigo-500/10 border-t border-indigo-200/30"
+                                      style={{ height: `${Math.min(planPercTotal, 100)}%` }}
+                                    />
+                                  )}
                                   
-                                  {/* Barra Principal (Executada) */}
-                                  <div 
-                                    className="absolute inset-x-0 bottom-0 bg-emerald-600/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]"
-                                    style={{ height: medPercTotal > 0 ? '100%' : '0%' }}
-                                  />
+                                  {/* Realized Bar (Foreground) */}
+                                  {medPercTotal > 0 && (
+                                    <div 
+                                      className="absolute inset-x-0 bottom-0 bg-emerald-500/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] border-t border-emerald-600/20"
+                                      style={{ height: `${Math.min(medPercTotal, 100)}%` }}
+                                    />
+                                  )}
 
-                                  <div className="relative z-10 flex flex-col items-center">
-                                    <span className={`text-[11px] font-black whitespace-nowrap leading-none tracking-tight ${medPercTotal > 0 ? 'text-emerald-950' : 'text-slate-900'}`}>
-                                      {planPercTotal > 0 && medPercTotal === 0 ? planPercTotal.toFixed(1) : (medPercTotal > 0 ? medPercTotal.toFixed(1) : '0.0')}%
-                                    </span>
-                                    {displayMedVal > 0 || displayPlanVal > 0 ? (
-                                      <span className={`text-[9px] font-bold whitespace-nowrap mt-0.5 leading-none ${medPercTotal > 0 ? 'text-emerald-950' : 'text-slate-600'}`}>
-                                        R$ {medPercTotal > 0 ? formatFinancial(displayMedVal) : formatFinancial(displayPlanVal)}
-                                      </span>
-                                    ) : null}
+                                  <div className="relative z-10 flex flex-col items-center justify-center p-0.5">
+                                    {medPercTotal > 0 ? (
+                                      <>
+                                        <span className="text-[10px] font-black text-emerald-900 leading-none">
+                                          {medPercTotal.toFixed(1)}%
+                                        </span>
+                                        <span className="text-[8px] font-bold text-emerald-800 leading-none mt-0.5">
+                                          R$ {formatFinancial(displayMedVal)}
+                                        </span>
+                                        {Math.abs(medPercTotal - planPercTotal) > 0.05 && (
+                                          <span className="text-[7px] text-slate-400 mt-0.5 leading-none italic">
+                                            Prev: {planPercTotal.toFixed(1)}%
+                                          </span>
+                                        )}
+                                      </>
+                                    ) : planPercTotal > 0 ? (
+                                      <>
+                                        <span className="text-[10px] font-black text-indigo-900 leading-none">
+                                          {planPercTotal.toFixed(1)}%
+                                        </span>
+                                        <span className="text-[8px] font-bold text-indigo-800 leading-none mt-0.5">
+                                          R$ {formatFinancial(displayPlanVal)}
+                                        </span>
+                                      </>
+                                    ) : (
+                                      <span className="text-[9px] text-slate-300">-</span>
+                                    )}
                                   </div>
                                 </div>
                               </div>
